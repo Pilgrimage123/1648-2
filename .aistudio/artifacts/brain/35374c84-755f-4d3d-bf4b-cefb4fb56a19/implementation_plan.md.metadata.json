@@ -1,0 +1,6 @@
+{
+  "summary":  "Implementation plan for atmospheric dynamic lighting in Malá Strana 1648, covering transient combat point lights, volumetric moon and window light shafts, storm lightning flashes, organic torchlight shadow sway, phase-driven and manual HUD atmosphere presets, post-processing bloom, rain-rippled wet cobblestone puddles, and ground-hugging street mist.",
+  "updatedAt":  "2026-11-07T14:13:06.461234679Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

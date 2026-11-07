@@ -1,0 +1,6 @@
+{
+  "name": "Malá Strana 1648",
+  "description": "Tahová taktická hra: noční únik Malou Stranou 26. července 1648. Doveďte maršála Colloreda k loďce.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
