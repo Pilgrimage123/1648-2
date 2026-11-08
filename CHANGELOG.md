@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - 2026-11-08
 
 ### Added
+- **Minimalist Floating XCOM-Style HUD Architecture (ADR-0004)**:
+  - **Full-Canvas 3D Viewport**: Removed full-width headers and footers to give 100% screen real estate to the 3D Malá Strana battlefield.
+  - **Tactical Action Ribbon (`TacticalActionRibbon.tsx`)**: Unified floating bottom-center command strip combining squad quick-select pills, anchored soldier card (vitals, HP/armor pips, AP dots, cover badge), and action buttons (`[1] Move`, `[2] Shoot`, `[3] Overwatch`, `[4] Grenade`, `[Space] End Turn`).
+  - **In-Place Morphing Targeting HUD**: Entering aim mode smoothly morphs the center action bar into the Target Ribbon (visible enemy cards with Tab/Shift+Tab cycling) with the 4 key shot metrics (Hit %, Crit %, Damage/Pierce, Misfire %) hovering directly above and expandable mathematical Breakdown Wings (`F1`).
+  - **Mission Status Chip (`MissionStatusChip.tsx`)**: Floating top-left HUD chip displaying current round, active faction turn banner, remaining enemies count, and battlefield weather toggle.
+  - **Tactical Utilities Capsule (`TacticalUtilitiesCapsule.tsx`)**: Floating top-right HUD island with hotkey shortcuts for 90° camera rotation (`Q`/`E`), floor cutaway (`F`: P0/P1), 2D/3D render mode (`M`), and mission restart.
+  - **Combat Chronicle Feed (`CombatChronicleFeed.tsx`)**: Ephemeral, floating top-right toast feed displaying roll results with event tones and an expandable full-scroll history drawer.
+  - **Turn Splash Banner (`TurnSplashBanner.tsx`)**: Center-screen (~1.2s) cinematic banner announcing initiative transitions (*"TAH OBRÁNCŮ PRAHY"* vs. *"TAH ŠVÉDSKÉ HLÍDKY"*).
+  - **In-World Tile Hover Indicator (`InstancedBattlefield.tsx`)**: 3D in-world cursor projection displaying anticipated cover shield (full, half, or flanked) and action point expenditure (`1 AP` move vs. `2 AP SPRINT`) directly above hovered reachable tiles.
+
+### Fixed
+- **Tile Hover Pointer Interception**: Added `style={{ pointerEvents: 'none' }}`, `zIndexRange={[10, 0]}`, and `distanceFactor={18}` to Drei's `<Html>` wrapper in `InstancedBattlefield.tsx`, preventing pointer event hijacking and enabling seamless tile clicks for unit movement.
+- **Empty Target List Safeguard**: Added fallback message and `Zpět k pohybu (Esc)` button in `TacticalActionRibbon.tsx` when aim mode is entered with zero visible enemies in LoS.
+- **Duplicate Icon Import & State Sync**: Replaced duplicate `RotateCcw` import with `RefreshCw` and linked floor/render mode switches directly to `toggleFloor()` and `toggleRenderMode()` in `useGameStore`.
+- **Pass-through Click for Combat Toasts**: Set `pointer-events-none` on toast feed elements so player clicks on 3D tiles behind notifications are never blocked.
+- **Turn Banner Transitions**: Replaced unbundled animation utilities with native Tailwind CSS transitions and enforced `pointer-events-none` across all banner layers.
+
 - **2.5D XCOM-2 Style Tactical Engine & Architecture**:
   - Pure TypeScript headless core (`src/core/`): zero dependencies on React/Three.js.
   - Multi-floor 3D grid system (`GridSystem.ts`) with coordinates `{ x, y, z }`, floor level cutaway support (`activeFloor`), ladders, directional cover (`N, E, S, W`), and destructible obstacles.

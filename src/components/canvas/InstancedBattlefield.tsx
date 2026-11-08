@@ -4,11 +4,13 @@
  * movement range zones using THREE.InstancedMesh with Roof/Floor Cutaway support.
  */
 
-import { Line } from "@react-three/drei";
+import { Html, Line } from "@react-three/drei";
 import { type ThreeEvent } from "@react-three/fiber";
+import { Shield, ShieldAlert, ShieldOff } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { gridDistance3D } from "../../core/CombatSystem";
+import { bestTileCover } from "../../core/GridSystem";
 import type { FloorLevel, GridCoord, TileData } from "../../core/types";
 import { useGameStore } from "../../store/useGameStore";
 import { FLOOR_HEIGHT, gridToWorld, TILE_SIZE } from "./worldCoords";
@@ -240,6 +242,12 @@ export function InstancedBattlefield() {
     );
   }, [hoveredTile, reachableTiles]);
 
+  const hoveredTileCover = useMemo(() => {
+    if (!hoveredTile) return "none";
+    const t = grid.getTile(hoveredTile);
+    return t ? bestTileCover(t.cover) : "none";
+  }, [grid, hoveredTile, gridVersion]);
+
   const upperCutaway = activeFloor === 0;
   const selectedUnit = units.find((u) => u.id === selectedUnitId);
   const canThrowGrenadeHere =
@@ -440,7 +448,7 @@ export function InstancedBattlefield() {
         );
       })}
 
-      {/* 10. Hovered Tile Cursor & 3x3 Grenade AoE Preview */}
+      {/* 10. Hovered Tile Cursor & 3x3 Grenade AoE Preview & Dynamic Tile Cover Preview */}
       {hoveredTile && (
         <group position={gridToWorld(hoveredTile)}>
           <mesh position={[0, 0.04, 0]} rotation={[-Math.PI * 0.5, 0, 0]}>
@@ -458,6 +466,51 @@ export function InstancedBattlefield() {
               side={THREE.DoubleSide}
             />
           </mesh>
+
+          {/* In-World XCOM-style Tile Hover Indicator (Cover Shield + AP badge) */}
+          {actionMode === "move" && hoveredReachable && (
+            <Html
+              center
+              position={[0, 0.65, 0]}
+              distanceFactor={18}
+              zIndexRange={[10, 0]}
+              style={{ pointerEvents: "none" }}
+              className="pointer-events-none select-none"
+            >
+              <div className="pointer-events-none select-none flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-950/90 border border-amber-500/50 backdrop-blur-md shadow-xl text-slate-100 whitespace-nowrap">
+                {/* Cover Shield Icon */}
+                {hoveredTileCover === "full" ? (
+                  <span className="flex items-center gap-1 text-sky-400 font-extrabold text-[10px]">
+                    <Shield className="w-3.5 h-3.5 fill-current" />
+                    <span>PLNÝ</span>
+                  </span>
+                ) : hoveredTileCover === "half" ? (
+                  <span className="flex items-center gap-1 text-amber-400 font-bold text-[10px]">
+                    <ShieldAlert className="w-3.5 h-3.5" />
+                    <span>POLOVIČNÍ</span>
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-slate-400 text-[10px]">
+                    <ShieldOff className="w-3.5 h-3.5" />
+                    <span>NEKRYTÝ</span>
+                  </span>
+                )}
+
+                <span className="text-slate-600">·</span>
+
+                {/* AP cost */}
+                <span
+                  className={`text-[10px] font-mono font-black ${
+                    hoveredReachable.zone === "yellow"
+                      ? "text-amber-400"
+                      : "text-sky-300"
+                  }`}
+                >
+                  {hoveredReachable.zone === "yellow" ? "2 AP SPRINT" : "1 AP"}
+                </span>
+              </div>
+            </Html>
+          )}
 
           {canThrowGrenadeHere && (
             <mesh position={[0, 0.05, 0]} rotation={[-Math.PI * 0.5, 0, 0]}>

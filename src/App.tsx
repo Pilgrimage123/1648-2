@@ -6,26 +6,29 @@
 import { RotateCcw, Skull, Trophy } from "lucide-react";
 import { useEffect } from "react";
 import { TacticalScene } from "./components/canvas/TacticalScene";
-import { BottomCommandPanel } from "./components/ui/BottomCommandPanel";
-import { TargetingHud } from "./components/ui/TargetingHud";
-import { TopBar } from "./components/ui/TopBar";
+import { CombatChronicleFeed } from "./components/ui/CombatChronicleFeed";
+import { MissionStatusChip } from "./components/ui/MissionStatusChip";
+import { TacticalActionRibbon } from "./components/ui/TacticalActionRibbon";
+import { TacticalUtilitiesCapsule } from "./components/ui/TacticalUtilitiesCapsule";
+import { TurnSplashBanner } from "./components/ui/TurnSplashBanner";
 import { useGameStore } from "./store/useGameStore";
 
 export default function App() {
   const outcome = useGameStore((s) => s.outcome);
   const round = useGameStore((s) => s.round);
-  const actionMode = useGameStore((s) => s.actionMode);
   const resetGame = useGameStore((s) => s.resetGame);
 
-  // Globální klávesové zkratky pro taktické velení a Režim míření (XCOM-2 Style):
+  // Globální klávesové zkratky pro minimalistické taktické velení (XCOM Style):
   // - 1: Režim pohybu
   // - 2: Režim střelby (pokud jsou viditelné cíle)
   // - 3: Overwatch (hlídkování)
   // - 4: Hod granátem / petardou
-  // - Tab / Shift+Tab: Plynulé přepínání cílů v Target Ribbon
+  // - Tab / Shift+Tab: Cyklení cílů při střelbě NEBO cyklení vojáků čety při pohybu
   // - F1: Rozbalení / sbalení postranních křídel matematického rozpisu (Breakdown Wings)
-  // - Enter / Space: Potvrzení výstřelu v Režimu míření
+  // - Space / Enter: Potvrzení výstřelu v Režimu míření / Ukončení tahu v běžném režimu
   // - Escape: Návrat z Režimu míření nebo granátu zpět do pohybu
+  // - F: Přepínání pater budov (Roof/Floor Cutaway)
+  // - M: Přepínání 2D billboard spritů a 3D modelů
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (
@@ -45,6 +48,20 @@ export default function App() {
       if (e.key === "F1") {
         e.preventDefault();
         state.toggleBreakdown();
+        return;
+      }
+
+      // F: Přepínání patra (Floor Cutaway)
+      if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        state.toggleFloor();
+        return;
+      }
+
+      // M: Přepínání 2D / 3D vizuálního módu
+      if (e.key === "m" || e.key === "M") {
+        e.preventDefault();
+        state.toggleRenderMode();
         return;
       }
 
@@ -74,26 +91,44 @@ export default function App() {
         }
       }
 
+      // Tab / Shift+Tab: Cyklení cílů (při střelbě) nebo cyklení vojáků (při pohybu)
       if (e.key === "Tab" && state.turn === "player" && !state.isBusy) {
-        if (state.visibleTargets.length > 0) {
-          e.preventDefault();
-          if (state.actionMode !== "shoot") {
-            state.setActionMode("shoot");
-          } else {
+        e.preventDefault();
+        if (state.actionMode === "shoot") {
+          if (state.visibleTargets.length > 0) {
             state.cycleTarget(e.shiftKey ? -1 : 1);
+          }
+        } else {
+          // Cyklení živých vojáků hráče
+          const playerUnits = state.units.filter(
+            (u) => u.faction === "player" && u.alive,
+          );
+          if (playerUnits.length > 1) {
+            const currentIdx = playerUnits.findIndex(
+              (u) => u.id === state.selectedUnitId,
+            );
+            const delta = e.shiftKey ? -1 : 1;
+            const nextIdx =
+              (currentIdx + delta + playerUnits.length) % playerUnits.length;
+            const nextUnit = playerUnits[nextIdx];
+            if (nextUnit) state.selectUnit(nextUnit.id);
           }
         }
         return;
       }
 
-      if (
-        (e.key === "Enter" || e.key === " ") &&
-        state.actionMode === "shoot" &&
-        state.turn === "player" &&
-        !state.isBusy
-      ) {
-        e.preventDefault();
-        state.executeShoot();
+      // Space / Enter: Potvrzení výstřelu v režimu míření, nebo ukončení tahu v klidu
+      if (state.turn === "player" && !state.isBusy) {
+        if (state.actionMode === "shoot" && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          state.executeShoot();
+          return;
+        }
+        if (state.actionMode !== "shoot" && e.key === " ") {
+          e.preventDefault();
+          state.endTurn();
+          return;
+        }
       }
     };
 
@@ -103,32 +138,35 @@ export default function App() {
 
   return (
     <main className="relative w-screen h-dvh overflow-hidden bg-slate-950 select-none">
-      {/* 1. Fullscreen 2.5D React Three Fiber Taktická scéna */}
+      {/* 1. Fullscreen 2.5D React Three Fiber Taktická scéna (100% plocha obrazovky) */}
       <div className="absolute inset-0">
         <TacticalScene />
       </div>
 
-      {/* 2. Taktické UI a XCOM-2 Aiming HUD */}
-      <div className="pointer-events-none absolute inset-0 flex flex-col justify-between z-10">
-        <TopBar />
+      {/* 2. Filmový středový banner změny tahu */}
+      <TurnSplashBanner />
 
-        {/* Spodní zóna: v režimu střelby dominuje Aiming HUD (s Target Ribbon u dolního okraje),
-            v běžném režimu standardní velitelský panel */}
-        {actionMode === "shoot" ? (
-          <div className="flex-1 flex flex-col justify-end pb-3 overflow-hidden">
-            <TargetingHud />
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col justify-end overflow-hidden">
-            <BottomCommandPanel />
-          </div>
-        )}
+      {/* 3. Plovoucí periferní HUD widgety (XCOM Architecture) */}
+      {/* Levý horní roh: Stav mise, kolo a počasí */}
+      <div className="pointer-events-none absolute top-3 left-3 z-20">
+        <MissionStatusChip />
       </div>
 
-      {/* 3. Modální okno výsledku mise */}
+      {/* Pravý horní roh: Kapsle nástrojů kamery, pater a 2D/3D zobrazení */}
+      <div className="pointer-events-none absolute top-3 right-3 z-20">
+        <TacticalUtilitiesCapsule />
+      </div>
+
+      {/* Pravá část: Plovoucí feed kroniky boje */}
+      <CombatChronicleFeed />
+
+      {/* Spodní střed: Sjednocená taktická akční lišta (Tactical Action Ribbon & Aiming HUD) */}
+      <TacticalActionRibbon />
+
+      {/* 4. Modální okno výsledku bitvy */}
       {outcome !== "ongoing" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
-          <div className="max-w-md w-full bg-slate-900 border-2 border-amber-400/60 rounded-2xl p-6 text-center shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-4">
+          <div className="max-w-md w-full bg-slate-900 border-2 border-amber-400/60 rounded-3xl p-6 text-center shadow-2xl space-y-4">
             <div className="mx-auto w-14 h-14 rounded-full flex items-center justify-center bg-amber-500/20 border border-amber-400 text-amber-300">
               {outcome === "victory" ? (
                 <Trophy className="w-7 h-7" />
@@ -136,7 +174,7 @@ export default function App() {
                 <Skull className="w-7 h-7 text-rose-400" />
               )}
             </div>
-            <h2 className="text-2xl font-extrabold uppercase tracking-wider text-white">
+            <h2 className="font-serif text-2xl font-black uppercase tracking-wider text-white">
               {outcome === "victory"
                 ? "Malostranský dům vyčištěn!"
                 : "Obránci padli"}

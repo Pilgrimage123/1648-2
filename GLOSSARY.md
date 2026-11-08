@@ -4,6 +4,32 @@ Turn-based 2.5D tactical strategy in the spirit of XCOM 2, set on the night of J
 
 ## Language
 
+### User Interface & HUD
+
+**Tactical Action Ribbon** (*Taktická akční lišta*):
+The unified floating bottom-center command strip combining selected soldier vitals, numbered action buttons (`[1] Move`, `[2] Shoot`, `[3] Overwatch`, `[4] Grenade`), turn termination (`[Space]`), and squad quick-select tabs.
+_Avoid_: Action bar, bottom command panel, button dock
+
+**Combat Chronicle Feed** (*Plovoucí kronika boje*):
+The floating, auto-fading toast log anchored in the upper-right corner that displays recent combat rolls and event feedback with an expandable full-scroll history drawer.
+_Avoid_: Combat log box, message console
+
+**Mission Status Chip** (*Stavový štítek mise*):
+The compact floating top-left HUD chip indicating current round, active faction turn banner, remaining enemies, and battlefield weather condition.
+_Avoid_: TopBar, header
+
+**Tactical Utilities Capsule** (*Kapsle taktických nástrojů*):
+The floating top-right HUD island with discrete icon shortcuts and keybind indicators for camera rotation (`Q/E`), floor cutaway (`F`), and visual render mode (`M`).
+_Avoid_: Camera controls bar, settings bar
+
+**Turn Splash Banner** (*Filmový banner tahu*):
+The brief (~1s) center-screen floating banner announcing initiative transitions ("Tah obránců Prahy", "Tah švédské hlídky") before gracefully dissolving into the Mission Status Chip.
+_Avoid_: Turn alert popup, turn modal
+
+**Tile Hover Indicator** (*Kurzorový náhled dlaždice*):
+The 3D in-world cursor projection displaying anticipated cover shield (full, half, or flanked) against visible enemies alongside action point expenditure (`1 AP` move vs. `2 AP` dash) before moving.
+_Avoid_: Cursor tooltip, tile highlight info
+
 ### Architecture & Rendering
 
 **Grid Coordinate** (`GridCoord`):
