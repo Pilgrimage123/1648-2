@@ -318,7 +318,7 @@ export function TacticalActionRibbon() {
                   type="button"
                   disabled={!u.alive || !canCommand}
                   onClick={() => selectUnit(u.id)}
-                  title={`${u.name}: HP ${u.hp}/${u.maxHp}, AP ${u.ap}`}
+                  title={`${u.name}: HP ${u.hp}/${u.maxHp}, AP ${u.ap}${u.isVip ? " (Klíčový maršál · VIP)" : ""}`}
                   className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-bold transition-all cursor-pointer ${
                     !u.alive
                       ? "bg-slate-950/50 border-slate-800 text-slate-600 line-through"
@@ -327,6 +327,7 @@ export function TacticalActionRibbon() {
                         : "bg-slate-950/80 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"
                   }`}
                 >
+                  {u.isVip && <span className="text-amber-400 text-[10px]">★</span>}
                   <span className="truncate max-w-[80px]">{u.name}</span>
                   <div className="flex items-center gap-0.5">
                     <span className="text-[9px] text-emerald-400 font-extrabold">
@@ -349,10 +350,15 @@ export function TacticalActionRibbon() {
               </div>
 
               <div className="min-w-0 pr-1">
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="font-serif font-black text-xs text-white truncate max-w-[130px]">
                     {selectedUnit.name}
                   </span>
+                  {selectedUnit.isVip && (
+                    <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-400/40">
+                      VIP
+                    </span>
+                  )}
                   <span
                     className={`text-[9px] font-bold px-1 py-0.2 rounded border ${
                       bestCov === "full"
@@ -366,7 +372,12 @@ export function TacticalActionRibbon() {
                   </span>
                 </div>
 
-                <div className="text-[10px] text-slate-400 truncate max-w-[170px]">
+                <div className="text-[10px] text-slate-400 truncate max-w-[190px]">
+                  {selectedUnit.buffTitle ? (
+                    <span className="text-emerald-300 font-semibold">
+                      {selectedUnit.buffTitle} ·{" "}
+                    </span>
+                  ) : null}
                   {selectedUnit.weapon.name} ({selectedUnit.weapon.minDamage}–
                   {selectedUnit.weapon.maxDamage} HP)
                 </div>

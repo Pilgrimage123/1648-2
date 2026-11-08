@@ -66,13 +66,13 @@ export function TurnSplashBanner() {
             isPlayer ? "text-amber-300" : "text-rose-100"
           }`}
         >
-          {isPlayer ? "Tah obránců Prahy" : "Tah švédské hlídky"}
+          {isPlayer ? "Útěk maršála Colloreda" : "Přepad Odowalského"}
         </h2>
 
         <p className="text-xs text-slate-300 tracking-wide mt-1">
           {isPlayer
-            ? "Akční body obnoveny · Rozkazujte vojákům"
-            : "Nepřítel manévruje v uličkách Malé Strany"}
+            ? "Eskortujte kulhajícího maršála k pramici na Čertovce!"
+            : "Švédští dragouni prohledávají zahradu Velkopřevorství!"}
         </p>
       </div>
     </div>

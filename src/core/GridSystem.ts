@@ -231,7 +231,7 @@ export class GridSystem {
         if (!neighbor) continue;
         if (neighbor.obstacle === "high_wall" || neighbor.obstacle === "pillar") {
           tile.cover[dir] = maxCoverLevel(tile.cover[dir], "full");
-        } else if (neighbor.obstacle === "low_wall") {
+        } else if (neighbor.obstacle === "low_wall" || neighbor.obstacle === "powder_keg") {
           tile.cover[dir] = maxCoverLevel(tile.cover[dir], "half");
         }
       }
@@ -250,112 +250,145 @@ export class GridSystem {
 }
 
 /**
- * Vytvoří 16x16 dvoupodlažní bojiště na Malé Straně s rozbořeným domem uprostřed,
- * gabiony/zídkami (poloviční kryt), kamennými zdmi (plný kryt) a 2 žebříky do patra y=1.
+ * Vytvoří bojiště mise 1: Útěk polního maršála Colloreda z Velkopřevorského paláce.
+ * Jižní část: ložnice a zadní trakt paláce (kamenná podlaha, portál s barikádou).
+ * Střední část: maltézská zahrada s altánem, terasou v patře 1 a výbušnými sudy prachu.
+ * Severozápadní cíp: rameno Čertovky (vodní plocha), dřevěné molo a rybářská pramice (úniková zóna).
  */
 export function createInitialGrid(): GridSystem {
   const grid = new GridSystem(16, 16, 2);
 
-  // 1. Půdorys rozbořeného dvoupodlažního domu (x: 4..11, z: 5..10)
-  for (let z = 5; z <= 10; z++) {
-    for (let x = 4; x <= 11; x++) {
+  // 1. Zadní trakt Velkopřevorského paláce (x: 2..13, z: 12..15)
+  for (let z = 12; z <= 15; z++) {
+    for (let x = 2; x <= 13; x++) {
       const ground = grid.getTile({ x, y: 0, z });
       if (ground) ground.surface = "stone_floor";
     }
   }
 
-  // Vysoké kamenné zdi v přízemí (plný kryt -40 % a blokování LoS)
-  const highWallsGround: [number, number][] = [
-    [4, 5],
-    [5, 5],
-    [6, 5],
-    [9, 5],
-    [10, 5],
-    [11, 5],
-    [4, 10],
-    [6, 10],
-    [9, 10],
-    [11, 10],
-    [4, 6],
-    [4, 8],
-    [11, 7],
-    [11, 9],
+  // Zdi paláce s průchodem do zahrady
+  const highWallsPalace: [number, number][] = [
+    [2, 12],
+    [3, 12],
+    [4, 12],
+    [5, 12],
+    [10, 12],
+    [11, 12],
+    [12, 12],
+    [13, 12],
+    [2, 13],
+    [2, 14],
+    [13, 13],
+    [13, 14],
   ];
-  for (const [x, z] of highWallsGround) {
+  for (const [x, z] of highWallsPalace) {
     grid.setObstacle({ x, y: 0, z }, "high_wall");
   }
 
-  // Nosné pilíře uvnitř domu
-  const pillarsGround: [number, number][] = [
-    [6, 7],
-    [9, 7],
-    [6, 8],
-    [9, 8],
-  ];
-  for (const [x, z] of pillarsGround) {
-    grid.setObstacle({ x, y: 0, z }, "pillar");
-  }
+  // Pilíře uvnitř palácové komnaty
+  grid.setObstacle({ x: 5, y: 0, z: 14 }, "pillar");
+  grid.setObstacle({ x: 10, y: 0, z: 14 }, "pillar");
 
-  // Nízké zídky, gabiony a převržené vozy (poloviční kryt -20 %)
-  const lowWallsGround: [number, number][] = [
-    [5, 10],
-    [10, 10],
-    [4, 7],
-    [11, 8],
-    [3, 12],
-    [4, 12],
-    [7, 12],
-    [8, 12],
-    [11, 12],
-    [12, 12],
-    [3, 3],
-    [4, 3],
-    [7, 3],
-    [8, 3],
-    [11, 3],
-    [12, 3],
-    [2, 7],
-    [2, 8],
-    [13, 7],
-    [13, 8],
+  // Barikády z palácového nábytku v průchodu do zahrady (poloviční kryt)
+  grid.setObstacle({ x: 6, y: 0, z: 12 }, "low_wall");
+  grid.setObstacle({ x: 9, y: 0, z: 12 }, "low_wall");
+
+  // 2. Maltézská zahrada a nádvoří (z: 4..11)
+  const gardenWalls: [number, number][] = [
+    [3, 9],
+    [4, 9],
+    [11, 9],
+    [12, 9],
+    [7, 10],
+    [8, 10],
+    [4, 5],
+    [5, 5],
+    [10, 4],
+    [11, 4],
+    [2, 6],
+    [13, 6],
   ];
-  for (const [x, z] of lowWallsGround) {
+  for (const [x, z] of gardenWalls) {
     grid.setObstacle({ x, y: 0, z }, "low_wall");
   }
 
-  // Rohové pilíře v ulicích
-  grid.setObstacle({ x: 2, y: 0, z: 4 }, "pillar");
-  grid.setObstacle({ x: 13, y: 0, z: 4 }, "pillar");
-  grid.setObstacle({ x: 2, y: 0, z: 11 }, "pillar");
-  grid.setObstacle({ x: 13, y: 0, z: 11 }, "pillar");
+  // Zahradní kamenné zdi a nosné pilíře
+  grid.setObstacle({ x: 4, y: 0, z: 7 }, "high_wall");
+  grid.setObstacle({ x: 11, y: 0, z: 7 }, "high_wall");
+  grid.setObstacle({ x: 7, y: 0, z: 7 }, "pillar");
 
-  // 2. Horní patro / střešní ochoz (y = 1) nad středovou budovou (x: 5..10, z: 6..9)
-  for (let z = 6; z <= 9; z++) {
-    for (let x = 5; x <= 10; x++) {
+  // VÝBUŠNÉ SUDY SE STŘELNÝM PRACHEM (Explosive Powder Kegs)
+  // Poskytují poloviční kryt, ale při zasažení střelou nebo granátem mohutně explodují!
+  grid.setObstacle({ x: 5, y: 0, z: 8 }, "powder_keg");
+  grid.setObstacle({ x: 10, y: 0, z: 5 }, "powder_keg");
+
+  // 3. Severozápadní cíp: Rameno Čertovky & Rybářská pramice
+  // Vodní plocha Čertovky (neprůchozí hluboká voda)
+  for (let z = 0; z <= 3; z++) {
+    for (let x = 0; x <= 1; x++) {
+      const tile = grid.getTile({ x, y: 0, z });
+      if (tile) {
+        tile.surface = "water";
+        tile.walkable = false;
+      }
+    }
+  }
+  const extraWater = grid.getTile({ x: 2, y: 0, z: 0 });
+  if (extraWater) {
+    extraWater.surface = "water";
+    extraWater.walkable = false;
+  }
+  const extraWater2 = grid.getTile({ x: 2, y: 0, z: 1 });
+  if (extraWater2) {
+    extraWater2.surface = "water";
+    extraWater2.walkable = false;
+  }
+
+  // Dřevěné molo s rybářskou pramicí (ÚNIKOVÁ ZÓNA MARŠÁLA)
+  const dockCoords: [number, number][] = [
+    [1, 2],
+    [2, 2],
+    [2, 3],
+  ];
+  for (const [x, z] of dockCoords) {
+    const tile = grid.getTile({ x, y: 0, z });
+    if (tile) {
+      tile.surface = "wood_dock";
+      tile.walkable = true;
+      tile.obstacle = "none";
+      if (z === 2) {
+        tile.isEscapeZone = true; // Záchranná loďka u mola!
+      }
+    }
+  }
+
+  // Zadní zahradní branka vedoucí k molu
+  grid.setObstacle({ x: 3, y: 0, z: 3 }, "low_wall");
+
+  // 4. Horní terasa / ochoz zahrady (y = 1 nad x: 6..9, z: 6..8)
+  for (let z = 6; z <= 8; z++) {
+    for (let x = 6; x <= 9; x++) {
       grid.setFloor({ x, y: 1, z }, true, "wood_roof");
     }
   }
 
-  grid.setObstacle({ x: 7, y: 1, z: 7 }, "pillar");
-  grid.setObstacle({ x: 8, y: 1, z: 8 }, "low_wall");
-
-  // Zábradlí / parapet na okraji střechy (poskytuje poloviční kryt -20 %)
-  for (let x = 5; x <= 10; x++) {
+  // Zábradlí terasy poskytující poloviční kryt
+  for (let x = 6; x <= 9; x++) {
     grid.setDirectionalCover({ x, y: 1, z: 6 }, "N", "half");
-    grid.setDirectionalCover({ x, y: 1, z: 9 }, "S", "half");
+    grid.setDirectionalCover({ x, y: 1, z: 8 }, "S", "half");
   }
-  for (let z = 6; z <= 9; z++) {
-    grid.setDirectionalCover({ x: 5, y: 1, z }, "W", "half");
-    grid.setDirectionalCover({ x: 10, y: 1, z }, "E", "half");
+  for (let z = 6; z <= 8; z++) {
+    grid.setDirectionalCover({ x: 6, y: 1, z }, "W", "half");
+    grid.setDirectionalCover({ x: 9, y: 1, z }, "E", "half");
   }
 
-  // 3. Dva žebříky propojující přízemí (y=0) a střechu (y=1)
-  grid.setLadder(5, 9);
-  grid.setLadder(10, 6);
+  // Žebříky na terasu
+  grid.setLadder(6, 6);
+  grid.setLadder(9, 8);
 
-  // Počáteční oblak kouře z černého prachu u průlomu domu pro okamžitou ukázku modifikátoru
-  grid.addSmoke({ x: 7, y: 0, z: 9 }, 0, 2);
-  grid.addSmoke({ x: 8, y: 0, z: 5 }, 0, 2);
+  // Počáteční kouř z černého prachu u průlomu zahrady
+  grid.addSmoke({ x: 7, y: 0, z: 5 }, 0, 2);
+  grid.addSmoke({ x: 10, y: 0, z: 4 }, 0, 2);
 
   grid.bakeCoverFromObstacles();
 
@@ -364,9 +397,45 @@ export function createInitialGrid(): GridSystem {
 
 /**
  * Dobový arzenál třicetileté války (1618–1648):
- * kolečkové karabiny, těžké doutnákové muškety s furketou, arkebuzy a švédské muškety.
+ * kolečkové karabiny, těžké doutnákové muškety s furketou, arkebuzy a maršálova osobní pistole.
  */
 export const WEAPON_CATALOG: Record<string, WeaponStats> = {
+  colloredo_wheellock_pistol: {
+    id: "colloredo_wheellock_pistol",
+    name: "Maršálova osobní kolečková pistole",
+    lockType: "wheellock",
+    minDamage: 4,
+    maxDamage: 7,
+    critBonusDamage: 3,
+    baseCritChance: 25,
+    baseAccuracy: 12,
+    falloffPerTile: 5,
+    pointBlankRange: 4,
+    optimalRange: 5,
+    maxRange: 10,
+    armorPierce: 1,
+    armorShred: 1,
+    baseMisfireChance: 3,
+    supportsRestFork: false,
+  },
+  odowalsky_carbine: {
+    id: "odowalsky_carbine",
+    name: "Odowalského zrádcovská karabina",
+    lockType: "wheellock",
+    minDamage: 4,
+    maxDamage: 6,
+    critBonusDamage: 2,
+    baseCritChance: 20,
+    baseAccuracy: 12,
+    falloffPerTile: 3,
+    pointBlankRange: 4,
+    optimalRange: 7,
+    maxRange: 14,
+    armorPierce: 1,
+    armorShred: 1,
+    baseMisfireChance: 4,
+    supportsRestFork: false,
+  },
   wheellock_carbine: {
     id: "wheellock_carbine",
     name: "Kolečková dragounská karabina",
@@ -460,27 +529,55 @@ export const WEAPON_CATALOG: Record<string, WeaponStats> = {
 };
 
 /**
- * Výchozí rozestavení: 3 císařští obránci na jižním okraji a 4 švédští vojáci
- * (předsunutí tak, aby byli ihned v dostřelu a šlo okamžitě testovat Target Ribbon a Breakdown Wings).
+ * Rozestavení 1. mise: Útěk hraběte Colloreda z Velkopřevorského paláce.
+ * Obránci (4): Kulhající maršál v noční košili (VIP) a jeho 3 věrní služebníci.
+ * Švédský přepad (4): Zrádce Odowalsky a jeho přepadový oddíl v zahradě.
  */
 export function createInitialUnits(): UnitData[] {
   return [
-    // Hráčova družina (Jižní okraj / barikáda)
+    // 1. Vrchní polní maršál Rudolf hrabě Colloredo-Wallsee (VIP cíl eskorty)
     {
-      id: "player-martin",
-      name: "Martin",
-      roleTitle: "Císařský dragoun (Kolečková karabina)",
+      id: "player-colloredo",
+      name: "Hrabě Colloredo",
+      roleTitle: "Polní maršál (V noční košili · VIP)",
       faction: "player",
-      archetype: "ranger",
-      pos: { x: 4, y: 0, z: 11 },
+      archetype: "commander",
+      pos: { x: 8, y: 0, z: 14 },
       facing: "N",
       hp: 8,
       maxHp: 8,
-      armor: 2,
-      maxArmor: 2,
+      armor: 0, // Bez zbroje! Vyskočil rovnou z postele
+      maxArmor: 0,
       ap: 2,
       maxAp: 2,
-      marksmanship: 70,
+      marksmanship: 75,
+      movePerAp: 3, // Těžký handicap: 7 zranění z Lützenu 1632, těžce kulhá
+      weapon: WEAPON_CATALOG.colloredo_wheellock_pistol!,
+      grenades: 0,
+      isOverwatch: false,
+      movedThisTurn: false,
+      isShaken: false,
+      isVip: true,
+      buffTitle: "Podepřen komorníkem (+2 pohyb)",
+      alive: true,
+    },
+
+    // 2. Osobní komorník Martin (pomáhá maršálovi s pohybem)
+    {
+      id: "player-martin",
+      name: "Komorník Martin",
+      roleTitle: "Osobní komorník (Kolečková karabina)",
+      faction: "player",
+      archetype: "ranger",
+      pos: { x: 7, y: 0, z: 14 },
+      facing: "N",
+      hp: 7,
+      maxHp: 7,
+      armor: 1,
+      maxArmor: 1,
+      ap: 2,
+      maxAp: 2,
+      marksmanship: 68,
       movePerAp: 5,
       weapon: WEAPON_CATALOG.wheellock_carbine!,
       grenades: 1,
@@ -489,13 +586,15 @@ export function createInitialUnits(): UnitData[] {
       isShaken: false,
       alive: true,
     },
+
+    // 3. Mladý maltézský páže Václav (Klementinský student)
     {
       id: "player-vaclav",
-      name: "Václav",
-      roleTitle: "Mušketýr z Klementina (Furketa)",
+      name: "Páže Václav",
+      roleTitle: "Maltézský páže (Furketa & Doutnák)",
       faction: "player",
       archetype: "sniper",
-      pos: { x: 7, y: 0, z: 11 },
+      pos: { x: 9, y: 0, z: 14 },
       facing: "N",
       hp: 6,
       maxHp: 6,
@@ -503,7 +602,7 @@ export function createInitialUnits(): UnitData[] {
       maxArmor: 1,
       ap: 2,
       maxAp: 2,
-      marksmanship: 75,
+      marksmanship: 78,
       movePerAp: 4,
       weapon: WEAPON_CATALOG.matchlock_musket_fork!,
       grenades: 1,
@@ -512,13 +611,15 @@ export function createInitialUnits(): UnitData[] {
       isShaken: false,
       alive: true,
     },
+
+    // 4. Mistr Jakub (Palácový zbrojíř a kovář)
     {
       id: "player-jakub",
       name: "Mistr Jakub",
-      roleTitle: "Malostranský kovář (Arkebuza & Kyrys)",
+      roleTitle: "Palácový zbrojíř (Arkebuza & Těžký kyrys)",
       faction: "player",
       archetype: "ranger",
-      pos: { x: 10, y: 0, z: 11 },
+      pos: { x: 8, y: 0, z: 12 },
       facing: "N",
       hp: 10,
       maxHp: 10,
@@ -526,7 +627,7 @@ export function createInitialUnits(): UnitData[] {
       maxArmor: 3,
       ap: 2,
       maxAp: 2,
-      marksmanship: 66,
+      marksmanship: 65,
       movePerAp: 4,
       weapon: WEAPON_CATALOG.heavy_arquebus!,
       grenades: 2,
@@ -536,14 +637,65 @@ export function createInitialUnits(): UnitData[] {
       alive: true,
     },
 
-    // Švédská hlídka (4 nepřátelé v různých taktických situacích: v krytu, nekrytý/flanked, na střeše a v dálce)
+    // Švédský přepadový oddíl Arnošta Odowalského
+    // 1. Arnošt Odowalsky (Zrádce, který otevřel Strahovskou bránu)
     {
-      id: "enemy-trooper-1",
-      name: "Švédský mušketýr I",
-      roleTitle: "Královská pěchota (Za gabionem)",
+      id: "enemy-odowalsky",
+      name: "Arnošt Odowalsky",
+      roleTitle: "Zrádný podplukovník (Kyrys & Karabina)",
+      faction: "enemy",
+      archetype: "sectoid",
+      pos: { x: 11, y: 0, z: 4 },
+      facing: "S",
+      hp: 9,
+      maxHp: 9,
+      armor: 3,
+      maxArmor: 3,
+      ap: 2,
+      maxAp: 2,
+      marksmanship: 74,
+      movePerAp: 4,
+      weapon: WEAPON_CATALOG.odowalsky_carbine!,
+      grenades: 1,
+      isOverwatch: false,
+      movedThisTurn: false,
+      isShaken: false,
+      alive: true,
+    },
+
+    // 2. Švédský dragoun (Královská jízda generála Königsmarcka)
+    {
+      id: "enemy-dragoon",
+      name: "Švédský dragoun",
+      roleTitle: "Předvoj z Mostecké ulice",
       faction: "enemy",
       archetype: "trooper",
-      pos: { x: 3, y: 0, z: 4 },
+      pos: { x: 4, y: 0, z: 5 },
+      facing: "S",
+      hp: 7,
+      maxHp: 7,
+      armor: 2,
+      maxArmor: 2,
+      ap: 2,
+      maxAp: 2,
+      marksmanship: 68,
+      movePerAp: 5,
+      weapon: WEAPON_CATALOG.wheellock_carbine!,
+      grenades: 0,
+      isOverwatch: false,
+      movedThisTurn: false,
+      isShaken: false,
+      alive: true,
+    },
+
+    // 3. Královský mušketýr (střelec v zahradě)
+    {
+      id: "enemy-musketeer",
+      name: "Královský mušketýr",
+      roleTitle: "Švédský pěšák (V dešti hrozí selhání)",
+      faction: "enemy",
+      archetype: "trooper",
+      pos: { x: 7, y: 0, z: 4 },
       facing: "S",
       hp: 6,
       maxHp: 6,
@@ -560,69 +712,25 @@ export function createInitialUnits(): UnitData[] {
       isShaken: false,
       alive: true,
     },
+
+    // 4. Odstřelovač na terase (patro 1)
     {
-      id: "enemy-trooper-2",
-      name: "Švédský pikenýr-střelec",
-      roleTitle: "Předvoj v průlomu (Nekrytý / Flanked)",
-      faction: "enemy",
-      archetype: "trooper",
-      pos: { x: 7, y: 0, z: 8 },
-      facing: "S",
-      hp: 7,
-      maxHp: 7,
-      armor: 2,
-      maxArmor: 2,
-      ap: 2,
-      maxAp: 2,
-      marksmanship: 65,
-      movePerAp: 4,
-      weapon: WEAPON_CATALOG.swedish_musket!,
-      grenades: 0,
-      isOverwatch: false,
-      movedThisTurn: false,
-      isShaken: false,
-      alive: true,
-    },
-    {
-      id: "enemy-sectoid-roof",
-      name: "Švédský granátník",
-      roleTitle: "Střelec na ochozu (Patro 1)",
+      id: "enemy-sniper-roof",
+      name: "Střelec na terase",
+      roleTitle: "Odstřelovač (Výšková převaha na ochozu)",
       faction: "enemy",
       archetype: "sectoid",
-      pos: { x: 8, y: 1, z: 9 },
+      pos: { x: 8, y: 1, z: 7 },
       facing: "S",
-      hp: 7,
-      maxHp: 7,
-      armor: 2,
-      maxArmor: 2,
-      ap: 2,
-      maxAp: 2,
-      marksmanship: 70,
-      movePerAp: 4,
-      weapon: WEAPON_CATALOG.officer_wheellock!,
-      grenades: 1,
-      isOverwatch: false,
-      movedThisTurn: false,
-      isShaken: false,
-      alive: true,
-    },
-    {
-      id: "enemy-sectoid-hall",
-      name: "Švédský hejtman",
-      roleTitle: "Velitel v těžkém kyrysu",
-      faction: "enemy",
-      archetype: "sectoid",
-      pos: { x: 11, y: 0, z: 3 },
-      facing: "S",
-      hp: 9,
-      maxHp: 9,
-      armor: 3,
-      maxArmor: 3,
+      hp: 6,
+      maxHp: 6,
+      armor: 1,
+      maxArmor: 1,
       ap: 2,
       maxAp: 2,
       marksmanship: 72,
       movePerAp: 4,
-      weapon: WEAPON_CATALOG.officer_wheellock!,
+      weapon: WEAPON_CATALOG.swedish_musket!,
       grenades: 1,
       isOverwatch: false,
       movedThisTurn: false,

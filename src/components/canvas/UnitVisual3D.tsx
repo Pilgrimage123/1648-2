@@ -34,14 +34,21 @@ export function UnitVisual3D({
     hitFlashIntensity > 0.05
       ? "#ef4444"
       : isPlayer
-        ? archetype === "sniper"
-          ? "#263849"
-          : "#8c2332"
+        ? archetype === "commander"
+          ? "#f1f5f9" // White baroque nightshirt of Marshal Colloredo
+          : archetype === "sniper"
+            ? "#263849"
+            : "#8c2332"
         : archetype === "sectoid"
           ? "#1e293b"
           : "#1d4ed8";
 
-  const accentColor = isPlayer ? "#eab308" : "#facc15";
+  const accentColor =
+    archetype === "commander"
+      ? "#dc2626" // Order of Malta crimson sash
+      : isPlayer
+        ? "#eab308"
+        : "#facc15";
   const steelColor = hitFlashIntensity > 0.05 ? "#fca5a5" : "#94a3b8";
   const transparent = opacity < 0.99;
 
@@ -117,38 +124,53 @@ export function UnitVisual3D({
         />
       </mesh>
 
-      {/* Hat / Helmet */}
+      {/* Hat / Helmet / Hair */}
       {isPlayer ? (
-        // Wide-brimmed Baroque Cavalier Hat + Plume
-        <group position={[0, 1.42, 0]}>
-          <mesh castShadow receiveShadow>
-            <cylinderGeometry args={[0.38, 0.38, 0.05, 16]} />
-            <meshStandardMaterial
-              color="#1c1917"
-              roughness={0.8}
-              transparent={transparent}
-              opacity={opacity}
-            />
-          </mesh>
-          <mesh position={[0, 0.1, 0]} castShadow>
-            <cylinderGeometry args={[0.18, 0.21, 0.18, 14]} />
-            <meshStandardMaterial
-              color="#292524"
-              roughness={0.7}
-              transparent={transparent}
-              opacity={opacity}
-            />
-          </mesh>
-          <mesh position={[-0.16, 0.18, -0.06]} rotation={[0, 0, 0.5]} castShadow>
-            <coneGeometry args={[0.07, 0.28, 8]} />
-            <meshStandardMaterial
-              color={archetype === "sniper" ? "#facc15" : "#dc2626"}
-              roughness={0.5}
-              transparent={transparent}
-              opacity={opacity}
-            />
-          </mesh>
-        </group>
+        archetype === "commander" ? (
+          // Silver-white Marshal Hair & Goatee (no hat, escaped directly from bed!)
+          <group position={[0, 1.34, 0]}>
+            <mesh castShadow receiveShadow>
+              <sphereGeometry args={[0.2, 12, 12]} />
+              <meshStandardMaterial
+                color="#f8fafc"
+                roughness={0.9}
+                transparent={transparent}
+                opacity={opacity}
+              />
+            </mesh>
+          </group>
+        ) : (
+          // Wide-brimmed Baroque Cavalier Hat + Plume
+          <group position={[0, 1.42, 0]}>
+            <mesh castShadow receiveShadow>
+              <cylinderGeometry args={[0.38, 0.38, 0.05, 16]} />
+              <meshStandardMaterial
+                color="#1c1917"
+                roughness={0.8}
+                transparent={transparent}
+                opacity={opacity}
+              />
+            </mesh>
+            <mesh position={[0, 0.1, 0]} castShadow>
+              <cylinderGeometry args={[0.18, 0.21, 0.18, 14]} />
+              <meshStandardMaterial
+                color="#292524"
+                roughness={0.7}
+                transparent={transparent}
+                opacity={opacity}
+              />
+            </mesh>
+            <mesh position={[-0.16, 0.18, -0.06]} rotation={[0, 0, 0.5]} castShadow>
+              <coneGeometry args={[0.07, 0.28, 8]} />
+              <meshStandardMaterial
+                color={archetype === "sniper" ? "#facc15" : "#dc2626"}
+                roughness={0.5}
+                transparent={transparent}
+                opacity={opacity}
+              />
+            </mesh>
+          </group>
+        )
       ) : (
         // Swedish Morion Helmet / Grenadier Mitre
         <group position={[0, 1.42, 0]}>
@@ -167,11 +189,11 @@ export function UnitVisual3D({
         </group>
       )}
 
-      {/* 3D Musket / Carbine Weapon */}
+      {/* 3D Musket / Carbine / Pistol Weapon */}
       <group position={[0.24, 0.84, 0.22]}>
         {/* Wooden Stock */}
         <mesh position={[0, -0.03, -0.12]} castShadow>
-          <boxGeometry args={[0.08, 0.11, 0.45]} />
+          <boxGeometry args={[0.08, 0.11, archetype === "commander" ? 0.24 : 0.45]} />
           <meshStandardMaterial
             color="#5c3a21"
             roughness={0.7}
@@ -181,7 +203,7 @@ export function UnitVisual3D({
         </mesh>
         {/* Steel Barrel */}
         <mesh
-          position={[0, 0.02, 0.36]}
+          position={[0, 0.02, archetype === "commander" ? 0.15 : 0.36]}
           rotation={[Math.PI * 0.5, 0, 0]}
           castShadow
         >
@@ -189,7 +211,7 @@ export function UnitVisual3D({
             args={[
               0.03,
               0.035,
-              archetype === "sniper" ? 1.15 : 0.85,
+              archetype === "commander" ? 0.38 : archetype === "sniper" ? 1.15 : 0.85,
               8,
             ]}
           />
@@ -202,6 +224,19 @@ export function UnitVisual3D({
           />
         </mesh>
       </group>
+
+      {/* Marshal's walking cane in left hand */}
+      {archetype === "commander" && (
+        <mesh position={[-0.28, 0.52, 0.08]} castShadow>
+          <cylinderGeometry args={[0.02, 0.02, 1.05, 8]} />
+          <meshStandardMaterial
+            color="#5c3821"
+            roughness={0.7}
+            transparent={transparent}
+            opacity={opacity}
+          />
+        </mesh>
+      )}
     </group>
   );
 }

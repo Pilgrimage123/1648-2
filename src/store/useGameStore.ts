@@ -15,6 +15,7 @@ import {
   rollRangedAttack,
 } from "../core/CombatSystem";
 import {
+  CARDINAL_OFFSETS,
   coordKey,
   createInitialGrid,
   createInitialUnits,
@@ -23,6 +24,7 @@ import {
 } from "../core/GridSystem";
 import { computeReachableTiles, findPathAStar } from "../core/Pathfinding";
 import type {
+  CardinalDir,
   CombatLogEntry,
   Faction,
   FloorLevel,
@@ -63,6 +65,7 @@ interface GameStoreState {
   gridVersion: number;
   smokeVersion: number;
   outcome: "ongoing" | "victory" | "defeat";
+  victoryReason: "boat_escape" | "annihilation" | null;
 
   selectedUnitId: string | null;
   activeFloor: FloorLevel;
@@ -134,6 +137,45 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Synchronizuje pohybovou schopnost maršála Colloreda podle blízkosti sloužících.
+ * Zranění z Lützenu 1632 (7 střelných ran, zmrzačená noha) omezuje maršála na 3 pole/AP.
+ * Pokud vedle něj (okruh 1 pole) stojí věrný sloužící (komorník Martin / kovář Jakub),
+ * podepřou jej a Colloredo získává plných 5 polí za AP!
+ */
+export function syncColloredoMobility(units: UnitData[]): UnitData[] {
+  const colloredo = units.find((u) => u.id === "player-colloredo" && u.alive);
+  if (!colloredo) return units;
+
+  const hasAllyNearby = units.some(
+    (u) =>
+      u.faction === "player" &&
+      u.alive &&
+      u.id !== colloredo.id &&
+      Math.abs(u.pos.x - colloredo.pos.x) <= 1 &&
+      Math.abs(u.pos.z - colloredo.pos.z) <= 1 &&
+      u.pos.y === colloredo.pos.y,
+  );
+
+  const desiredMove = hasAllyNearby ? 5 : 3;
+  const desiredBuff = hasAllyNearby
+    ? "Podepřen komorníkem (+2 k pohybu)"
+    : "Těžké kulhání (zranění z Lützenu)";
+
+  if (
+    colloredo.movePerAp === desiredMove &&
+    colloredo.buffTitle === desiredBuff
+  ) {
+    return units;
+  }
+
+  return units.map((u) =>
+    u.id === colloredo.id
+      ? { ...u, movePerAp: desiredMove, buffTitle: desiredBuff }
+      : u,
+  );
+}
+
 function deriveSelectionData(
   grid: GridSystem,
   units: UnitData[],
@@ -141,16 +183,18 @@ function deriveSelectionData(
   weather: WeatherType,
   preferredTargetId?: string | null,
 ) {
-  const unit = units.find((u) => u.id === selectedId && u.alive);
+  const syncedUnits = syncColloredoMobility(units);
+  const unit = syncedUnits.find((u) => u.id === selectedId && u.alive);
   if (!unit || unit.faction !== "player") {
     return {
       reachableTiles: new Map<string, ReachableTile>(),
       visibleTargets: [] as TargetEvaluation[],
       selectedTargetId: null as string | null,
+      units: syncedUnits,
     };
   }
-  const reachableTiles = computeReachableTiles(grid, unit, units);
-  const visibleTargets = evaluateVisibleTargets(grid, unit, units, weather);
+  const reachableTiles = computeReachableTiles(grid, unit, syncedUnits);
+  const visibleTargets = evaluateVisibleTargets(grid, unit, syncedUnits, weather);
   const keepTarget =
     preferredTargetId &&
     visibleTargets.some((t) => t.targetId === preferredTargetId)
@@ -160,17 +204,118 @@ function deriveSelectionData(
     reachableTiles,
     visibleTargets,
     selectedTargetId: keepTarget,
+    units: syncedUnits,
   };
 }
 
+/**
+ * Vyhodnotí stav mise 1:
+ * - Vítězství 1 (Útěk): Maršál Colloredo dosáhl rybářské pramice na Čertovce (tile.isEscapeZone === true).
+ * - Vítězství 2 (Vojenské): Švédský přepadový oddíl Arnošta Odowalského byl pobit.
+ * - Porážka: Polní maršál Colloredo (VIP) padl nebo byl zajat.
+ */
 function checkMissionOutcome(
+  grid: GridSystem,
   units: UnitData[],
-): "ongoing" | "victory" | "defeat" {
+): {
+  outcome: "ongoing" | "victory" | "defeat";
+  victoryReason: "boat_escape" | "annihilation" | null;
+} {
+  const colloredo = units.find((u) => u.id === "player-colloredo");
+  if (!colloredo || !colloredo.alive) {
+    return { outcome: "defeat", victoryReason: null };
+  }
   const playersAlive = units.some((u) => u.faction === "player" && u.alive);
+  if (!playersAlive) {
+    return { outcome: "defeat", victoryReason: null };
+  }
+  const colloredoTile = grid.getTile(colloredo.pos);
+  if (colloredoTile?.isEscapeZone) {
+    return { outcome: "victory", victoryReason: "boat_escape" };
+  }
   const enemiesAlive = units.some((u) => u.faction === "enemy" && u.alive);
-  if (!enemiesAlive) return "victory";
-  if (!playersAlive) return "defeat";
-  return "ongoing";
+  if (!enemiesAlive) {
+    return { outcome: "victory", victoryReason: "annihilation" };
+  }
+  return { outcome: "ongoing", victoryReason: null };
+}
+
+/**
+ * Zpracuje výbuchy petard a řetězové detonace prachových sudů (Powder Kegs).
+ */
+interface ExplosionResult {
+  nextUnits: UnitData[];
+  detonatedKegs: GridCoord[];
+  victims: string[];
+}
+
+function processExplosions(
+  grid: GridSystem,
+  units: UnitData[],
+  blastCoord: GridCoord,
+  damage = 5,
+  armorShred = 2,
+): ExplosionResult {
+  const detonatedKegs: GridCoord[] = [];
+  const victims: string[] = [];
+  const queue: GridCoord[] = [blastCoord];
+  const visitedKegs = new Set<string>();
+
+  let currentUnits = [...units];
+
+  while (queue.length > 0) {
+    const center = queue.shift()!;
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const c: GridCoord = {
+          x: center.x + dx,
+          y: center.y,
+          z: center.z + dz,
+        };
+        const tile = grid.getTile(c);
+        if (!tile) continue;
+
+        if (tile.obstacle === "powder_keg") {
+          const key = coordKey(c);
+          if (!visitedKegs.has(key)) {
+            visitedKegs.add(key);
+            grid.setObstacle(c, "none");
+            detonatedKegs.push(c);
+            queue.push(c);
+          }
+        } else if (tile.obstacle === "low_wall") {
+          grid.setObstacle(c, "none");
+        }
+      }
+    }
+
+    grid.addSmoke(center, 1, 3);
+
+    currentUnits = currentUnits.map((u) => {
+      if (!u.alive) return u;
+      const inBlast =
+        u.pos.y === center.y &&
+        Math.abs(u.pos.x - center.x) <= 1 &&
+        Math.abs(u.pos.z - center.z) <= 1;
+      if (!inBlast) return u;
+
+      if (!victims.includes(u.id)) victims.push(u.id);
+      const nextArmor = Math.max(0, u.armor - armorShred);
+      const nextHp = Math.max(0, u.hp - damage);
+      return {
+        ...u,
+        armor: nextArmor,
+        hp: nextHp,
+        isShaken: nextHp > 0,
+        alive: nextHp > 0,
+        isOverwatch: nextHp > 0 ? u.isOverwatch : false,
+      };
+    });
+  }
+
+  grid.bakeCoverFromObstacles();
+
+  return { nextUnits: currentUnits, detonatedKegs, victims };
 }
 
 export const useGameStore = create<GameStoreState>((set, get) => {
@@ -334,10 +479,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             ? `${watcher.name} zasáhl z Overwatch ${currentMoved.name} (−${outcome.damage} HP${outcome.armorShredded > 0 ? `, −${outcome.armorShredded} zbroj` : ""}${outcome.critical ? ", KRITICKÝ!" : ""})!`
             : `${watcher.name} vypálil z Overwatch na ${currentMoved.name}, ale minul (${outcome.hitChance} %).`;
 
+        const outcomeCheck = checkMissionOutcome(s.grid, updatedUnits);
         return {
           units: updatedUnits,
           activeProjectile: null,
-          outcome: checkMissionOutcome(updatedUnits),
+          outcome: outcomeCheck.outcome,
+          victoryReason: outcomeCheck.victoryReason,
           combatLog: [
             ...s.combatLog,
             makeLog(
@@ -381,6 +528,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     gridVersion: 1,
     smokeVersion: 1,
     outcome: "ongoing",
+    victoryReason: null,
 
     selectedUnitId: firstPlayerId,
     activeFloor: 0,
@@ -403,8 +551,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       makeLog(
         1,
         "player",
-        "Noc 26. července 1648 (Prudký déšť): Švédská hlídka drží rozbořený malostranský dům. Přepněte do Režimu střelby pro detailní rozpis šancí (F1 / Tab)!",
-        "info",
+        "26. července 1648, 02:30 ráno (Noční liják): Zrádce Arnošt Odowalsky otevřel Strahovskou bránu švédským dragounům generála Königsmarcka!",
+        "alert",
+      ),
+      makeLog(
+        1,
+        "player",
+        "Maršál Rudolf Colloredo vyskočil z lůžka v noční košili. Malostranská mostecká věž je odříznuta! Dostaňte zraněného maršála zahradou k rybářské pramici na Čertovce!",
+        "story",
       ),
     ],
 
@@ -710,6 +864,33 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         await performOverwatchReactionsIfAny(unit.id, finalStep);
 
         const afterState = get();
+        const outcomeCheck = checkMissionOutcome(afterState.grid, afterState.units);
+        if (outcomeCheck.outcome !== "ongoing") {
+          const logMsg =
+            outcomeCheck.outcome === "victory" &&
+            outcomeCheck.victoryReason === "boat_escape"
+              ? "MARŠÁL COLLOREDO DOSÁHL RYBÁŘSKÉ PRAMICE! Rybář okamžitě odráží od břehu a veze maršála přes rozvodněnou Vltavu na Staré Město!"
+              : outcomeCheck.outcome === "victory"
+                ? "Švédský přepadový oddíl Arnošta Odowalského byl zneškodněn! Cesta k rybářské pramici na Čertovce je volná!"
+                : "Maršál Colloredo padl... Praha ztratila svého vrchního velitele a pravý břeh se neubrání!";
+
+          set({
+            isBusy: false,
+            outcome: outcomeCheck.outcome,
+            victoryReason: outcomeCheck.victoryReason,
+            combatLog: [
+              ...afterState.combatLog,
+              makeLog(
+                afterState.round,
+                "player",
+                logMsg,
+                outcomeCheck.outcome === "victory" ? "story" : "alert",
+              ),
+            ],
+          });
+          return;
+        }
+
         const nextDerived = deriveSelectionData(
           afterState.grid,
           afterState.units,
@@ -827,38 +1008,74 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               ? `${attacker.name} zasáhl ${target.name} (${outcome.hitChance} %) za ${outcome.damage} HP${outcome.critical ? " — KRITICKÝ PRŮSTŘEL!" : ""}${outcome.killed ? " (PADL)" : ""}${tagSuffix}.`
               : `${attacker.name} minul ${target.name} (šance ${outcome.hitChance} %)${tagSuffix}.`;
 
+          let finalUnits = updatedUnits;
+          let kegDetonated = false;
+          let kegLog = "";
+          // Zásah v těsné blízkosti prachového sudu může způsobit mohutnou sekundární explozi
+          const neighborKeg = (["N", "E", "S", "W"] as CardinalDir[]).find((dir) => {
+            const { dx, dz } = CARDINAL_OFFSETS[dir];
+            const t = s.grid.getTile({
+              x: target.pos.x + dx,
+              y: target.pos.y,
+              z: target.pos.z + dz,
+            });
+            return t && t.obstacle === "powder_keg";
+          });
+
+          if (neighborKeg && outcome.hit && (outcome.critical || outcome.damage >= 5)) {
+            const { dx, dz } = CARDINAL_OFFSETS[neighborKeg];
+            const kegPos = {
+              x: target.pos.x + dx,
+              y: target.pos.y,
+              z: target.pos.z + dz,
+            };
+            const blast = processExplosions(s.grid, updatedUnits, kegPos, 5, 2);
+            finalUnits = blast.nextUnits;
+            kegDetonated = true;
+            kegLog = `VÝBUCH PRACHU! Jiskra z výstřelu odpálila sud se střelným prachem na [${kegPos.x}, ${kegPos.z}]!`;
+          }
+
+          const outcomeCheck = checkMissionOutcome(s.grid, finalUnits);
           const nextDerived = deriveSelectionData(
             s.grid,
-            updatedUnits,
+            finalUnits,
             s.selectedUnitId,
             s.weather,
           );
 
+          const newLogs = [
+            ...s.combatLog,
+            makeLog(
+              s.round,
+              "player",
+              text,
+              outcome.misfired
+                ? "misfire"
+                : outcome.hit
+                  ? outcome.critical
+                    ? "crit"
+                    : "hit"
+                  : "miss",
+            ),
+          ];
+          if (kegDetonated) {
+            newLogs.push(makeLog(s.round, "player", kegLog, "alert"));
+          }
+
           return {
             isBusy: false,
-            units: updatedUnits,
+            gridVersion: kegDetonated ? s.gridVersion + 1 : s.gridVersion,
+            smokeVersion: s.smokeVersion + (kegDetonated ? 2 : 1),
+            units: finalUnits,
             activeProjectile: null,
             actionMode: "move",
             activeFloor: attacker.pos.y,
-            outcome: checkMissionOutcome(updatedUnits),
+            outcome: outcomeCheck.outcome,
+            victoryReason: outcomeCheck.victoryReason,
             reachableTiles: nextDerived.reachableTiles,
             visibleTargets: nextDerived.visibleTargets,
             selectedTargetId: nextDerived.selectedTargetId,
-            combatLog: [
-              ...s.combatLog,
-              makeLog(
-                s.round,
-                "player",
-                text,
-                outcome.misfired
-                  ? "misfire"
-                  : outcome.hit
-                    ? outcome.critical
-                      ? "crit"
-                      : "hit"
-                    : "miss",
-              ),
-            ],
+            combatLog: newLogs,
           };
         });
 
@@ -970,53 +1187,31 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
         const grenadeDamage = 4;
         const grenadeShred = 2;
-        const hitVictims: string[] = [];
 
-        // Zničení nízkých zídek/gabionů a vytvoření oblaku kouře z černého prachu v oblasti 3x3
-        const grid = get().grid;
-        for (let dz = -1; dz <= 1; dz++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            const c: GridCoord = {
-              x: targetCoord.x + dx,
-              y: targetCoord.y,
-              z: targetCoord.z + dz,
-            };
-            const t = grid.getTile(c);
-            if (t && t.obstacle === "low_wall") {
-              grid.setObstacle(c, "none");
-            }
-          }
-        }
-        grid.addSmoke(targetCoord, 1, 2);
-        grid.bakeCoverFromObstacles();
+        // Zpracování exploze petardy a případné řetězové detonace prachových sudů
+        const blast = processExplosions(
+          get().grid,
+          get().units,
+          targetCoord,
+          grenadeDamage,
+          grenadeShred,
+        );
+        const hitVictims = blast.victims;
+        const updatedUnits = blast.nextUnits;
 
         set((s) => {
-          const updatedUnits = s.units.map((u) => {
-            if (!u.alive) return u;
-            const inBlast =
-              u.pos.y === targetCoord.y &&
-              Math.abs(u.pos.x - targetCoord.x) <= 1 &&
-              Math.abs(u.pos.z - targetCoord.z) <= 1;
-            if (!inBlast) return u;
-            hitVictims.push(u.id);
-            const nextArmor = Math.max(0, u.armor - grenadeShred);
-            const nextHp = Math.max(0, u.hp - grenadeDamage);
-            return {
-              ...u,
-              armor: nextArmor,
-              hp: nextHp,
-              isShaken: nextHp > 0,
-              alive: nextHp > 0,
-              isOverwatch: nextHp > 0 ? u.isOverwatch : false,
-            };
-          });
-
+          const outcomeCheck = checkMissionOutcome(s.grid, updatedUnits);
           const nextDerived = deriveSelectionData(
             s.grid,
             updatedUnits,
             s.selectedUnitId,
             s.weather,
           );
+
+          const kegNote =
+            blast.detonatedKegs.length > 0
+              ? ` + ODPÁLENO ${blast.detonatedKegs.length} PRACHOVÝCH SUDŮ!`
+              : "";
 
           return {
             isBusy: false,
@@ -1025,7 +1220,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             units: updatedUnits,
             activeProjectile: null,
             actionMode: "move",
-            outcome: checkMissionOutcome(updatedUnits),
+            outcome: outcomeCheck.outcome,
+            victoryReason: outcomeCheck.victoryReason,
             reachableTiles: nextDerived.reachableTiles,
             visibleTargets: nextDerived.visibleTargets,
             selectedTargetId: nextDerived.selectedTargetId,
@@ -1034,7 +1230,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               makeLog(
                 s.round,
                 "player",
-                `${attacker.name} hodil petardu/granát na [${targetCoord.x}, patro ${targetCoord.y}, ${targetCoord.z}] — výbuch 3×3 (${hitVictims.length} zasaženo za ${grenadeDamage} HP, −${grenadeShred} zbroj a hustý dým)!`,
+                `${attacker.name} hodil petardu na [${targetCoord.x}, patro ${targetCoord.y}, ${targetCoord.z}] — výbuch 3×3 (${hitVictims.length} zasaženo za ${grenadeDamage} HP, −${grenadeShred} zbroj a dým)${kegNote}!`,
                 "crit",
               ),
             ],
@@ -1224,10 +1420,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                     ? `${updatedEnemy.name} zasáhl ${targetUnit.name} (${outcome.hitChance} %) za ${outcome.damage} HP${outcome.armorShredded > 0 ? ` (−${outcome.armorShredded} zbroj)` : ""}${outcome.critical ? " (KRITICKÝ!)" : ""}!`
                     : `${updatedEnemy.name} vystřelil na ${targetUnit.name} (${outcome.hitChance} %), ale minul.`;
 
+                const outcomeCheck = checkMissionOutcome(s.grid, nextUnits);
                 return {
                   units: nextUnits,
                   activeProjectile: null,
-                  outcome: checkMissionOutcome(nextUnits),
+                  outcome: outcomeCheck.outcome,
+                  victoryReason: outcomeCheck.victoryReason,
                   combatLog: [
                     ...s.combatLog,
                     makeLog(
@@ -1296,16 +1494,18 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
         set((s) => {
           const nextRound = s.round + 1;
-          const refreshedUnits = s.units.map((u) =>
-            u.faction === "player" && u.alive
-              ? {
-                  ...u,
-                  ap: u.maxAp,
-                  movedThisTurn: false,
-                  isOverwatch: false,
-                  isShaken: false,
-                }
-              : u,
+          const refreshedUnits = syncColloredoMobility(
+            s.units.map((u) =>
+              u.faction === "player" && u.alive
+                ? {
+                    ...u,
+                    ap: u.maxAp,
+                    movedThisTurn: false,
+                    isOverwatch: false,
+                    isShaken: false,
+                  }
+                : u,
+            ),
           );
           const currentSelected = refreshedUnits.find(
             (u) =>
@@ -1342,7 +1542,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               makeLog(
                 nextRound,
                 "player",
-                `--- Kolo ${nextRound}: Tah obránců Malé Strany ---`,
+                `--- Kolo ${nextRound}: Útěk velkopřevora Colloreda ---`,
                 "info",
               ),
             ],
@@ -1353,9 +1553,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
     resetGame: () => {
       const nextGrid = createInitialGrid();
-      const nextUnits = createInitialUnits();
+      const nextUnits = syncColloredoMobility(createInitialUnits());
       const firstId = nextUnits.find((u) => u.faction === "player")?.id ?? null;
-      const currentWeather = get().weather;
+      const currentWeather = "rain"; // Výchozí autentický noční déšť
       const nextDerived = deriveSelectionData(
         nextGrid,
         nextUnits,
@@ -1369,9 +1569,11 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         units: nextUnits,
         round: 1,
         turn: "player",
+        weather: currentWeather,
         gridVersion: s.gridVersion + 1,
         smokeVersion: s.smokeVersion + 1,
         outcome: "ongoing",
+        victoryReason: null,
         selectedUnitId: firstId,
         activeFloor: 0,
         actionMode: "move",
@@ -1388,8 +1590,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           makeLog(
             1,
             "player",
-            "Nová mise zahájena: Vyčistěte malostranský dům od švédské hlídky!",
-            "info",
+            "26. července 1648, 02:30 ráno (Noční liják): Zrádce Arnošt Odowalsky otevřel Strahovskou bránu švédským dragounům generála Königsmarcka!",
+            "alert",
+          ),
+          makeLog(
+            1,
+            "player",
+            "Maršál Rudolf Colloredo vyskočil z lůžka v noční košili. Malostranská mostecká věž je odříznuta! Dostaňte zraněného maršála zahradou k rybářské pramici na Čertovce!",
+            "story",
           ),
         ],
       }));

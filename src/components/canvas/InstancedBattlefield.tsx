@@ -49,6 +49,7 @@ export function InstancedBattlefield() {
     const low0: TileData[] = [];
     const high0: TileData[] = [];
     const pillar0: TileData[] = [];
+    const kegs0: TileData[] = [];
     const low1: TileData[] = [];
     const pillar1: TileData[] = [];
     const ladders: TileData[] = [];
@@ -60,13 +61,14 @@ export function InstancedBattlefield() {
         if (t.obstacle === "low_wall") low0.push(t);
         else if (t.obstacle === "high_wall") high0.push(t);
         else if (t.obstacle === "pillar") pillar0.push(t);
+        else if (t.obstacle === "powder_keg") kegs0.push(t);
       } else {
         if (t.obstacle === "low_wall") low1.push(t);
         else if (t.obstacle === "pillar" || t.obstacle === "high_wall")
           pillar1.push(t);
       }
     }
-    return { low0, high0, pillar0, low1, pillar1, ladders };
+    return { low0, high0, pillar0, kegs0, low1, pillar1, ladders };
   }, [grid, gridVersion]);
 
   // Refs for InstancedMeshes
@@ -75,6 +77,7 @@ export function InstancedBattlefield() {
   const low0MeshRef = useRef<THREE.InstancedMesh>(null);
   const high0MeshRef = useRef<THREE.InstancedMesh>(null);
   const pillar0MeshRef = useRef<THREE.InstancedMesh>(null);
+  const kegs0MeshRef = useRef<THREE.InstancedMesh>(null);
   const low1MeshRef = useRef<THREE.InstancedMesh>(null);
   const pillar1MeshRef = useRef<THREE.InstancedMesh>(null);
   const zoneMeshRef = useRef<THREE.InstancedMesh>(null);
@@ -85,7 +88,8 @@ export function InstancedBattlefield() {
     if (!mesh) return;
     groundFloorTiles.forEach((tile, i) => {
       const [wx, wy, wz] = gridToWorld(tile.coord);
-      _dummy.position.set(wx, wy - 0.08, wz);
+      const isWater = tile.surface === "water";
+      _dummy.position.set(wx, wy + (isWater ? -0.22 : -0.08), wz);
       _dummy.rotation.set(0, 0, 0);
       _dummy.scale.set(1, 1, 1);
       _dummy.updateMatrix();
@@ -94,6 +98,10 @@ export function InstancedBattlefield() {
       const checker = (tile.coord.x + tile.coord.z) % 2 === 0;
       if (tile.isLadder) {
         _color.setHex(0x92400e);
+      } else if (tile.surface === "water") {
+        _color.setHex(checker ? 0x0c4a6e : 0x075985);
+      } else if (tile.surface === "wood_dock") {
+        _color.setHex(checker ? 0xb45309 : 0x92400e);
       } else if (tile.surface === "stone_floor") {
         _color.setHex(checker ? 0x475569 : 0x3f4c5e);
       } else if (tile.surface === "rubble") {
@@ -154,6 +162,7 @@ export function InstancedBattlefield() {
     populate(low0MeshRef.current, obstacles.low0, 0.42);
     populate(high0MeshRef.current, obstacles.high0, FLOOR_HEIGHT * 0.5);
     populate(pillar0MeshRef.current, obstacles.pillar0, FLOOR_HEIGHT * 0.5);
+    populate(kegs0MeshRef.current, obstacles.kegs0, 0.36);
     populate(low1MeshRef.current, obstacles.low1, 0.42);
     populate(pillar1MeshRef.current, obstacles.pillar1, 1.0);
   }, [obstacles]);
@@ -326,6 +335,22 @@ export function InstancedBattlefield() {
         <meshStandardMaterial color="#94a3b8" roughness={0.6} metalness={0.2} />
       </instancedMesh>
 
+      {/* 5b. Ground Floor Explosive Powder Kegs (Sudy s černým prachem) */}
+      <instancedMesh
+        ref={kegs0MeshRef}
+        args={[undefined, undefined, 16]}
+        count={obstacles.kegs0.length}
+        castShadow
+        receiveShadow
+      >
+        <cylinderGeometry args={[0.34, 0.32, 0.72, 12]} />
+        <meshStandardMaterial
+          color="#854d0e"
+          roughness={0.65}
+          metalness={0.25}
+        />
+      </instancedMesh>
+
       {/* 6. Upper Floor Obstacles (Cutaway-aware) */}
       <instancedMesh
         ref={low1MeshRef}
@@ -407,6 +432,59 @@ export function InstancedBattlefield() {
           </group>
         );
       })}
+
+      {/* 8b. 3D Rybářská pramice (Fisherman's Skiff at Čertovka - Cíl úniku) */}
+      {(() => {
+        const [bx, by, bz] = gridToWorld({ x: 0.75 as any, y: 0, z: 2.0 as any });
+        return (
+          <group position={[bx, by - 0.05, bz]} rotation={[0, 0.25, 0]}>
+            {/* Wooden Boat Hull */}
+            <mesh position={[0, 0.12, 0]} castShadow receiveShadow>
+              <boxGeometry args={[0.9, 0.42, 2.2]} />
+              <meshStandardMaterial color="#5c3821" roughness={0.8} />
+            </mesh>
+            {/* Inner Hollow */}
+            <mesh position={[0, 0.18, 0]}>
+              <boxGeometry args={[0.74, 0.36, 1.95]} />
+              <meshStandardMaterial color="#3d2414" roughness={0.9} />
+            </mesh>
+            {/* Wooden Benches */}
+            <mesh position={[0, 0.22, 0.32]}>
+              <boxGeometry args={[0.74, 0.08, 0.22]} />
+              <meshStandardMaterial color="#78472a" roughness={0.7} />
+            </mesh>
+            <mesh position={[0, 0.22, -0.42]}>
+              <boxGeometry args={[0.74, 0.08, 0.22]} />
+              <meshStandardMaterial color="#78472a" roughness={0.7} />
+            </mesh>
+            {/* Oars */}
+            <mesh position={[0.44, 0.3, 0]} rotation={[0.2, 0, -0.38]} castShadow>
+              <cylinderGeometry args={[0.025, 0.025, 1.7, 6]} />
+              <meshStandardMaterial color="#b45309" roughness={0.6} />
+            </mesh>
+            {/* Bow Lantern */}
+            <group position={[0, 0.42, 1.05]}>
+              <mesh>
+                <boxGeometry args={[0.12, 0.18, 0.12]} />
+                <meshStandardMaterial color="#f59e0b" emissive="#fbbf24" emissiveIntensity={1.8} />
+              </mesh>
+              <pointLight color="#f59e0b" intensity={2.5} distance={4} />
+            </group>
+            {/* Glowing Escape Zone Beacon Ring on Water */}
+            <mesh position={[0, -0.04, 0]} rotation={[-Math.PI * 0.5, 0, 0]}>
+              <ringGeometry args={[1.1, 1.35, 24]} />
+              <meshBasicMaterial color="#10b981" transparent opacity={0.65} side={THREE.DoubleSide} />
+            </mesh>
+            {/* 3D In-World Tag */}
+            <Html center position={[0, 1.15, 0]} distanceFactor={18} zIndexRange={[10, 0]} style={{ pointerEvents: "none" }}>
+              <div className="pointer-events-none select-none flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-950/90 border border-emerald-400 text-emerald-300 font-serif font-black text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(16,185,129,0.5)] backdrop-blur-md whitespace-nowrap animate-pulse">
+                <span>⛵</span>
+                <span>Rybářská pramice (Cíl úniku)</span>
+              </div>
+            </Html>
+          </group>
+        );
+      })()}
 
       {/* 9. 3D Black Powder Smoke Clouds (Kouř z černého prachu: -20 % k zásahu) */}
       {smokeTiles.map((smokeTile) => {

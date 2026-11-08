@@ -15,7 +15,7 @@ export type CardinalDir = "N" | "E" | "S" | "W";
 
 export type CoverLevel = "none" | "half" | "full";
 
-export type ObstacleType = "none" | "low_wall" | "high_wall" | "pillar";
+export type ObstacleType = "none" | "low_wall" | "high_wall" | "pillar" | "powder_keg";
 
 export type DirectionalCover = Record<CardinalDir, CoverLevel>;
 
@@ -34,12 +34,14 @@ export interface TileData {
   isLadder: boolean;
   /** Směrové krytí chránící jednotku na dlaždici proti střelbě ze směrů N, E, S, W */
   cover: DirectionalCover;
-  /** Typ překážky na dlaždici (nízká zídka/gabion, vysoká zeď, pilíř) */
+  /** Typ překážky na dlaždici (nízká zídka/gabion, vysoká zeď, pilíř, výbušný prachový sud) */
   obstacle: ObstacleType;
   /** Počet zbývajících kol hustého kouře z černého prachu na této dlaždici (-20 % k zásahu) */
   smokeTurns: number;
   /** Vizuální povrch dlaždice */
-  surface: "cobble" | "stone_floor" | "wood_roof" | "rubble";
+  surface: "cobble" | "stone_floor" | "wood_roof" | "rubble" | "water" | "wood_dock";
+  /** Zda je toto pole únikovou zónou k rybářské pramici na Čertovce */
+  isEscapeZone?: boolean;
 }
 
 export type MovementZoneType = "blue" | "yellow";
@@ -54,7 +56,7 @@ export interface ReachableTile {
 
 export type Faction = "player" | "enemy";
 
-export type UnitArchetype = "ranger" | "sniper" | "trooper" | "sectoid";
+export type UnitArchetype = "ranger" | "sniper" | "trooper" | "sectoid" | "commander";
 
 export type RenderMode = "2D_SPRITE" | "3D_MODEL";
 
@@ -114,6 +116,10 @@ export interface UnitData {
   movedThisTurn: boolean;
   /** Zda je morálka jednotky otřesena (Suppressed / Shaken: -20 % k zásahu) */
   isShaken: boolean;
+  /** Zda je jednotka klíčovým velitelem (pokud padne, mise končí prohrou) */
+  isVip?: boolean;
+  /** Popisek aktivního taktického posílení (např. "Podepřen komorníkem") */
+  buffTitle?: string;
   alive: boolean;
 }
 
@@ -219,5 +225,5 @@ export interface CombatLogEntry {
   round: number;
   faction: Faction;
   text: string;
-  tone: "info" | "hit" | "crit" | "miss" | "misfire" | "overwatch" | "alert";
+  tone: "info" | "hit" | "crit" | "miss" | "misfire" | "overwatch" | "alert" | "buff" | "story";
 }

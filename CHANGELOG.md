@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - 2026-11-08
 
 ### Added
+- **Mission 1: Escape of Grand Prior Rudolf Count Colloredo-Wallsee (Útěk z Velkopřevorského paláce)**:
+  - **Authentic Historical Setting & Objectives**:
+    - July 26, 1648, 02:30 AM: Ernst Odowalsky betrays Prague, breaching Strahov gate for Königsmarck's Swedish cavalry.
+    - 63-year-old Grand Prior and Field Marshal Rudolf Colloredo escapes his bed in a nightshirt (`noční košile`) and red Maltese cross sash (`Maltézský kříž`) with 3 faithful servants (chamberlain Martin, page Václav, armorer Jakub).
+    - Charles Bridge is cut off by dragoons; the primary tactical objective is to escort the wounded Marshal through the palace garden to the fisherman's skiff (`Rybářská pramice`) moored at the Čertovka canal to cross to Staré Město before the Swedish net closes.
+  - **VIP Escort & Mobility Handicap ("Zranění z Lützenu" & "Podepření komorníkem")**:
+    - Colloredo's 7 bullet wounds from the Battle of Lützen (1632) limit his base movement to 3 tiles/AP.
+    - When an escort servant stands adjacent (distance 1), Colloredo is physically supported and gains a +2 movement buff (5 tiles/AP).
+    - If Colloredo is captured or killed, the mission ends in defeat ("Praha ztratila svého vrchního velitele").
+  - **Marshal Command Aura ("Autorita polního maršála")**:
+    - Colloredo's presence inspires imperial troops within 7 tiles, granting a +8% marksmanship bonus in shot calculations and immune composure against suppression.
+  - **Explosive Powder Kegs ("Prachové sudy")**:
+    - Destructible interactive black powder barrels placed in garden corners that detonate in a 3×3 AoE (5 damage, 2 armor shred, demolition of adjacent low walls, and thick black powder smoke) when hit by petards or ignited by heavy weapon hits.
+  - **Čertovka River Canal & 3D Fisherman's Skiff**:
+    - Beautiful deep-water canal tiles (`water`) and wooden dock (`wood_dock`) on the north-west border.
+    - 3D wooden skiff model with bow lantern, oars, glowing emerald water beacon, and `<Html>` extraction tag (`⛵ Rybářská pramice`).
+  - **New Character Archetype & Visuals**:
+    - Added `"commander"` archetype with custom procedural SVG sprite (white nightshirt, silver hair/beard, red Maltese cross ribbon, walking cane, and personal wheellock pistol) and companion 3D articulated rig in `UnitVisual3D.tsx`.
+    - Added period weapons `colloredo_wheellock_pistol` and `odowalsky_carbine`.
+    - Authentic torrential night rain default weather (`rain`), favoring wheellock reliability over sputtering matchlocks.
+    - Dual victory conditions (Boat extraction vs. total Swedish vanguard elimination) with detailed historical outcome chronicles.
+
 - **Minimalist Floating XCOM-Style HUD Architecture (ADR-0004)**:
   - **Full-Canvas 3D Viewport**: Removed full-width headers and footers to give 100% screen real estate to the 3D Malá Strana battlefield.
   - **Tactical Action Ribbon (`TacticalActionRibbon.tsx`)**: Unified floating bottom-center command strip combining squad quick-select pills, anchored soldier card (vitals, HP/armor pips, AP dots, cover badge), and action buttons (`[1] Move`, `[2] Shoot`, `[3] Overwatch`, `[4] Grenade`, `[Space] End Turn`).

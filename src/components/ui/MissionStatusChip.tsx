@@ -27,11 +27,17 @@ export function MissionStatusChip() {
     (u) => u.faction === "enemy" && u.alive,
   ).length;
 
+  const colloredo = units.find((u) => u.id === "player-colloredo");
+  const distToBoat = colloredo
+    ? Math.max(Math.abs(colloredo.pos.x - 1), Math.abs(colloredo.pos.z - 2))
+    : 0;
+  const isAssisted = colloredo?.movePerAp === 5;
+
   const weatherLabel =
     weather === "rain"
-      ? "Prudký déšť: -10 % k zásahu, zvýšené selhání doutnákového zámku"
+      ? "Noční liják: -10 % k zásahu, doutnáky v dešti selhávají. Kolečkové zbraně fungují spolehlivě!"
       : weather === "fog"
-        ? "Ranní mlha: -10 % k zásahu"
+        ? "Ranní vltavská mlha: -10 % k zásahu"
         : "Jasná noc: optimální podmínky pro střelbu";
 
   return (
@@ -68,21 +74,60 @@ export function MissionStatusChip() {
               {turn === "player" ? "Obránci" : "Švédové"}
             </span>
           </div>
-          <div className="text-[10px] text-slate-400">
-            {turn === "player" ? "Tvůj tah" : "Nepřátelská aktivita..."}
+          <div className="text-[10px] text-slate-400 truncate max-w-[110px]">
+            {turn === "player" ? "Eskorta maršála" : "Hlídka pálí..."}
           </div>
         </div>
       </div>
 
-      {/* 2. Počet zbývajících Švédů */}
+      {/* 2. Cíl mise: Rybářská pramice na Čertovce */}
+      <div
+        title={
+          distToBoat === 0
+            ? "Maršál Colloredo je u pramice! Konec mise aktivován."
+            : `Dostaňte maršála Colloreda k rybářské pramici na Čertovce (zbývá ${distToBoat} polí). ${
+                isAssisted
+                  ? "Maršál je podepřen komorníkem (+2 pole)."
+                  : "Maršál těžce kulhá (3 pole). Pošlete sloužícího k němu pro podporu!"
+              }`
+        }
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-all ${
+          distToBoat === 0
+            ? "bg-emerald-950/90 border-emerald-400 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.3)]"
+            : isAssisted
+              ? "bg-amber-950/60 border-amber-500/50 text-amber-200"
+              : "bg-slate-900/80 border-slate-800 text-slate-200"
+        }`}
+      >
+        <span>⛵</span>
+        <span>
+          Pramice:{" "}
+          <strong
+            className={
+              distToBoat === 0
+                ? "text-emerald-300 font-black"
+                : "text-amber-300 font-extrabold"
+            }
+          >
+            {distToBoat === 0 ? "ÚNIK!" : `${distToBoat} polí`}
+          </strong>
+        </span>
+        {isAssisted && (
+          <span className="hidden md:inline text-[9px] px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-mono">
+            +2 PODEPŘEN
+          </span>
+        )}
+      </div>
+
+      {/* 3. Počet zbývajících Švédů */}
       <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-900/80 border border-slate-800 text-[11px] font-bold text-slate-200">
         <Users className="w-3.5 h-3.5 text-rose-400" />
         <span>
-          Zbývá: <strong className="text-white font-extrabold">{enemiesAlive}</strong>
+          Švédů: <strong className="text-white font-extrabold">{enemiesAlive}</strong>
         </span>
       </div>
 
-      {/* 3. Počasí (kliknutím lze přepínat) */}
+      {/* 4. Počasí (kliknutím lze přepínat) */}
       <button
         type="button"
         onClick={cycleWeather}
@@ -97,7 +142,7 @@ export function MissionStatusChip() {
           <Sun className="w-3.5 h-3.5 text-amber-400" />
         )}
         <span className="hidden sm:inline text-amber-300">
-          {weather === "rain" ? "Déšť" : weather === "fog" ? "Mlha" : "Jasno"}
+          {weather === "rain" ? "Liják" : weather === "fog" ? "Mlha" : "Jasno"}
         </span>
       </button>
     </aside>

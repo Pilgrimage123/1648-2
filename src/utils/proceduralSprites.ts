@@ -153,6 +153,56 @@ function buildSvgMarkup(archetype: UnitArchetype): string {
         <rect x="38" y="146" width="118" height="7" rx="2" transform="rotate(10 128 155)" fill="#94a3b8" stroke="#0f172a" stroke-width="3"/>
       </svg>`;
 
+    case "commander":
+      // Field Marshal Rudolf Count Colloredo in white nightshirt & red Maltese cross order sash,
+      // limping with walking cane in one hand and personal wheellock pistol in the other
+      return `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 320" width="512" height="640">
+        <defs>
+          <linearGradient id="nightshirt" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="60%" stop-color="#e2e8f0"/>
+            <stop offset="100%" stop-color="#cbd5e1"/>
+          </linearGradient>
+          <linearGradient id="malteseRed" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#dc2626"/>
+            <stop offset="100%" stop-color="#991b1b"/>
+          </linearGradient>
+        </defs>
+        <!-- Flowing White Silver Hair & Beard of the 63-year-old Marshal -->
+        <path d="M102 46 C102 20, 154 20, 154 46 C168 56, 172 82, 162 104 C150 94, 150 78, 148 70 C140 70, 116 70, 108 70 C106 78, 106 94, 94 104 C84 82, 88 56, 102 46 Z" fill="#f1f5f9" stroke="#94a3b8" stroke-width="3"/>
+        <!-- Face & Aged Wrinkles -->
+        <circle cx="128" cy="74" r="20" fill="#f8d5b8" stroke="#332218" stroke-width="3"/>
+        <circle cx="120" cy="70" r="2.5" fill="#1e293b"/>
+        <circle cx="136" cy="70" r="2.5" fill="#1e293b"/>
+        <!-- Silver Grand Marshal Mustache & Goatee -->
+        <path d="M112 80 Q128 76 144 80 Q138 90 128 86 Q118 90 112 80 Z" fill="#ffffff" stroke="#94a3b8" stroke-width="2"/>
+        <path d="M124 88 L132 88 L128 102 Z" fill="#ffffff" stroke="#94a3b8" stroke-width="2"/>
+        <!-- Ruffled Nightshirt Collar -->
+        <path d="M106 98 Q128 92 150 98 Q140 108 128 104 Q116 108 106 98 Z" fill="#ffffff" stroke="#cbd5e1" stroke-width="3"/>
+        <!-- Long White Nightshirt Body (No Cuirass!) -->
+        <path d="M84 102 L172 102 L184 252 L72 252 Z" fill="url(#nightshirt)" stroke="#475569" stroke-width="4"/>
+        <!-- Order of Malta Crimson Ribbon & Maltese Cross -->
+        <path d="M96 104 L164 196 L150 208 L82 116 Z" fill="url(#malteseRed)" stroke="#7f1d1d" stroke-width="3"/>
+        <!-- White 8-pointed Maltese Cross Pendant -->
+        <polygon points="128,142 133,150 142,145 137,154 146,159 137,164 142,173 133,168 128,176 123,168 114,173 119,164 110,159 119,154 114,145 123,150" fill="#ffffff" stroke="#b91c1c" stroke-width="1.5"/>
+        <!-- Loose Nightshirt Sleeves -->
+        <path d="M78 106 L50 168 L70 174 L90 116 Z" fill="url(#nightshirt)" stroke="#475569" stroke-width="3"/>
+        <path d="M174 106 L202 162 L182 170 L162 116 Z" fill="url(#nightshirt)" stroke="#475569" stroke-width="3"/>
+        <!-- Limping Bare Legs / Slippers (Handicap from 7 bullet wounds at Lützen 1632) -->
+        <rect x="94" y="250" width="24" height="34" rx="4" fill="#f8d5b8" stroke="#332218" stroke-width="3"/>
+        <rect x="138" y="250" width="24" height="34" rx="4" fill="#f8d5b8" stroke="#332218" stroke-width="3"/>
+        <ellipse cx="106" cy="286" rx="16" ry="7" fill="#78350f" stroke="#271003" stroke-width="3"/>
+        <ellipse cx="150" cy="286" rx="16" ry="7" fill="#78350f" stroke="#271003" stroke-width="3"/>
+        <!-- Left Hand Leaning on Carved Wooden Walking Cane -->
+        <line x1="56" y1="170" x2="52" y2="296" stroke="#5c3821" stroke-width="6" stroke-linecap="round"/>
+        <ellipse cx="56" cy="168" rx="8" ry="5" fill="#d97706" stroke="#451a03" stroke-width="2"/>
+        <!-- Right Hand Holding Personal Silver Wheellock Pistol -->
+        <rect x="180" y="156" width="56" height="10" rx="3" transform="rotate(-18 190 160)" fill="#451a03" stroke="#172554" stroke-width="3"/>
+        <rect x="200" y="152" width="40" height="6" rx="2" transform="rotate(-18 190 160)" fill="#e2e8f0" stroke="#0f172a" stroke-width="2"/>
+        <circle cx="196" cy="160" r="5" fill="#f59e0b" stroke="#78350f" stroke-width="2"/>
+      </svg>`;
+
     case "sectoid":
       // Elite Swedish Grenadier / Officer (Heavy blackened half-plate, tall mitre/plume, glowing iron grenade & pike/carbine)
       return `

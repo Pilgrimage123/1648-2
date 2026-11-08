@@ -89,3 +89,17 @@ The probability (`0–100%`) that a 17th-century firearm fails to discharge due 
 
 **Armor Cuirass & Pierce/Shred** (*Kyrys, Průraz a Zničení zbroje*):
 Armor points (`armor / maxArmor`) worn by 17th-century soldiers (cuirass, morion helmet) that absorb incoming damage unless bypassed by the weapon's `armorPierce` or permanently destroyed by `armorShred`. Heavy cuirass also reduces incoming critical hit chance (`-10%` per armor point).
+
+### Mission 1: Escape of the Grand Prior (Mise 1: Útěk polního maršála)
+
+**Rybářská pramice** (*Fisherman's Skiff / Úniková zóna*):
+The wooden skiff moored at the Čertovka canal dock (`x: 1, z: 2`) serving as the extraction objective for Field Marshal Rudolf Count Colloredo-Wallsee.
+
+**Zranění z Lützenu & Podepření komorníkem** (*Marshal's Mobility Handicap & Escort Assist*):
+The permanent war handicap (7 bullet wounds from Lützen 1632) restricting Marshal Colloredo to 3 movement tiles per AP, which increases to 5 tiles per AP whenever an escort servant (Martin, Václav, or Jakub) remains adjacent (distance 1).
+
+**Autorita polního maršála** (*Marshal Command Aura*):
+The tactical presence of Bohemia's supreme commander granting a +8% marksmanship modifier to nearby allied imperial soldiers within 7 tiles.
+
+**Prachový sud** (*Explosive Powder Keg*):
+Destructible black-powder storage barrels placed on the battlefield that explode in a 3×3 radius (5 damage, 2 armor shred, and thick smoke) when struck by heavy shots, petards, or secondary blast waves.

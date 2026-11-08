@@ -28,6 +28,7 @@ import type {
 export interface BattlefieldState {
   grid: GridSystem;
   weather: WeatherType;
+  units?: UnitData[];
 }
 
 /**
@@ -430,6 +431,31 @@ export class CombatCalculator {
       });
     }
 
+    // H) Autorita polního maršála Colloreda (+8 % pro spojence v okruhu 7 polí)
+    let marshalModifier = 0;
+    if (shooter.faction === "player" && battlefield.units) {
+      const colloredo = battlefield.units.find(
+        (u) => u.id === "player-colloredo" && u.alive,
+      );
+      if (colloredo) {
+        const distToMarshal = gridDistance3D(fromPos, colloredo.pos);
+        if (shooter.id === "player-colloredo" || distToMarshal <= 7) {
+          marshalModifier = 8;
+          hitModifiers.push({
+            id: "marshal-colloredo-aura",
+            label: "Autorita polního maršála",
+            detail:
+              shooter.id === "player-colloredo"
+                ? "Válečné zkušenosti vrchního velitele (+8 %)"
+                : "Přítomnost maršála Colloreda na bojišti (+8 %)",
+            value: marshalModifier,
+            unit: "%",
+            kind: "bonus",
+          });
+        }
+      }
+    }
+
     const rawHitChance =
       baseMarksmanship +
       weapon.baseAccuracy +
@@ -439,7 +465,8 @@ export class CombatCalculator {
       smokeModifier +
       weatherHitModifier +
       forkModifier +
-      shakenModifier;
+      shakenModifier +
+      marshalModifier;
 
     const hitChance = Math.max(0, Math.min(100, Math.round(rawHitChance)));
 
@@ -621,12 +648,13 @@ export function calculateShot(
   target: UnitData,
   weather: WeatherType = "clear",
   fromPos: GridCoord = shooter.pos,
+  units?: UnitData[],
 ): ShotCalculationResult {
   return CombatCalculator.calculateShot(
     shooter,
     target,
     shooter.weapon,
-    { grid, weather },
+    { grid, weather, units },
     fromPos,
   );
 }
@@ -653,7 +681,14 @@ export function evaluateVisibleTargets(
     const los = checkLineOfSight3D(grid, fromPos, unit.pos);
     if (!los.clear) continue;
 
-    const calculation = calculateShot(grid, attacker, unit, weather, fromPos);
+    const calculation = calculateShot(
+      grid,
+      attacker,
+      unit,
+      weather,
+      fromPos,
+      allUnits,
+    );
     results.push({
       targetId: unit.id,
       targetPos: unit.pos,
