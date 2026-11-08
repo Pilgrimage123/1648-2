@@ -881,6 +881,8 @@ export function computeEnemyAiDecision(
 
     const heightScore = coord.y > 0 ? 18 : 0;
 
+    const colloredo = players.find((p) => p.id === "player-colloredo");
+
     if (canShootAfter) {
       const simulatedEnemy: UnitData = {
         ...enemy,
@@ -895,10 +897,19 @@ export function computeEnemyAiDecision(
         coord,
       );
       if (targets.length > 0) {
-        const bestTarget = targets[0]!;
+        // Švédský přepadový oddíl má rozkaz maršála nezabít, ale zajmout pro tučné výkupné!
+        // Prioritně cílí na Colloreda, pokud je v palebném poli.
+        const colloredoTarget = targets.find((t) => t.targetId === "player-colloredo");
+        const bestTarget =
+          colloredoTarget && colloredoTarget.calculation.hitChance >= 25
+            ? colloredoTarget
+            : targets[0]!;
+
+        const isVipTarget = bestTarget.targetId === "player-colloredo";
         const shotScore =
           bestTarget.calculation.hitChance * 1.4 +
-          (bestTarget.calculation.isFlanked ? 25 : 0);
+          (bestTarget.calculation.isFlanked ? 25 : 0) +
+          (isVipTarget ? 45 : 0); // Vysoká priorita zajetí velkopřevora
         candidates.push({
           coord,
           apCost,
@@ -910,10 +921,11 @@ export function computeEnemyAiDecision(
     }
 
     const distDiff = Math.abs(nearestDist - 6);
+    const interceptScore = colloredo ? Math.max(0, (12 - gridDistance3D(coord, colloredo.pos)) * 4) : 0;
     candidates.push({
       coord,
       apCost,
-      score: coverScore + heightScore - distDiff * 8,
+      score: coverScore + heightScore + interceptScore - distDiff * 6,
       bestTargetId: null,
     });
   };

@@ -986,7 +986,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               ? "MARŠÁL COLLOREDO DOSÁHL RYBÁŘSKÉ PRAMICE! Rybář okamžitě odráží od břehu a veze maršála přes rozvodněnou Vltavu na Staré Město!"
               : outcomeCheck.outcome === "victory"
                 ? "Švédský přepadový oddíl Arnošta Odowalského byl zneškodněn! Cesta k rybářské pramici na Čertovce je volná!"
-                : "Maršál Colloredo padl... Praha ztratila svého vrchního velitele a pravý břeh se neubrání!";
+                : "Polní maršál Rudolf Colloredo padl do švédského zajetí pro tučné výkupné! Praha ztratila svého vrchního velitele a pravý břeh se před Švédy neubrání!";
 
           set({
             isBusy: false,
@@ -1540,13 +1540,35 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                   };
                 });
 
+                const isColloredo = targetUnit.id === "player-colloredo";
+                const targetNextHp = Math.max(0, targetUnit.hp - outcome.damage);
                 const msg = outcome.misfired
-                  ? `${updatedEnemy.name} chtěl vystřelit na ${targetUnit.name}, ale doutnák v dešti selhal!`
+                  ? isColloredo
+                    ? `${updatedEnemy.name} pálil na nohy maršála Colloreda (snaha zajmout pro výkupné), ale doutnák v dešti selhal!`
+                    : `${updatedEnemy.name} chtěl vystřelit na ${targetUnit.name}, ale doutnák v dešti selhal!`
                   : outcome.hit
-                    ? `${updatedEnemy.name} zasáhl ${targetUnit.name} (${outcome.hitChance} %) za ${outcome.damage} HP${outcome.armorShredded > 0 ? ` (−${outcome.armorShredded} zbroj)` : ""}${outcome.critical ? " (KRITICKÝ!)" : ""}!`
-                    : `${updatedEnemy.name} vystřelil na ${targetUnit.name} (${outcome.hitChance} %), ale minul.`;
+                    ? isColloredo && targetNextHp <= 0
+                      ? `${updatedEnemy.name} srazil a zajal polního maršála Colloreda pro obří švédské výkupné (100 000 tolarů)!`
+                      : isColloredo
+                        ? `${updatedEnemy.name} postřelil maršála Colloreda (${outcome.hitChance} %) za ${outcome.damage} HP (Švédové míří na nohy — chtějí velitele živého pro výkupné)!`
+                        : `${updatedEnemy.name} zasáhl ${targetUnit.name} (${outcome.hitChance} %) za ${outcome.damage} HP${outcome.armorShredded > 0 ? ` (−${outcome.armorShredded} zbroj)` : ""}${outcome.critical ? " (KRITICKÝ!)" : ""}!`
+                    : isColloredo
+                      ? `${updatedEnemy.name} vystřelil na maršála Colloreda (${outcome.hitChance} %), ale kulka neškodně minula do zdi.`
+                      : `${updatedEnemy.name} vystřelil na ${targetUnit.name} (${outcome.hitChance} %), ale minul.`;
 
                 const outcomeCheck = checkMissionOutcome(s.grid, nextUnits);
+                const extraDefeatLog =
+                  outcomeCheck.outcome === "defeat"
+                    ? [
+                        makeLog(
+                          s.round,
+                          "enemy",
+                          "KATASTROFA: Polní maršál Colloredo byl švédskými dragouny zajat pro výkupné! Vrchní velitel je v řetězech — na Karlově mostě nikdo nespustil mříž a pravý břeh padl!",
+                          "alert",
+                        ),
+                      ]
+                    : [];
+
                 return {
                   units: nextUnits,
                   activeProjectile: null,
@@ -1566,6 +1588,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                             : "hit"
                           : "miss",
                     ),
+                    ...extraDefeatLog,
                   ],
                 };
               });

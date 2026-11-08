@@ -399,12 +399,15 @@ export default function App() {
               ) : (
                 <>
                   <strong className="text-rose-400 block mb-1">
-                    Tragický pád vrchního velitele:
+                    Vrchní velitel padl do zajetí (Kořist a výkupné):
                   </strong>
-                  Polní maršál Rudolf Colloredo byl švédskými dragouny dopaden v noční
-                  košili dříve, než stačil dosáhnout loďky. Bez vrchního velitele
-                  nikdo nezorganizoval posádku na Karlově mostě včas — švédská jízda
-                  překonala řeku a celá Praha padla do rukou generála Königsmarcka.
+                  Polní maršál Rudolf Colloredo byl švédskými dragouny dostižen v noční
+                  košili, sražen a spoután pro tučné výkupné (100 000 říšských tolarů).
+                  Švédové tak získali svou nejcennější kořist stejně jako na Hradčanech
+                  a Malé Straně, kde padlo do zajetí přes 200 šlechticů včetně arcibiskupa
+                  kardinála Harracha a těžce raněného purkrabího Martinice. Bez vrchního
+                  velitele nikdo nezorganizoval posádku na Karlově mostě včas — švédská
+                  jízda překonala řeku a celá Praha padla do rukou generála Königsmarcka!
                 </>
               )}
             </div>

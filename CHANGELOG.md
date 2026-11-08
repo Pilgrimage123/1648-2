@@ -21,6 +21,10 @@ All notable changes to this project will be documented in this file.
       - Václav z Michalovic: *Klementinský zápal* (+10% height accuracy, 0% misfire chance in rain).
   - **Updated Tactical Advisor & Lore Voices (`TacticalAdvisorWidget.tsx`)**:
     - Dialogue and tactical tips now voiced by Jan Matěj (Steps 1–2) and Bratr Bartoloměj (Steps 3–4), foreshadowing the sacrificial choice at the canal.
+  - **Swedish High-Value Capture Directive ("Zajmout pro tučné výkupné")**:
+    - The Swedish patrol operates under explicit orders not to kill Marshal Colloredo, but to encircle, subdue, and capture him alive for a massive ransom (100,000 thalers) and strategic paralysis (as occurred with over 200 nobles in Malá Strana).
+    - Enemy AI actively prioritizes intercepting and surrounding Colloredo (`computeEnemyAiDecision`), aiming to disable his limbs rather than kill him.
+    - If Colloredo is subdued (HP 0), the defeat screen and battle chronicle explicitly chronicle his capture into Swedish chains and the subsequent fall of Prague.
 
 - **Diegetic Floating Tutorial Architecture & Mission 1 Onboarding (ADR-0005)**:
   - **Tactical Advisor Widget (`TacticalAdvisorWidget.tsx`)**:

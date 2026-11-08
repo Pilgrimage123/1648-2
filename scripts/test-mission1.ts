@@ -2,6 +2,7 @@ import assert from "node:assert";
 import {
   calculateShot,
   checkLineOfSight3D,
+  computeEnemyAiDecision,
   gridDistance3D,
   rollRangedAttack,
 } from "../src/core/CombatSystem.ts";
@@ -163,5 +164,25 @@ assert(stateAfterReset.ironVigilPerk === null, "resetGame must clear ironVigilPe
 assert(stateAfterReset.sacrificeDilemmaOpen === false, "resetGame must close dilemma");
 
 console.log("✓ Paradoxical Martyrdom and Iron Vigil induction state machine validated.");
+
+// 9. Test Swedish Capture & Ransom Directive (AI priority for Colloredo)
+const testUnitsWithColloredoInSight = units.map((u) => {
+  if (u.id === "enemy-odowalsky") {
+    return { ...u, pos: { x: 8, y: 0 as const, z: 8 }, ap: 2 };
+  }
+  return u;
+});
+const aiDecision = computeEnemyAiDecision(
+  grid,
+  testUnitsWithColloredoInSight.find((u) => u.id === "enemy-odowalsky")!,
+  testUnitsWithColloredoInSight,
+  "clear",
+);
+assert(
+  aiDecision.targetId === "player-colloredo",
+  "Swedish AI must prioritize subduing Marshal Colloredo for ransom",
+);
+
+console.log("✓ Swedish Capture & Ransom directive validated (Colloredo targeted for high-value capture).");
 
 console.log("=== ALL MISSION 1 TESTS PASSED SUCCESSFULLY! ===");

@@ -45,11 +45,12 @@ const TUTORIAL_STEPS: TutorialStepData[] = [
     role: "Osobní komorník velkopřevora",
     avatarIcon: "jan",
     dialogue:
-      "Vaše Excelence! Po těch sedmi střelných ranách u Lützenu sotva stojíte na nohou! Opřete se o mě — posuňte mě na dlaždici vedle vás a pomohu vám utíkat zahradou k Čertovce!",
+      "Vaše Excelence! Po těch sedmi střelných ranách u Lützenu sotva stojíte na nohou! Opřete se o mě — posuňte mě na dlaždici vedle vás a pomohu vám utíkat zahradou k Čertovce! Švédové mají seznam hodnostářů a chtějí vás dostat živého pro obří výkupné!",
     tactics: [
       "Modrá zóna (1 AP): Běžný přesun, po němž můžete ještě střílet nebo hodit petardu.",
       "Žlutá zóna (2 AP): Sprint, který vyčerpá všechny akční body vojáka.",
       "Handicap maršála: Zraněný Colloredo ujde sám jen 3 pole za AP. Jakmile k němu posunete spojence (komorníka Jana Matěje), získá podporu a plných 5 polí/AP!",
+      "Kořist a výkupné: Švédové se snaží maršála obklíčit a zajmout živého — nenechte jej padnout do jejich rukou!",
     ],
     keyBadges: [
       { key: "1", label: "Režim pohybu" },
@@ -66,7 +67,7 @@ const TUTORIAL_STEPS: TutorialStepData[] = [
     role: "Osobní komorník velkopřevora",
     avatarIcon: "jan",
     dialogue:
-      "Pozor, pane! Švédští jezdci generála Königsmarcka sesedli z koní a vpadli do zahrady! Zůstaňte za kamennou zídkou, ať na nás nemohou přímo zamířit!",
+      "Pozor, pane! Švédští jezdci generála Königsmarcka vpadli do zahrady! Zůstaňte za kamennou zídkou — střílejí na nohy, protože vědí, že živý polní maršál jim vynese sto tisíc tolarů výkupného!",
     tactics: [
       "Poloviční kryt (kamenná zídka): Snižuje nepříteli šanci na zásah o 20 %.",
       "Plný kryt (vysoká zeď / roh): Snižuje nepříteli šanci na zásah o 40 %.",
