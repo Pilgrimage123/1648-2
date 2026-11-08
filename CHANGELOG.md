@@ -36,6 +36,7 @@ All notable changes to this project will be documented in this file.
   - **Blinking HP & Armor Loss Preview (`UnitActor.tsx`)**:
     - Enemy overhead nameplate dynamically pulses the exact cuirass pips and health bars that will be lost upon a successful hit.
   - **Keyboard Shortcuts & Tactical Controls**:
+    - `1`, `2`, `3`, `4`: Select actions (Move, Shoot, Overwatch, Grenade).
     - `Tab` / `Shift+Tab`: Cycle visible targets.
     - `F1`: Toggle breakdown wings.
     - `Enter` / `Space`: Confirm shot.
@@ -43,3 +44,28 @@ All notable changes to this project will be documented in this file.
     - `Q` / `E`: 90-degree camera step rotation.
     - `F`: Toggle floor cutaway view (Floor 0 / Floor 1).
     - `M`: Toggle 2D Sprites vs. 3D Models.
+
+### Fixed
+- **Obstacle Destruction Synchronization**:
+  - Added `gridVersion` reactive tracking in Zustand so destroyed obstacles (e.g. from grenades) trigger immediate `InstancedMesh` re-population.
+  - Set `mesh.count = list.length` on all obstacle instanced meshes, eliminating phantom 3D meshes after demolition.
+  - Rewrote `bakeCoverFromObstacles()` to reset dynamic obstacle cover before recalculating, ensuring demolished walls stop granting cover to adjacent units.
+- **Flanking & Cover Angle Precision**:
+  - Refined `resolveTargetCoverAgainstShot()` so lateral walls no longer erroneously protect targets against steep orthogonal shots (fixing false cover bonuses when flanking).
+- **Movement Pathfinding Performance**:
+  - Replaced $O(V^2 \log V)$ queue sorting inside `computeReachableTiles()` with linear $O(V + E)$ BFS index traversal, completely eliminating lag during mouse hover.
+  - Increased `zoneMeshRef` instance capacity from 256 to 512 to prevent buffer overflows.
+- **Memory & Resource Leaks**:
+  - Implemented shared texture and depth material singletons in `proceduralSprites.ts` to prevent WebGL texture and shader leaks during sprite re-rendering and 2D/3D mode toggling.
+  - Reused static sphere geometry for 3D smoke puffs to prevent garbage collector churn.
+  - Fixed billboard vertical orientation (`lockX={true}, lockZ={true}, lockY={false}`) so soldiers stand upright as tabletop miniatures with realistic silhouette shadows.
+- **Morale Recovery**:
+  - Restored composure (`isShaken: false`) at the beginning of each faction's turn so suppression does not permanently cripple units for the entire match.
+- **UI & Layout Collision Fixes**:
+  - Swapped bottom UI in `App.tsx` between `BottomCommandPanel` and `TargetingHud` in shoot mode, placing the Target Ribbon cleanly at the bottom of the screen without panel overlap.
+  - Added active shooter summary badge directly inside the Targeting HUD.
+- **Build & TypeScript Strictness**:
+  - Enabled `"strict": true` in `tsconfig.json` with zero type errors.
+  - Upgraded `vite.config.ts` to use `import.meta.dirname` instead of deprecated `__dirname`, resolving Vite native config warnings.
+  - Removed obsolete Three.js addon references from `optimizeDeps.include`.
+  - Updated `clean` script in `package.json` to be cross-platform.

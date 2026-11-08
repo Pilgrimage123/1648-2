@@ -210,6 +210,11 @@ export function TacticalCamera() {
         dt,
       );
 
+      // Plynule synchronizujeme orbitCenterRef se střelcem, aby při návratu z režimu míření (Esc)
+      // kamera plynule odcouvala k aktivnímu vojákovi a neskákala na staré souřadnice
+      orbitCenterRef.current.x = THREE.MathUtils.damp(orbitCenterRef.current.x, sx, 3.5, dt);
+      orbitCenterRef.current.z = THREE.MathUtils.damp(orbitCenterRef.current.z, sz, 3.5, dt);
+
       camera.lookAt(currentLookAtRef.current);
       return;
     }

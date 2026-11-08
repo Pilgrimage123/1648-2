@@ -1,26 +1,23 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import { defineConfig } from 'vite';
 
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname, '.'),
       },
     },
     optimizeDeps: {
       include: [
         'three',
-        'three/addons/controls/OrbitControls.js',
-        'three/addons/environments/RoomEnvironment.js',
-        'three/addons/postprocessing/EffectComposer.js',
-        'three/addons/postprocessing/OutputPass.js',
-        'three/addons/postprocessing/RenderPass.js',
-        'three/addons/postprocessing/UnrealBloomPass.js',
         'lucide-react',
+        '@react-three/fiber',
+        '@react-three/drei',
+        'zustand',
       ],
     },
     server: {

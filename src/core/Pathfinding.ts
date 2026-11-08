@@ -184,9 +184,9 @@ export function computeReachableTiles(
   ];
   distMap.set(coordKey(unit.pos), 0);
 
-  while (queue.length > 0) {
-    queue.sort((a, b) => a.steps - b.steps);
-    const current = queue.shift()!;
+  let head = 0;
+  while (head < queue.length) {
+    const current = queue[head++]!;
     const currentKey = coordKey(current.coord);
     const knownDist = distMap.get(currentKey) ?? Infinity;
     if (current.steps > knownDist) continue;

@@ -60,6 +60,7 @@ interface GameStoreState {
   round: number;
   turn: Faction;
   weather: WeatherType;
+  gridVersion: number;
   smokeVersion: number;
   outcome: "ongoing" | "victory" | "defeat";
 
@@ -377,6 +378,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     round: 1,
     turn: "player",
     weather: initialWeather,
+    gridVersion: 1,
     smokeVersion: 1,
     outcome: "ongoing",
 
@@ -1018,6 +1020,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
           return {
             isBusy: false,
+            gridVersion: s.gridVersion + 1,
             smokeVersion: s.smokeVersion + 1,
             units: updatedUnits,
             activeProjectile: null,
@@ -1066,6 +1069,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                   ap: u.maxAp,
                   movedThisTurn: false,
                   isOverwatch: false,
+                  isShaken: false,
                 }
               : u,
           ),
@@ -1299,6 +1303,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                   ap: u.maxAp,
                   movedThisTurn: false,
                   isOverwatch: false,
+                  isShaken: false,
                 }
               : u,
           );
@@ -1364,6 +1369,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         units: nextUnits,
         round: 1,
         turn: "player",
+        gridVersion: s.gridVersion + 1,
         smokeVersion: s.smokeVersion + 1,
         outcome: "ongoing",
         selectedUnitId: firstId,

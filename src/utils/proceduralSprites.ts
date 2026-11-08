@@ -5,9 +5,12 @@
  * planes with `alphaTest={0.5}` cast sharp 3D silhouette shadows out of the box.
  */
 
+import * as THREE from "three";
 import type { UnitArchetype } from "../core/types";
 
 const SPRITE_CACHE: Partial<Record<UnitArchetype, string>> = {};
+const TEXTURE_CACHE = new Map<UnitArchetype, THREE.Texture>();
+const DEPTH_MATERIAL_CACHE = new Map<UnitArchetype, THREE.MeshDepthMaterial>();
 
 function buildSvgMarkup(archetype: UnitArchetype): string {
   switch (archetype) {
@@ -207,4 +210,40 @@ export function getProceduralSpriteDataUri(archetype: UnitArchetype): string {
   const dataUri = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   SPRITE_CACHE[archetype] = dataUri;
   return dataUri;
+}
+
+/**
+ * Returns a cached, shared THREE.Texture for the requested archetype to prevent WebGL memory leaks.
+ */
+export function getSharedSpriteTexture(archetype: UnitArchetype): THREE.Texture {
+  let tex = TEXTURE_CACHE.get(archetype);
+  if (!tex) {
+    const uri = getProceduralSpriteDataUri(archetype);
+    const loader = new THREE.TextureLoader();
+    tex = loader.load(uri);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    TEXTURE_CACHE.set(archetype, tex);
+  }
+  return tex;
+}
+
+/**
+ * Returns a cached, shared THREE.MeshDepthMaterial for shadow-casting billboards.
+ */
+export function getSharedDepthMaterial(
+  archetype: UnitArchetype,
+): THREE.MeshDepthMaterial {
+  let mat = DEPTH_MATERIAL_CACHE.get(archetype);
+  if (!mat) {
+    const tex = getSharedSpriteTexture(archetype);
+    mat = new THREE.MeshDepthMaterial({
+      depthPacking: THREE.RGBADepthPacking,
+      map: tex,
+      alphaTest: 0.5,
+    });
+    DEPTH_MATERIAL_CACHE.set(archetype, mat);
+  }
+  return mat;
 }

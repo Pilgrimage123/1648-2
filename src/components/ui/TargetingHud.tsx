@@ -164,9 +164,12 @@ export function TargetingHud() {
                 </button>
 
                 <div className="text-center min-w-0">
+                  <div className="text-[10px] font-extrabold text-amber-300 uppercase tracking-wider mb-0.5 truncate">
+                    Střelec: {shooter.name} ({shooter.weapon.name})
+                  </div>
                   <div className="flex items-center justify-center gap-1.5">
                     <span className="text-sm font-black tracking-wide text-white truncate">
-                      {targetUnit.name}
+                      Cíl: {targetUnit.name}
                     </span>
                     <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-slate-700">
                       P{targetUnit.pos.y} · {calc.distance} polí

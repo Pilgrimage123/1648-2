@@ -52,6 +52,18 @@ export function bestTileCover(cover: DirectionalCover): CoverLevel {
   return best;
 }
 
+/**
+ * Parapety a zábradlí na střešním ochozu (patro 1).
+ */
+export function getRoofParapetCover(c: GridCoord, dir: CardinalDir): CoverLevel {
+  if (c.y !== 1) return "none";
+  if (c.x >= 5 && c.x <= 10 && c.z === 6 && dir === "N") return "half";
+  if (c.x >= 5 && c.x <= 10 && c.z === 9 && dir === "S") return "half";
+  if (c.z >= 6 && c.z <= 9 && c.x === 5 && dir === "W") return "half";
+  if (c.z >= 6 && c.z <= 9 && c.x === 10 && dir === "E") return "half";
+  return "none";
+}
+
 export class GridSystem {
   public readonly width: number;
   public readonly depth: number;
@@ -191,11 +203,24 @@ export class GridSystem {
 
   /**
    * Přepočítá směrové krytí pro všechny pochozí dlaždice podle sousedních překážek
-   * (`low_wall` => `'half'`, `high_wall` | `pillar` => `'full'`).
+   * (`low_wall` => `'half'`, `high_wall` | `pillar` => `'full'`), se zachováním střešních parapetů.
+   * Spolehlivě odstraní kryt, pokud byl objekt v průběhu boje zničen (např. granátem).
    */
   public bakeCoverFromObstacles(): void {
     for (const tile of this.tiles.values()) {
-      if (!tile.hasFloor || !tile.walkable) continue;
+      if (!tile.hasFloor || !tile.walkable) {
+        tile.cover = emptyCover();
+        continue;
+      }
+
+      // Reset na výchozí krytí dlaždice (parapety na střeše, jinak žádné)
+      tile.cover = {
+        N: getRoofParapetCover(tile.coord, "N"),
+        E: getRoofParapetCover(tile.coord, "E"),
+        S: getRoofParapetCover(tile.coord, "S"),
+        W: getRoofParapetCover(tile.coord, "W"),
+      };
+
       for (const dir of ["N", "E", "S", "W"] as CardinalDir[]) {
         const { dx, dz } = CARDINAL_OFFSETS[dir];
         const neighbor = this.getTile({

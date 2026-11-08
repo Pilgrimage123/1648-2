@@ -15,9 +15,11 @@ import { FLOOR_HEIGHT, gridToWorld, TILE_SIZE } from "./worldCoords";
 
 const _dummy = new THREE.Object3D();
 const _color = new THREE.Color();
+const SMOKE_PUFF_GEO = new THREE.SphereGeometry(1, 10, 10);
 
 export function InstancedBattlefield() {
   const grid = useGameStore((s) => s.grid);
+  const gridVersion = useGameStore((s) => s.gridVersion);
   const smokeVersion = useGameStore((s) => s.smokeVersion);
   const activeFloor = useGameStore((s) => s.activeFloor);
   const reachableTiles = useGameStore((s) => s.reachableTiles);
@@ -29,8 +31,8 @@ export function InstancedBattlefield() {
   const setHoveredTile = useGameStore((s) => s.setHoveredTile);
   const handleTileClick = useGameStore((s) => s.handleTileClick);
 
-  const groundFloorTiles = useMemo(() => grid.getFloorTiles(0), [grid]);
-  const upperFloorTiles = useMemo(() => grid.getFloorTiles(1), [grid]);
+  const groundFloorTiles = useMemo(() => grid.getFloorTiles(0), [grid, gridVersion]);
+  const upperFloorTiles = useMemo(() => grid.getFloorTiles(1), [grid, gridVersion]);
   const smokeTiles = useMemo(
     () => {
       void smokeVersion;
@@ -41,6 +43,7 @@ export function InstancedBattlefield() {
 
   // Separate obstacles by floor and type for InstancedMesh rendering + Roof Cutaway
   const obstacles = useMemo(() => {
+    void gridVersion;
     const low0: TileData[] = [];
     const high0: TileData[] = [];
     const pillar0: TileData[] = [];
@@ -62,7 +65,7 @@ export function InstancedBattlefield() {
       }
     }
     return { low0, high0, pillar0, low1, pillar1, ladders };
-  }, [grid]);
+  }, [grid, gridVersion]);
 
   // Refs for InstancedMeshes
   const groundMeshRef = useRef<THREE.InstancedMesh>(null);
@@ -134,6 +137,7 @@ export function InstancedBattlefield() {
       heightOffset: number,
     ) => {
       if (!mesh) return;
+      mesh.count = list.length;
       list.forEach((tile, i) => {
         const [wx, wy, wz] = gridToWorld(tile.coord);
         _dummy.position.set(wx, wy + heightOffset, wz);
@@ -281,7 +285,7 @@ export function InstancedBattlefield() {
       {/* 3. Ground Floor Low Walls (Half Cover) */}
       <instancedMesh
         ref={low0MeshRef}
-        args={[undefined, undefined, Math.max(1, obstacles.low0.length)]}
+        args={[undefined, undefined, 64]}
         count={obstacles.low0.length}
         castShadow
         receiveShadow
@@ -293,7 +297,7 @@ export function InstancedBattlefield() {
       {/* 4. Ground Floor High Walls (Full Cover & LoS Blocker) */}
       <instancedMesh
         ref={high0MeshRef}
-        args={[undefined, undefined, Math.max(1, obstacles.high0.length)]}
+        args={[undefined, undefined, 64]}
         count={obstacles.high0.length}
         castShadow
         receiveShadow
@@ -305,7 +309,7 @@ export function InstancedBattlefield() {
       {/* 5. Ground Floor Stone Pillars */}
       <instancedMesh
         ref={pillar0MeshRef}
-        args={[undefined, undefined, Math.max(1, obstacles.pillar0.length)]}
+        args={[undefined, undefined, 32]}
         count={obstacles.pillar0.length}
         castShadow
         receiveShadow
@@ -317,7 +321,7 @@ export function InstancedBattlefield() {
       {/* 6. Upper Floor Obstacles (Cutaway-aware) */}
       <instancedMesh
         ref={low1MeshRef}
-        args={[undefined, undefined, Math.max(1, obstacles.low1.length)]}
+        args={[undefined, undefined, 32]}
         count={obstacles.low1.length}
         castShadow={!upperCutaway}
         receiveShadow
@@ -335,7 +339,7 @@ export function InstancedBattlefield() {
 
       <instancedMesh
         ref={pillar1MeshRef}
-        args={[undefined, undefined, Math.max(1, obstacles.pillar1.length)]}
+        args={[undefined, undefined, 32]}
         count={obstacles.pillar1.length}
         castShadow={!upperCutaway}
         receiveShadow
@@ -354,7 +358,7 @@ export function InstancedBattlefield() {
       {/* 7. Reachable Movement Zone Tiles (Blue = 1 AP, Yellow = 2 AP Sprint) */}
       <instancedMesh
         ref={zoneMeshRef}
-        args={[undefined, undefined, 256]}
+        args={[undefined, undefined, 512]}
         raycast={() => null}
       >
         <planeGeometry args={[TILE_SIZE * 0.88, TILE_SIZE * 0.88]} />
@@ -405,8 +409,7 @@ export function InstancedBattlefield() {
             key={`smoke-${smokeTile.coord.x}-${smokeTile.coord.y}-${smokeTile.coord.z}`}
             position={[wx, wy, wz]}
           >
-            <mesh position={[-0.18, 0.55, 0.12]}>
-              <sphereGeometry args={[0.58, 12, 12]} />
+            <mesh position={[-0.18, 0.55, 0.12]} scale={[0.58, 0.58, 0.58]} geometry={SMOKE_PUFF_GEO}>
               <meshStandardMaterial
                 color="#cbd5e1"
                 roughness={1}
@@ -415,8 +418,7 @@ export function InstancedBattlefield() {
                 depthWrite={false}
               />
             </mesh>
-            <mesh position={[0.24, 0.78, -0.16]}>
-              <sphereGeometry args={[0.48, 12, 12]} />
+            <mesh position={[0.24, 0.78, -0.16]} scale={[0.48, 0.48, 0.48]} geometry={SMOKE_PUFF_GEO}>
               <meshStandardMaterial
                 color="#94a3b8"
                 roughness={1}
@@ -425,8 +427,7 @@ export function InstancedBattlefield() {
                 depthWrite={false}
               />
             </mesh>
-            <mesh position={[0.04, 1.05, 0.08]}>
-              <sphereGeometry args={[0.4, 10, 10]} />
+            <mesh position={[0.04, 1.05, 0.08]} scale={[0.4, 0.4, 0.4]} geometry={SMOKE_PUFF_GEO}>
               <meshStandardMaterial
                 color="#e2e8f0"
                 roughness={1}

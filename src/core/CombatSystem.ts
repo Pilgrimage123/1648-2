@@ -172,14 +172,11 @@ export function resolveTargetCoverAgainstShot(
   const dx = attackerPos.x - targetPos.x;
   const dz = attackerPos.z - targetPos.z;
 
-  const candidateDirs: CardinalDir[] = [];
-  if (dz < 0) candidateDirs.push("N");
-  if (dz > 0) candidateDirs.push("S");
-  if (dx > 0) candidateDirs.push("E");
-  if (dx < 0) candidateDirs.push("W");
+  const absX = Math.abs(dx);
+  const absZ = Math.abs(dz);
 
   const primaryDir: CardinalDir =
-    Math.abs(dz) >= Math.abs(dx)
+    absZ >= absX
       ? dz <= 0
         ? "N"
         : "S"
@@ -189,6 +186,22 @@ export function resolveTargetCoverAgainstShot(
 
   if (!targetTile) {
     return { cover: "none", incomingDirection: primaryDir };
+  }
+
+  // Započteme primární směr příletu kule. Boční směr zahrneme pouze v případě,
+  // že trajektorie výstřelu má výraznou úhlopříčnou složku (poměr stran >= 0.5),
+  // aby boční zeď neposkytovala krytí proti střelbě téměř kolmo zepředu/zezadu.
+  const candidateDirs: CardinalDir[] = [];
+  candidateDirs.push(primaryDir);
+
+  if (primaryDir === "N" || primaryDir === "S") {
+    if (absX > 0 && absX * 2 >= absZ) {
+      candidateDirs.push(dx > 0 ? "E" : "W");
+    }
+  } else {
+    if (absZ > 0 && absZ * 2 >= absX) {
+      candidateDirs.push(dz < 0 ? "N" : "S");
+    }
   }
 
   const rank: Record<CoverLevel, number> = { none: 0, half: 1, full: 2 };

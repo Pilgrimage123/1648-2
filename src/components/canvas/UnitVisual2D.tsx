@@ -3,13 +3,17 @@
  * Uses <Billboard> from @react-three/drei with <mesh castShadow receiveShadow>,
  * alphaTest={0.5}, and a custom RGBADepthPacking depth material so 2D sprites
  * cast real 3D silhouette shadows onto the multi-floor battlefield.
+ * Shares GPU texture and depth material caches across all units to avoid VRAM leaks.
  */
 
 import { Billboard } from "@react-three/drei";
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import * as THREE from "three";
 import type { Faction, UnitArchetype } from "../../core/types";
-import { getProceduralSpriteDataUri } from "../../utils/proceduralSprites";
+import {
+  getSharedDepthMaterial,
+  getSharedSpriteTexture,
+} from "../../utils/proceduralSprites";
 
 interface UnitVisual2DProps {
   archetype: UnitArchetype;
@@ -24,29 +28,15 @@ export function UnitVisual2D({
   hitFlashIntensity,
   opacity = 1,
 }: UnitVisual2DProps) {
-  const texture = useMemo(() => {
-    const uri = getProceduralSpriteDataUri(archetype);
-    const loader = new THREE.TextureLoader();
-    const tex = loader.load(uri);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.minFilter = THREE.LinearFilter;
-    tex.magFilter = THREE.LinearFilter;
-    return tex;
-  }, [archetype]);
+  const texture = useMemo(
+    () => getSharedSpriteTexture(archetype),
+    [archetype],
+  );
 
-  const depthMaterial = useMemo(() => {
-    return new THREE.MeshDepthMaterial({
-      depthPacking: THREE.RGBADepthPacking,
-      map: texture,
-      alphaTest: 0.5,
-    });
-  }, [texture]);
-
-  useEffect(() => {
-    return () => {
-      depthMaterial.dispose();
-    };
-  }, [depthMaterial]);
+  const depthMaterial = useMemo(
+    () => getSharedDepthMaterial(archetype),
+    [archetype],
+  );
 
   const emissiveColor =
     hitFlashIntensity > 0.05
@@ -56,7 +46,9 @@ export function UnitVisual2D({
         : "#101b2e";
 
   return (
-    <Billboard follow={true} lockX={false} lockY={false} lockZ={false}>
+    // lockX={true} and lockZ={true} keep the miniature figurine standing vertically upright on the floor
+    // while turning horizontally (yaw) toward the camera, producing authentic grounded 3D shadows.
+    <Billboard follow={true} lockX={true} lockY={false} lockZ={true}>
       <mesh
         position={[0, 0.92, 0]}
         castShadow
@@ -72,7 +64,9 @@ export function UnitVisual2D({
           roughness={0.55}
           metalness={0.1}
           emissive={emissiveColor}
-          emissiveIntensity={hitFlashIntensity > 0.05 ? hitFlashIntensity * 1.8 : 0.18}
+          emissiveIntensity={
+            hitFlashIntensity > 0.05 ? hitFlashIntensity * 1.8 : 0.18
+          }
           side={THREE.DoubleSide}
         />
       </mesh>

@@ -14,10 +14,15 @@ import { useGameStore } from "./store/useGameStore";
 export default function App() {
   const outcome = useGameStore((s) => s.outcome);
   const round = useGameStore((s) => s.round);
+  const actionMode = useGameStore((s) => s.actionMode);
   const resetGame = useGameStore((s) => s.resetGame);
 
-  // Globální klávesové zkratky pro Režim míření (XCOM-2 Aiming HUD):
-  // - Tab / Shift+Tab: Plynulé přepínání viditelných cílů v Target Ribbon
+  // Globální klávesové zkratky pro taktické velení a Režim míření (XCOM-2 Style):
+  // - 1: Režim pohybu
+  // - 2: Režim střelby (pokud jsou viditelné cíle)
+  // - 3: Overwatch (hlídkování)
+  // - 4: Hod granátem / petardou
+  // - Tab / Shift+Tab: Plynulé přepínání cílů v Target Ribbon
   // - F1: Rozbalení / sbalení postranních křídel matematického rozpisu (Breakdown Wings)
   // - Enter / Space: Potvrzení výstřelu v Režimu míření
   // - Escape: Návrat z Režimu míření nebo granátu zpět do pohybu
@@ -41,6 +46,32 @@ export default function App() {
         e.preventDefault();
         state.toggleBreakdown();
         return;
+      }
+
+      // Klávesové zkratky akcí (1 = Pohyb, 2 = Střelba, 3 = Overwatch, 4 = Granát)
+      if (state.turn === "player" && !state.isBusy) {
+        if (e.key === "1") {
+          e.preventDefault();
+          state.setActionMode("move");
+          return;
+        }
+        if (e.key === "2") {
+          e.preventDefault();
+          if (state.visibleTargets.length > 0) {
+            state.setActionMode("shoot");
+          }
+          return;
+        }
+        if (e.key === "3") {
+          e.preventDefault();
+          state.activateOverwatch();
+          return;
+        }
+        if (e.key === "4") {
+          e.preventDefault();
+          state.setActionMode("grenade");
+          return;
+        }
       }
 
       if (e.key === "Tab" && state.turn === "player" && !state.isBusy) {
@@ -77,16 +108,21 @@ export default function App() {
         <TacticalScene />
       </div>
 
-      {/* 2. Taktické UI a XCOM-2 Aiming HUD (Target Ribbon + Breakdown Wings) */}
+      {/* 2. Taktické UI a XCOM-2 Aiming HUD */}
       <div className="pointer-events-none absolute inset-0 flex flex-col justify-between z-10">
         <TopBar />
 
-        {/* Střední/spodní plovoucí zóna pro Aiming HUD a Target Ribbon */}
-        <div className="flex-1 flex flex-col justify-end overflow-hidden">
-          <TargetingHud />
-        </div>
-
-        <BottomCommandPanel />
+        {/* Spodní zóna: v režimu střelby dominuje Aiming HUD (s Target Ribbon u dolního okraje),
+            v běžném režimu standardní velitelský panel */}
+        {actionMode === "shoot" ? (
+          <div className="flex-1 flex flex-col justify-end pb-3 overflow-hidden">
+            <TargetingHud />
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col justify-end overflow-hidden">
+            <BottomCommandPanel />
+          </div>
+        )}
       </div>
 
       {/* 3. Modální okno výsledku mise */}
@@ -113,7 +149,7 @@ export default function App() {
             <button
               type="button"
               onClick={resetGame}
-              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-sm uppercase tracking-wider shadow-lg transition-colors"
+              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-sm uppercase tracking-wider shadow-lg transition-colors cursor-pointer"
             >
               <RotateCcw className="w-4 h-4" />
               <span>Hrát znovu</span>
