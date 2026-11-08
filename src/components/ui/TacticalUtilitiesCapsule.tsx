@@ -9,6 +9,7 @@
 
 import {
   Box,
+  GraduationCap,
   Image as ImageIcon,
   Layers,
   RotateCcw,
@@ -20,8 +21,11 @@ import { useGameStore } from "../../store/useGameStore";
 export function TacticalUtilitiesCapsule() {
   const activeFloor = useGameStore((s) => s.activeFloor);
   const renderMode = useGameStore((s) => s.renderMode);
+  const tutorialStep = useGameStore((s) => s.tutorialStep);
+  const tutorialDismissed = useGameStore((s) => s.tutorialDismissed);
   const toggleFloor = useGameStore((s) => s.toggleFloor);
   const toggleRenderMode = useGameStore((s) => s.toggleRenderMode);
+  const toggleTutorial = useGameStore((s) => s.toggleTutorial);
   const rotateCamera = useGameStore((s) => s.rotateCamera);
   const resetGame = useGameStore((s) => s.resetGame);
 
@@ -88,7 +92,29 @@ export function TacticalUtilitiesCapsule() {
         </span>
       </button>
 
-      {/* 4. Restart mise */}
+      {/* 4. Taktický rádce / Tutoriál (klávesa H) */}
+      <button
+        type="button"
+        onClick={toggleTutorial}
+        title={
+          tutorialDismissed
+            ? "Otevřít taktického rádce (klávesa H)"
+            : "Skrýt taktického rádce (klávesa H)"
+        }
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-xs font-bold transition-all ${
+          !tutorialDismissed && tutorialStep !== null
+            ? "bg-amber-500/25 border-amber-400 text-amber-200 shadow-sm"
+            : "bg-slate-900/80 border-slate-800 text-slate-400 hover:text-white"
+        }`}
+      >
+        <GraduationCap className="w-3.5 h-3.5 text-amber-400" />
+        <span className="hidden sm:inline">Rádce</span>
+        <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-amber-300 font-mono border border-slate-700">
+          H
+        </span>
+      </button>
+
+      {/* 5. Restart mise */}
       <button
         type="button"
         onClick={resetGame}

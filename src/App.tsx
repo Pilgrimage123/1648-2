@@ -9,6 +9,7 @@ import { TacticalScene } from "./components/canvas/TacticalScene";
 import { CombatChronicleFeed } from "./components/ui/CombatChronicleFeed";
 import { MissionStatusChip } from "./components/ui/MissionStatusChip";
 import { TacticalActionRibbon } from "./components/ui/TacticalActionRibbon";
+import { TacticalAdvisorWidget } from "./components/ui/TacticalAdvisorWidget";
 import { TacticalUtilitiesCapsule } from "./components/ui/TacticalUtilitiesCapsule";
 import { TurnSplashBanner } from "./components/ui/TurnSplashBanner";
 import { useGameStore } from "./store/useGameStore";
@@ -63,6 +64,13 @@ export default function App() {
       if (e.key === "m" || e.key === "M") {
         e.preventDefault();
         state.toggleRenderMode();
+        return;
+      }
+
+      // H: Přepínání Taktického rádce (Tutoriál)
+      if (e.key === "h" || e.key === "H") {
+        e.preventDefault();
+        state.toggleTutorial();
         return;
       }
 
@@ -148,9 +156,10 @@ export default function App() {
       <TurnSplashBanner />
 
       {/* 3. Plovoucí periferní HUD widgety (XCOM Architecture) */}
-      {/* Levý horní roh: Stav mise, kolo a počasí */}
-      <div className="pointer-events-none absolute top-3 left-3 z-20">
+      {/* Levý horní roh: Stav mise, kolo, počasí a Taktický rádce (Tutorial) */}
+      <div className="pointer-events-none absolute top-3 left-3 z-20 flex flex-col gap-2.5">
         <MissionStatusChip />
+        <TacticalAdvisorWidget />
       </div>
 
       {/* Pravý horní roh: Kapsle nástrojů kamery, pater a 2D/3D zobrazení */}

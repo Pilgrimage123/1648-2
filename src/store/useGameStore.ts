@@ -90,6 +90,13 @@ interface GameStoreState {
   unitFx: Record<string, UnitVisualFX>;
   combatLog: CombatLogEntry[];
 
+  // Tutoriál a Taktický rádce (Mission 1 Onboarding)
+  tutorialStep: 1 | 2 | 3 | 4 | null;
+  tutorialDismissed: boolean;
+  setTutorialStep: (step: 1 | 2 | 3 | 4 | null) => void;
+  advanceTutorialStep: () => void;
+  toggleTutorial: () => void;
+
   // Akce UI Controlleru a herní smyčky
   selectUnit: (unitId: string) => void;
   setActiveFloor: (floor: FloorLevel) => void;
@@ -562,6 +569,27 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       ),
     ],
 
+    tutorialStep: 1,
+    tutorialDismissed: false,
+
+    setTutorialStep: (step: 1 | 2 | 3 | 4 | null) => {
+      set({ tutorialStep: step });
+    },
+
+    advanceTutorialStep: () => {
+      set((s) => {
+        if (s.tutorialStep === null) return { tutorialStep: 1 };
+        if (s.tutorialStep < 4) {
+          return { tutorialStep: (s.tutorialStep + 1) as 1 | 2 | 3 | 4 };
+        }
+        return { tutorialStep: null };
+      });
+    },
+
+    toggleTutorial: () => {
+      set((s) => ({ tutorialDismissed: !s.tutorialDismissed }));
+    },
+
     selectUnit: (unitId: string) => {
       const state = get();
       if (state.isBusy || state.turn !== "player") return;
@@ -838,6 +866,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                 }
               : u,
           );
+          const syncedUnits = syncColloredoMobility(updatedUnits);
           const climbNote =
             finalStep.y !== unit.pos.y
               ? finalStep.y === 1
@@ -846,9 +875,19 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               : "";
           const zoneNote =
             reach.zone === "yellow" ? "Sprint (2 AP)" : "Přesun (1 AP)";
+
+          // Tutoriál: Krok 1 (Pohyb & Eskorta) automaticky přejde na Krok 2,
+          // jakmile hráč pohne jednotkou a Colloredo získá doprovod (+2 k pohybu)
+          const colloredo = syncedUnits.find((u) => u.id === "player-colloredo");
+          const nextTutorialStep =
+            s.tutorialStep === 1 && colloredo && colloredo.movePerAp === 5
+              ? (2 as const)
+              : s.tutorialStep;
+
           return {
-            units: updatedUnits,
+            units: syncedUnits,
             activeFloor: finalStep.y,
+            tutorialStep: nextTutorialStep,
             combatLog: [
               ...s.combatLog,
               makeLog(
@@ -1062,11 +1101,19 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             newLogs.push(makeLog(s.round, "player", kegLog, "alert"));
           }
 
+          const nextTutorialStep =
+            s.tutorialStep === 2
+              ? (3 as const)
+              : kegDetonated && s.tutorialStep === 3
+                ? (4 as const)
+                : s.tutorialStep;
+
           return {
             isBusy: false,
             gridVersion: kegDetonated ? s.gridVersion + 1 : s.gridVersion,
             smokeVersion: s.smokeVersion + (kegDetonated ? 2 : 1),
             units: finalUnits,
+            tutorialStep: nextTutorialStep,
             activeProjectile: null,
             actionMode: "move",
             activeFloor: attacker.pos.y,
@@ -1213,11 +1260,15 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               ? ` + ODPÁLENO ${blast.detonatedKegs.length} PRACHOVÝCH SUDŮ!`
               : "";
 
+          const nextTutorialStep =
+            s.tutorialStep === 3 ? (4 as const) : s.tutorialStep;
+
           return {
             isBusy: false,
             gridVersion: s.gridVersion + 1,
             smokeVersion: s.smokeVersion + 1,
             units: updatedUnits,
+            tutorialStep: nextTutorialStep,
             activeProjectile: null,
             actionMode: "move",
             outcome: outcomeCheck.outcome,
@@ -1574,6 +1625,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         smokeVersion: s.smokeVersion + 1,
         outcome: "ongoing",
         victoryReason: null,
+        tutorialStep: 1,
+        tutorialDismissed: false,
         selectedUnitId: firstId,
         activeFloor: 0,
         actionMode: "move",

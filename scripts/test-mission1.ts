@@ -11,7 +11,7 @@ import {
   WEAPON_CATALOG,
 } from "../src/core/GridSystem.ts";
 import { computeReachableTiles } from "../src/core/Pathfinding.ts";
-import { syncColloredoMobility } from "../src/store/useGameStore.ts";
+import { syncColloredoMobility, useGameStore } from "../src/store/useGameStore.ts";
 
 console.log("=== TEST MISSION 1: ESCAPE OF MARSHAL COLLOREDO ===");
 
@@ -105,5 +105,36 @@ const reachTiles = computeReachableTiles(grid, colloredo!, units);
 assert(reachTiles.size > 0, "Colloredo must have reachable tiles");
 
 console.log(`✓ Reachable tiles computed: ${reachTiles.size} tiles.`);
+
+// 7. Test Mission 1 Tutorial & Tactical Advisor Progression
+const initialStore = useGameStore.getState();
+assert(initialStore.tutorialStep === 1, "Tutorial must start at step 1 for Mission 1");
+assert(initialStore.tutorialDismissed === false, "Tutorial must not be dismissed initially");
+
+initialStore.advanceTutorialStep();
+assert(useGameStore.getState().tutorialStep === 2, "advanceTutorialStep should advance to step 2");
+
+initialStore.advanceTutorialStep();
+assert(useGameStore.getState().tutorialStep === 3, "advanceTutorialStep should advance to step 3");
+
+initialStore.advanceTutorialStep();
+assert(useGameStore.getState().tutorialStep === 4, "advanceTutorialStep should advance to step 4");
+
+initialStore.advanceTutorialStep();
+assert(useGameStore.getState().tutorialStep === null, "advanceTutorialStep on step 4 should finish tutorial");
+
+initialStore.setTutorialStep(1);
+assert(useGameStore.getState().tutorialStep === 1, "setTutorialStep should jump directly to step 1");
+
+initialStore.toggleTutorial();
+assert(useGameStore.getState().tutorialDismissed === true, "toggleTutorial should dismiss tutorial");
+initialStore.toggleTutorial();
+assert(useGameStore.getState().tutorialDismissed === false, "toggleTutorial should restore tutorial");
+
+initialStore.resetGame();
+assert(useGameStore.getState().tutorialStep === 1, "resetGame must reset tutorialStep to 1");
+assert(useGameStore.getState().tutorialDismissed === false, "resetGame must reset tutorialDismissed to false");
+
+console.log("✓ Tutorial state machine (Tactical Advisor progression, toggle, reset) validated.");
 
 console.log("=== ALL MISSION 1 TESTS PASSED SUCCESSFULLY! ===");

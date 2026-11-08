@@ -30,6 +30,14 @@ _Avoid_: Turn alert popup, turn modal
 The 3D in-world cursor projection displaying anticipated cover shield (full, half, or flanked) against visible enemies alongside action point expenditure (`1 AP` move vs. `2 AP` dash) before moving.
 _Avoid_: Cursor tooltip, tile highlight info
 
+**Tactical Advisor Widget** (*Taktický rádce*):
+The collapsible floating HUD card anchored in the upper-left area providing progressive diegetic guidance from the Marshal's escort, tutorial step milestones, and dual keyboard/mouse action prompts.
+_Avoid_: Tutorial popup, help box, walk-through dialog
+
+**Tutorial Waypoint Beacon** (*Naváděcí maják tutoriálu*):
+The pulsing 3D in-world ring indicator highlighting recommended action tiles (escort positioning, explosive keg targets, or the fisherman's skiff) during active tutorial milestones.
+_Avoid_: Mission pointer, quest arrow
+
 ### Architecture & Rendering
 
 **Grid Coordinate** (`GridCoord`):

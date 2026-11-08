@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - 2026-11-08
 
 ### Added
+- **Diegetic Floating Tutorial Architecture & Mission 1 Onboarding (ADR-0005)**:
+  - **Tactical Advisor Widget (`TacticalAdvisorWidget.tsx`)**:
+    - Floating, non-blocking HUD card anchored in the upper-left directly below `MissionStatusChip`.
+    - Authentic period voices (valet Martin and armorer Jakub) giving urgent diegetic instructions alongside clear tactical advice and key shortcut badges (`[1]`, `[2]`, `[Tab]`, `[F1]`, `[4]`, `[F]`).
+    - 4 progressive milestones explaining core mechanics:
+      - *Step 1: Pohyb & Eskorta*: Explaining AP movement zones (1 AP move vs. 2 AP sprint), Colloredo's Lützen wound handicap (3 AP), and moving valet Martin adjacent to restore full mobility (5 AP).
+      - *Step 2: Krytí, Obchvat & Míření*: Explaining half/full cover, flanking bonuses (+40% crit), aim mode (`[2]`), target cycling (`[Tab]`), and inspecting mathematical modifiers via Breakdown Wings (`[F1]`).
+      - *Step 3: Počasí & Prachové sudy*: Explaining matchlock vs. wheellock reliability in rain, and throwing Jakub's petard (`[4]`) or shooting to detonate powder kegs on 3×3 AoE.
+      - *Step 4: Patra & Únik*: Explaining floor cutaway (`[F]`), elevated roof sentries (+10% height bonus), and guiding Colloredo to the fisherman's skiff on Čertovka.
+    - Dual progression: steps advance automatically upon completing actions or can be navigated manually via `[Další krok →]` / `[← Zpět]`.
+    - Collapsible and togglable at any time using keyboard shortcut `[H]` or the graduation cap icon in `TacticalUtilitiesCapsule`.
+  - **Tutorial Waypoint Beacon (`InstancedBattlefield.tsx`)**:
+    - Pulsing 3D in-world gold and emerald glowing rings and floating `<Html>` badges highlighting recommended target tiles for each active milestone (Step 1 escort support tile at `[7, 0, 14]`, Step 3 powder keg at `[5, 0, 8]`, and Step 4 fisherman's skiff at `[1, 0, 2]`).
+  - **Action Ribbon Glowing Highlights (`TacticalActionRibbon.tsx`)**:
+    - Recommended action buttons pulse with an animated golden border glow (`[1] Move` in Step 1, `[2] Shoot` & `[F1]` in Step 2, `[4] Grenade` in Step 3).
+
 - **Mission 1: Escape of Grand Prior Rudolf Count Colloredo-Wallsee (Útěk z Velkopřevorského paláce)**:
   - **Authentic Historical Setting & Objectives**:
     - July 26, 1648, 02:30 AM: Ernst Odowalsky betrays Prague, breaching Strahov gate for Königsmarck's Swedish cavalry.

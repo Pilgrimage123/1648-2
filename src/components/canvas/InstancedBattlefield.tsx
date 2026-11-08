@@ -5,8 +5,8 @@
  */
 
 import { Html, Line } from "@react-three/drei";
-import { type ThreeEvent } from "@react-three/fiber";
-import { Shield, ShieldAlert, ShieldOff } from "lucide-react";
+import { type ThreeEvent, useFrame } from "@react-three/fiber";
+import { Shield, ShieldAlert, ShieldOff, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { gridDistance3D } from "../../core/CombatSystem";
@@ -18,6 +18,88 @@ import { FLOOR_HEIGHT, gridToWorld, TILE_SIZE } from "./worldCoords";
 const _dummy = new THREE.Object3D();
 const _color = new THREE.Color();
 const SMOKE_PUFF_GEO = new THREE.SphereGeometry(1, 10, 10);
+
+function TutorialWaypointBeacon({
+  coord,
+  label,
+  accentColor = "#fbbf24",
+}: {
+  coord: GridCoord;
+  label: string;
+  accentColor?: string;
+}) {
+  const ringRef = useRef<THREE.Mesh>(null);
+  const outerRingRef = useRef<THREE.Mesh>(null);
+
+  useFrame(({ clock }) => {
+    const t = clock.getElapsedTime();
+    if (ringRef.current) {
+      const s = 1 + Math.sin(t * 3.5) * 0.12;
+      ringRef.current.scale.set(s, s, 1);
+      (ringRef.current.material as THREE.MeshBasicMaterial).opacity =
+        0.65 + Math.sin(t * 3.5) * 0.25;
+    }
+    if (outerRingRef.current) {
+      const s = 1 + Math.cos(t * 2) * 0.18;
+      outerRingRef.current.scale.set(s, s, 1);
+    }
+  });
+
+  const [wx, wy, wz] = gridToWorld(coord);
+
+  return (
+    <group position={[wx, wy, wz]}>
+      {/* Vnitřní pulzující zlatý prstenec */}
+      <mesh
+        ref={ringRef}
+        position={[0, 0.05, 0]}
+        rotation={[-Math.PI * 0.5, 0, 0]}
+      >
+        <ringGeometry args={[TILE_SIZE * 0.32, TILE_SIZE * 0.44, 24]} />
+        <meshBasicMaterial
+          color={accentColor}
+          transparent
+          opacity={0.8}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+        />
+      </mesh>
+
+      {/* Vnější rotující majákový prstenec */}
+      <mesh
+        ref={outerRingRef}
+        position={[0, 0.045, 0]}
+        rotation={[-Math.PI * 0.5, 0, 0]}
+      >
+        <ringGeometry args={[TILE_SIZE * 0.48, TILE_SIZE * 0.52, 24]} />
+        <meshBasicMaterial
+          color={accentColor}
+          transparent
+          opacity={0.35}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+        />
+      </mesh>
+
+      {/* Plovoucí 3D štítek s popisem cíle */}
+      <Html
+        center
+        position={[0, 1.15, 0]}
+        distanceFactor={18}
+        zIndexRange={[15, 0]}
+        style={{ pointerEvents: "none" }}
+        className="pointer-events-none select-none"
+      >
+        <div className="pointer-events-none select-none flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-950/90 border border-amber-400 backdrop-blur-md shadow-[0_0_15px_rgba(251,191,36,0.5)] text-slate-100 whitespace-nowrap animate-bounce">
+          <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span className="text-[11px] font-black text-amber-300 tracking-wide uppercase font-serif">
+            {label}
+          </span>
+        </div>
+      </Html>
+    </group>
+  );
+}
 
 export function InstancedBattlefield() {
   const grid = useGameStore((s) => s.grid);
@@ -32,6 +114,38 @@ export function InstancedBattlefield() {
   const units = useGameStore((s) => s.units);
   const setHoveredTile = useGameStore((s) => s.setHoveredTile);
   const handleTileClick = useGameStore((s) => s.handleTileClick);
+  const tutorialStep = useGameStore((s) => s.tutorialStep);
+  const tutorialDismissed = useGameStore((s) => s.tutorialDismissed);
+
+  const waypoint = useMemo<{
+    coord: GridCoord;
+    label: string;
+    color: string;
+  } | null>(() => {
+    if (tutorialDismissed || tutorialStep === null) return null;
+    if (tutorialStep === 1) {
+      return {
+        coord: { x: 7, y: 0, z: 14 },
+        label: "Podepřít maršála (+2 AP)",
+        color: "#fbbf24",
+      };
+    }
+    if (tutorialStep === 3) {
+      return {
+        coord: { x: 5, y: 0, z: 8 },
+        label: "Prachový sud (Odpálit!)",
+        color: "#f97316",
+      };
+    }
+    if (tutorialStep === 4) {
+      return {
+        coord: { x: 1, y: 0, z: 2 },
+        label: "Rybářská pramice (Cíl)",
+        color: "#38bdf8",
+      };
+    }
+    return null;
+  }, [tutorialDismissed, tutorialStep]);
 
   const groundFloorTiles = useMemo(() => grid.getFloorTiles(0), [grid, gridVersion]);
   const upperFloorTiles = useMemo(() => grid.getFloorTiles(1), [grid, gridVersion]);
@@ -611,6 +725,15 @@ export function InstancedBattlefield() {
           points={pathPoints}
           color={hoveredReachable?.zone === "yellow" ? "#facc15" : "#38bdf8"}
           lineWidth={3.5}
+        />
+      )}
+
+      {/* 11. Tutorial Waypoint Beacon */}
+      {waypoint && (
+        <TutorialWaypointBeacon
+          coord={waypoint.coord}
+          label={waypoint.label}
+          accentColor={waypoint.color}
         />
       )}
     </group>

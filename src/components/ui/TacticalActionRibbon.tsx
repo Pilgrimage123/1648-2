@@ -83,6 +83,8 @@ export function TacticalActionRibbon() {
   const actionMode = useGameStore((s) => s.actionMode);
   const visibleTargets = useGameStore((s) => s.visibleTargets);
   const breakdownOpen = useGameStore((s) => s.breakdownOpen);
+  const tutorialStep = useGameStore((s) => s.tutorialStep);
+  const tutorialDismissed = useGameStore((s) => s.tutorialDismissed);
 
   const selectUnit = useGameStore((s) => s.selectUnit);
   const setActionMode = useGameStore((s) => s.setActionMode);
@@ -112,6 +114,12 @@ export function TacticalActionRibbon() {
     ? units.find((u) => u.id === activeEval.targetId)
     : null;
   const calc = activeEval?.calculation ?? null;
+
+  // Zvýraznění doporučených akcí tutoriálu
+  const isTutorialActive = !tutorialDismissed && tutorialStep !== null;
+  const isStep1Highlight = isTutorialActive && tutorialStep === 1;
+  const isStep2Highlight = isTutorialActive && tutorialStep === 2;
+  const isStep3Highlight = isTutorialActive && tutorialStep === 3;
 
   return (
     <footer
@@ -154,9 +162,11 @@ export function TacticalActionRibbon() {
                 onClick={toggleBreakdown}
                 title="Rozbalit / sbalit detailní rozpad modifikátorů (klávesa F1)"
                 className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-extrabold uppercase tracking-wider transition-all ${
-                  breakdownOpen
-                    ? "bg-amber-500/20 border-amber-400 text-amber-200"
-                    : "bg-slate-900 border-slate-700 text-slate-300 hover:border-amber-400/60"
+                  isStep2Highlight
+                    ? "bg-amber-500/30 border-amber-300 text-amber-200 ring-2 ring-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.5)] animate-pulse"
+                    : breakdownOpen
+                      ? "bg-amber-500/20 border-amber-400 text-amber-200"
+                      : "bg-slate-900 border-slate-700 text-slate-300 hover:border-amber-400/60"
                 }`}
               >
                 <ChevronLeft className="w-3 h-3" />
@@ -550,6 +560,10 @@ export function TacticalActionRibbon() {
                     actionMode === "move" && canCommand && hasAp
                       ? "bg-sky-600 border-sky-300 text-white shadow-lg"
                       : "bg-slate-900/80 border-slate-800 text-slate-300 hover:border-slate-700 disabled:opacity-40"
+                  } ${
+                    isStep1Highlight && canCommand && hasAp
+                      ? "ring-2 ring-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.6)] animate-pulse"
+                      : ""
                   }`}
                 >
                   <Footprints className="w-4 h-4 mb-0.5" />
@@ -570,6 +584,10 @@ export function TacticalActionRibbon() {
                     actionMode === "shoot"
                       ? "bg-red-600 border-red-300 text-white shadow-lg"
                       : "bg-slate-900/80 border-slate-800 text-slate-200 hover:border-red-400 disabled:opacity-40"
+                  } ${
+                    isStep2Highlight && canCommand && hasAp && visibleTargets.length > 0
+                      ? "ring-2 ring-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.6)] animate-pulse"
+                      : ""
                   }`}
                 >
                   <Crosshair className="w-4 h-4 text-red-400 mb-0.5" />
@@ -606,6 +624,10 @@ export function TacticalActionRibbon() {
                     actionMode === "grenade"
                       ? "bg-orange-600 border-orange-300 text-white shadow-lg"
                       : "bg-slate-900/80 border-slate-800 text-slate-200 hover:border-orange-400 disabled:opacity-40"
+                  } ${
+                    isStep3Highlight && canCommand && hasAp && (selectedUnit?.grenades ?? 0) > 0
+                      ? "ring-2 ring-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.6)] animate-pulse"
+                      : ""
                   }`}
                 >
                   <Bomb className="w-4 h-4 text-orange-400 mb-0.5" />
