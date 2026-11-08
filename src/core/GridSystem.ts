@@ -562,10 +562,10 @@ export function createInitialUnits(): UnitData[] {
       alive: true,
     },
 
-    // 2. Osobní komorník Martin (pomáhá maršálovi s pohybem)
+    // 2. Osobní komorník Jan Matěj (pomáhá maršálovi s pohybem)
     {
-      id: "player-martin",
-      name: "Komorník Martin",
+      id: "player-jan-matej",
+      name: "Jan Matěj",
       roleTitle: "Osobní komorník (Kolečková karabina)",
       faction: "player",
       archetype: "ranger",
@@ -587,11 +587,11 @@ export function createInitialUnits(): UnitData[] {
       alive: true,
     },
 
-    // 3. Mladý maltézský páže Václav (Klementinský student)
+    // 3. Václav z Michalovic (Klementinský student a osobní písař velkopřevora)
     {
-      id: "player-vaclav",
-      name: "Páže Václav",
-      roleTitle: "Maltézský páže (Furketa & Doutnák)",
+      id: "player-vaclav-michalovic",
+      name: "Václav z Michalovic",
+      roleTitle: "Klementinský klerik & písař (Furketa & Doutnák)",
       faction: "player",
       archetype: "sniper",
       pos: { x: 9, y: 0, z: 14 },
@@ -612,11 +612,11 @@ export function createInitialUnits(): UnitData[] {
       alive: true,
     },
 
-    // 4. Mistr Jakub (Palácový zbrojíř a kovář)
+    // 4. Bratr Bartoloměj (Maltézský zbrojmistr a palácový vartýř)
     {
-      id: "player-jakub",
-      name: "Mistr Jakub",
-      roleTitle: "Palácový zbrojíř (Arkebuza & Těžký kyrys)",
+      id: "player-bartolomej",
+      name: "Bratr Bartoloměj",
+      roleTitle: "Maltézský zbrojmistr (Arkebuza & Těžký kyrys)",
       faction: "player",
       archetype: "ranger",
       pos: { x: 8, y: 0, z: 12 },

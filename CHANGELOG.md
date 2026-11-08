@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - 2026-11-08
 
 ### Added
+- **Paradoxical Martyrdom & Induction into the Clementinum Iron Vigil (ADR-0006)**:
+  - **Three Historically Grounded Companion Personas**:
+    - `Jan Matěj` (*Osobní komorník*): Colloredo's faithful valet assisting his mobility handicap with wheellock carbine.
+    - `Bratr Bartoloměj` (*Maltézský zbrojmistr & konventní vartýř*): Heavy armor, blunderbuss, and petards.
+    - `Václav z Michalovic` (*Klementinský klerik & písař*): Student of philosophy at the Jesuit Clementinum university and Grand Prior scribe, marksman with musket and rest fork.
+  - **Paradoxical Martyrdom Dilemma Modal (`App.tsx`)**:
+    - Triggered upon extraction at the Čertovka dock (`[1, 0, 2]`) when Odowalsky's Swedish cavalry closes in.
+    - Player must designate which companion stays behind at the palace gate to detonate the powder barrels.
+    - **The Narrative Twist**: The two companions on the skiff take the Swedish bullets shielding Colloredo and perish upon arrival on the Old Town bank. The sacrificed companion miraculously survives the explosion, swims the Vltava, and is found on the steps of the Clementinum by Father Jiří Plachý.
+  - **The Iron Vigil (*Železná vigilie*) Archetype Perks**:
+    - The sole survivor is inducted into the clandestine Iron Vigil, permanently unlocking an exclusive perk based on his identity:
+      - Jan Matěj: *Ocelová věrnost* (+20% shock/panic resistance, +1 AP when rescuing a downed ally).
+      - Bratr Bartoloměj: *Maltézský pyrotechnik* (+2 grenade throw range, +1 powder keg blast damage).
+      - Václav z Michalovic: *Klementinský zápal* (+10% height accuracy, 0% misfire chance in rain).
+  - **Updated Tactical Advisor & Lore Voices (`TacticalAdvisorWidget.tsx`)**:
+    - Dialogue and tactical tips now voiced by Jan Matěj (Steps 1–2) and Bratr Bartoloměj (Steps 3–4), foreshadowing the sacrificial choice at the canal.
+
 - **Diegetic Floating Tutorial Architecture & Mission 1 Onboarding (ADR-0005)**:
   - **Tactical Advisor Widget (`TacticalAdvisorWidget.tsx`)**:
     - Floating, non-blocking HUD card anchored in the upper-left directly below `MissionStatusChip`.

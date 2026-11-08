@@ -100,6 +100,14 @@ Armor points (`armor / maxArmor`) worn by 17th-century soldiers (cuirass, morion
 
 ### Mission 1: Escape of the Grand Prior (Mise 1: Útěk polního maršála)
 
+**Železná vigilie** (*The Iron Vigil / Fidelitas Ferrea*):
+The clandestine elite shock brotherhood forged by Jesuit Father Jiří Plachý in the Clementinum, binding university students, seasoned veterans, burghers, artisans, and Prague underworld fighters by a blood-and-iron oath to defend the Old Town Bridge Tower and Charles Bridge to the last drop of blood.
+_Avoid_: Jesuit militia, student guard, holy order
+
+**Paradoxical Martyrdom** (*Paradoxní oběť*):
+The tactical and narrative dilemma where the player chooses which escort companion stays behind to hold the palace gate in a suicidal rear-guard action; that companion miraculously survives the carnage, while the other two who boarded the escape skiff perish shielding Marshal Colloredo from Swedish riverbank fire, forging the lone survivor into the Iron Vigil.
+_Avoid_: Random death, scripted casualty, cutscene wipe
+
 **Rybářská pramice** (*Fisherman's Skiff / Úniková zóna*):
 The wooden skiff moored at the Čertovka canal dock (`x: 1, z: 2`) serving as the extraction objective for Field Marshal Rudolf Count Colloredo-Wallsee.
 

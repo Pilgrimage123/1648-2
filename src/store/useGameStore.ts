@@ -97,6 +97,12 @@ interface GameStoreState {
   advanceTutorialStep: () => void;
   toggleTutorial: () => void;
 
+  // Paradoxní oběť a Železná vigilie (Mission 1 Climax)
+  sacrificeDilemmaOpen: boolean;
+  sacrificedHeroId: string | null;
+  ironVigilPerk: { name: string; desc: string; heroName: string } | null;
+  chooseSacrifice: (heroId: string) => void;
+
   // Akce UI Controlleru a herní smyčky
   selectUnit: (unitId: string) => void;
   setActiveFloor: (floor: FloorLevel) => void;
@@ -590,6 +596,58 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       set((s) => ({ tutorialDismissed: !s.tutorialDismissed }));
     },
 
+    sacrificeDilemmaOpen: false,
+    sacrificedHeroId: null,
+    ironVigilPerk: null,
+
+    chooseSacrifice: (heroId: string) => {
+      const state = get();
+      const hero = state.units.find((u) => u.id === heroId);
+      const heroName = hero?.name ?? "Věrný společník";
+
+      let perk = {
+        name: "Ocelová věrnost",
+        desc: "+20 % odolnost proti šoku a panice, +1 AP při záchraně raněného druha",
+        heroName,
+      };
+      if (heroId === "player-bartolomej") {
+        perk = {
+          name: "Maltézský pyrotechnik",
+          desc: "+2 k dosahu vrhání granátů, výbuchy prachu způsobují o +1 vyšší poškození",
+          heroName,
+        };
+      } else if (heroId === "player-vaclav-michalovic") {
+        perk = {
+          name: "Klementinský zápal",
+          desc: "+10 % k přesnosti při střelbě z vyvýšených míst / věže, 0 % šance na selhání zbraně v dešti",
+          heroName,
+        };
+      }
+
+      set((s) => ({
+        sacrificeDilemmaOpen: false,
+        sacrificedHeroId: heroId,
+        ironVigilPerk: perk,
+        outcome: "victory",
+        victoryReason: "boat_escape",
+        combatLog: [
+          ...s.combatLog,
+          makeLog(
+            s.round,
+            "player",
+            `${heroName} se dobrovolně obětoval u branky paláce, aby maršál Colloredo mohl odrazit s pramicí do vln Vltavy!`,
+            "story",
+          ),
+          makeLog(
+            s.round,
+            "player",
+            `PARADOX PŘEŽITÍ: Dva společníci v loďce padli pod salvou švédských mušket, kryjíce maršála. Ale ${heroName} zázrakem přežil výbuch prachu, přeplaval řeku a Pater Jiří Plachý jej v Klementinu přijal do ŽELEZNÉ VIGILIE!`,
+            "alert",
+          ),
+        ],
+      }));
+    },
+
     selectUnit: (unitId: string) => {
       const state = get();
       if (state.isBusy || state.turn !== "player") return;
@@ -905,6 +963,23 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         const afterState = get();
         const outcomeCheck = checkMissionOutcome(afterState.grid, afterState.units);
         if (outcomeCheck.outcome !== "ongoing") {
+          // Pokud hráč dosáhl vítězství a dosud nebyla vyřešena Paradoxní oběť, otevřeme dilematické okno!
+          if (outcomeCheck.outcome === "victory" && !afterState.sacrificedHeroId) {
+            const aliveCompanions = afterState.units.filter(
+              (u) =>
+                u.faction === "player" &&
+                u.alive &&
+                u.id !== "player-colloredo",
+            );
+            if (aliveCompanions.length > 0) {
+              set({
+                isBusy: false,
+                sacrificeDilemmaOpen: true,
+              });
+              return;
+            }
+          }
+
           const logMsg =
             outcomeCheck.outcome === "victory" &&
             outcomeCheck.victoryReason === "boat_escape"
@@ -1625,6 +1700,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         smokeVersion: s.smokeVersion + 1,
         outcome: "ongoing",
         victoryReason: null,
+        sacrificeDilemmaOpen: false,
+        sacrificedHeroId: null,
+        ironVigilPerk: null,
         tutorialStep: 1,
         tutorialDismissed: false,
         selectedUnitId: firstId,

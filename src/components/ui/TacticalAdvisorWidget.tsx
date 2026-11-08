@@ -29,7 +29,7 @@ interface TutorialStepData {
   title: string;
   speaker: string;
   role: string;
-  avatarIcon: "martin" | "jakub";
+  avatarIcon: "jan" | "bartolomej";
   dialogue: string;
   tactics: string[];
   keyBadges: { key: string; label: string }[];
@@ -41,15 +41,15 @@ const TUTORIAL_STEPS: TutorialStepData[] = [
   {
     step: 1,
     title: "Pohyb & Eskorta maršála",
-    speaker: "Komorník Martin",
-    role: "Osobní sluha maršála Colloreda",
-    avatarIcon: "martin",
+    speaker: "Jan Matěj",
+    role: "Osobní komorník velkopřevora",
+    avatarIcon: "jan",
     dialogue:
       "Vaše Excelence! Po těch sedmi střelných ranách u Lützenu sotva stojíte na nohou! Opřete se o mě — posuňte mě na dlaždici vedle vás a pomohu vám utíkat zahradou k Čertovce!",
     tactics: [
       "Modrá zóna (1 AP): Běžný přesun, po němž můžete ještě střílet nebo hodit petardu.",
       "Žlutá zóna (2 AP): Sprint, který vyčerpá všechny akční body vojáka.",
-      "Handicap maršála: Zraněný Colloredo ujde sám jen 3 pole za AP. Jakmile k němu posunete spojence do vzdálenosti 1 pole, získá podporu a plných 5 polí/AP!",
+      "Handicap maršála: Zraněný Colloredo ujde sám jen 3 pole za AP. Jakmile k němu posunete spojence (komorníka Jana Matěje), získá podporu a plných 5 polí/AP!",
     ],
     keyBadges: [
       { key: "1", label: "Režim pohybu" },
@@ -62,9 +62,9 @@ const TUTORIAL_STEPS: TutorialStepData[] = [
   {
     step: 2,
     title: "Krytí, Obchvat & Míření",
-    speaker: "Komorník Martin",
-    role: "Osobní sluha maršála Colloreda",
-    avatarIcon: "martin",
+    speaker: "Jan Matěj",
+    role: "Osobní komorník velkopřevora",
+    avatarIcon: "jan",
     dialogue:
       "Pozor, pane! Švédští jezdci generála Königsmarcka sesedli z koní a vpadli do zahrady! Zůstaňte za kamennou zídkou, ať na nás nemohou přímo zamířit!",
     tactics: [
@@ -84,15 +84,15 @@ const TUTORIAL_STEPS: TutorialStepData[] = [
   {
     step: 3,
     title: "Počasí & Prachové sudy",
-    speaker: "Mistr Jakub",
-    role: "Dvorní zbrojíř a puškař",
-    avatarIcon: "jakub",
+    speaker: "Bratr Bartoloměj",
+    role: "Maltézský zbrojmistr",
+    avatarIcon: "bartolomej",
     dialogue:
-      "Milostivý pane! V tomhle nočním dešti zvlhnou švédské doutnáky a mušketýři budou selhávat! Vaše kolečková pistole však vystřelí spolehlivě. Navíc jsem u branky zanechal sudy se střelným prachem — odpalte je Jakubovou petardou!",
+      "Milostivý pane! V tomhle nočním dešti zvlhnou švédské doutnáky a mušketýři budou selhávat! Vaše kolečková pistole i mé zbraně vystřelí spolehlivě. U branky jsem připravil prachové sudy — smeteme je Bartolomějovou petardou!",
     tactics: [
       "Noční liják: Doutnákové muškety mají až 35% šanci na selhání zápalu (misfire). Kolečkové zbraně fungují spolehlivě!",
       "Prachové sudy (Powder Kegs): Exploze na ploše 3×3 zničí nízké zdi a způsobí masivní poškození (5 HP a -2 zbroj).",
-      "Jakubova petarda [4]: Vrhněte výbušninu k sudu, nebo do něj střelte z pistole!",
+      "Bartolomějova petarda [4]: Vrhněte výbušninu k sudu, nebo do něj střelte z pistole!",
     ],
     keyBadges: [
       { key: "4", label: "Hod petardou" },
@@ -104,15 +104,15 @@ const TUTORIAL_STEPS: TutorialStepData[] = [
   {
     step: 4,
     title: "Patra & Únik k Čertovce",
-    speaker: "Mistr Jakub",
-    role: "Dvorní zbrojíř a puškař",
-    avatarIcon: "jakub",
+    speaker: "Bratr Bartoloměj",
+    role: "Maltézský zbrojmistr",
+    avatarIcon: "bartolomej",
     dialogue:
-      "Už vidím rameno Čertovky! Rybář čeká s pramicí u dřevěného mola. Pozor však na švédského střelce na terase — stiskněte [F] pro přepnutí pohledu do patra a bezpečně proveďte maršála k loďce!",
+      "Už vidím rameno Čertovky! Rybář čeká u dřevěného mola. Pozor však — švédští dragouni nám odřezávají ústup! Rozvodněná řeka a vratká pramice neunesou všechny... Jeden z nás bude muset zůstat u branky a koupit maršálovi čas!",
     tactics: [
       "Řez patry (Cutaway) [F]: Přepínejte mezi přízemím a 1. patrem pro odhalení střelců na střeše.",
-      "Výškový bonus: Střelba z patra dolů dává +10 % k zásahu a ignoruje poloviční kryt.",
-      "Cíl mise: Doveďte maršála Colloreda na molo [1, 0, 2] k pramici pro okamžité vítězství a záchranu Prahy!",
+      "Cíl mise: Doveďte maršála Colloreda na molo [1, 0, 2] k pramici pro záchranu pravého břehu Vltavy.",
+      "Dilema oběti: U loďky zvolíte hrdinu, který zůstane krýt ústup a zdrží Švédy u palácové branky!",
     ],
     keyBadges: [
       { key: "F", label: "Řez patry (Cutaway)" },
@@ -207,7 +207,7 @@ export function TacticalAdvisorWidget() {
       {/* 2. Diegetický řečník (Komorník Martin / Mistr Jakub) */}
       <div className="flex items-start gap-2.5 bg-slate-900/70 rounded-xl p-2.5 border border-slate-800/80">
         <div className="w-9 h-9 rounded-xl bg-slate-850 border border-amber-500/40 flex items-center justify-center shrink-0 text-amber-300">
-          {currentData.avatarIcon === "martin" ? (
+          {currentData.avatarIcon === "jan" ? (
             <UserCheck className="w-5 h-5" />
           ) : (
             <Wrench className="w-5 h-5" />

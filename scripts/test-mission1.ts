@@ -41,25 +41,27 @@ console.log("✓ Map, Čertovka canal, dock, escape zone, and powder kegs valida
 // 2. Test Units Setup
 const units = createInitialUnits();
 const colloredo = units.find((u) => u.id === "player-colloredo");
-const martin = units.find((u) => u.id === "player-martin");
-const vaclav = units.find((u) => u.id === "player-vaclav");
-const jakub = units.find((u) => u.id === "player-jakub");
+const janMatej = units.find((u) => u.id === "player-jan-matej");
+const vaclav = units.find((u) => u.id === "player-vaclav-michalovic");
+const bartolomej = units.find((u) => u.id === "player-bartolomej");
 const odowalsky = units.find((u) => u.id === "enemy-odowalsky");
 
 assert(colloredo && colloredo.isVip, "Colloredo must be present and marked as VIP");
 assert(colloredo.armor === 0, "Colloredo has 0 armor (in nightshirt)");
 assert(colloredo.archetype === "commander", "Colloredo archetype must be commander");
 assert(colloredo.weapon.id === "colloredo_wheellock_pistol", "Colloredo must wield wheellock pistol");
-assert(martin && martin.movePerAp === 5, "Martin must have 5 movePerAp");
+assert(janMatej && janMatej.movePerAp === 5, "Jan Matěj must have 5 movePerAp");
+assert(bartolomej && bartolomej.grenades === 2, "Bratr Bartoloměj must carry 2 petards");
+assert(vaclav && vaclav.marksmanship === 78, "Václav must have 78 marksmanship");
 assert(odowalsky && odowalsky.faction === "enemy", "Odowalsky must be an enemy");
 
-console.log("✓ Initial roster (Colloredo, Martin, Václav, Jakub, Odowalsky) validated.");
+console.log("✓ Initial roster (Colloredo, Jan Matěj, Václav z Michalovic, Bratr Bartoloměj, Odowalsky) validated.");
 
 // 3. Test Assisted Movement Mechanic (Podepření komorníkem)
-// Initially Martin is at (7, 0, 14) and Colloredo is at (8, 0, 14) -> distance 1 -> Assisted!
+// Initially Jan Matěj is at (7, 0, 14) and Colloredo is at (8, 0, 14) -> distance 1 -> Assisted!
 let synced = syncColloredoMobility(units);
 let syncedColloredo = synced.find((u) => u.id === "player-colloredo")!;
-assert(syncedColloredo.movePerAp === 5, "Colloredo should have 5 movePerAp when assisted by Martin");
+assert(syncedColloredo.movePerAp === 5, "Colloredo should have 5 movePerAp when assisted by Jan Matěj");
 assert(syncedColloredo.buffTitle?.includes("Podepřen"), "Colloredo should have assisted buff title");
 
 // Move ALL allies far away to (2, 0, 8)
@@ -73,11 +75,11 @@ syncedColloredo = synced.find((u) => u.id === "player-colloredo")!;
 assert(syncedColloredo.movePerAp === 3, "Colloredo must have only 3 movePerAp when limping alone");
 assert(syncedColloredo.buffTitle?.includes("kulhání"), "Colloredo should have limping title when alone");
 
-console.log("✓ Assisted mobility mechanic (Martin supporting Colloredo) validated.");
+console.log("✓ Assisted mobility mechanic (Jan Matěj supporting Colloredo) validated.");
 
 // 4. Test Marshal Aura in Combat
 // Colloredo is alive -> allies within 7 tiles should get Marshal Aura bonus (+8 %)
-const shotCalcWithMarshal = calculateShot(grid, martin!, odowalsky!, "rain", martin!.pos, units);
+const shotCalcWithMarshal = calculateShot(grid, janMatej!, odowalsky!, "rain", janMatej!.pos, units);
 const auraMod = shotCalcWithMarshal.hitModifiers.find((m) => m.id === "marshal-colloredo-aura");
 assert(auraMod && auraMod.value === 8, "Allies near Colloredo must receive Marshal Aura +8 %");
 
@@ -85,7 +87,7 @@ assert(auraMod && auraMod.value === 8, "Allies near Colloredo must receive Marsh
 const deadColloredoUnits = units.map((u) =>
   u.id === "player-colloredo" ? { ...u, alive: false, hp: 0 } : u,
 );
-const shotCalcNoMarshal = calculateShot(grid, martin!, odowalsky!, "rain", martin!.pos, deadColloredoUnits);
+const shotCalcNoMarshal = calculateShot(grid, janMatej!, odowalsky!, "rain", janMatej!.pos, deadColloredoUnits);
 const noAuraMod = shotCalcNoMarshal.hitModifiers.find((m) => m.id === "marshal-colloredo-aura");
 assert(!noAuraMod, "When Colloredo is dead, aura bonus must not be present");
 
@@ -93,7 +95,7 @@ console.log("✓ Marshal Colloredo command aura validated.");
 
 // 5. Test Weather & Misfire Mechanics in Rain
 // Wheellock vs Matchlock in rain:
-assert(shotCalcWithMarshal.lockType === "wheellock", "Martin carbine is wheellock");
+assert(shotCalcWithMarshal.lockType === "wheellock", "Jan Matěj carbine is wheellock");
 const vaclavShotInRain = calculateShot(grid, vaclav!, odowalsky!, "rain", vaclav!.pos, units);
 assert(vaclavShotInRain.lockType === "matchlock", "Václav musket is matchlock");
 assert(vaclavShotInRain.misfireChance > shotCalcWithMarshal.misfireChance, "Matchlock must have higher misfire chance in rain than wheellock");
@@ -136,5 +138,30 @@ assert(useGameStore.getState().tutorialStep === 1, "resetGame must reset tutoria
 assert(useGameStore.getState().tutorialDismissed === false, "resetGame must reset tutorialDismissed to false");
 
 console.log("✓ Tutorial state machine (Tactical Advisor progression, toggle, reset) validated.");
+
+// 8. Test Paradoxical Martyrdom & Clementinum Iron Vigil Induction
+const store = useGameStore.getState();
+assert(store.sacrificeDilemmaOpen === false, "Dilemma must be closed initially");
+assert(store.sacrificedHeroId === null, "No hero sacrificed initially");
+assert(store.ironVigilPerk === null, "No Iron Vigil perk awarded initially");
+
+// Execute sacrifice choice for Bratr Bartoloměj
+store.chooseSacrifice("player-bartolomej");
+const stateAfterSacrifice = useGameStore.getState();
+assert(stateAfterSacrifice.sacrificeDilemmaOpen === false, "Dilemma must close after selection");
+assert(stateAfterSacrifice.sacrificedHeroId === "player-bartolomej", "sacrificedHeroId must match selected hero");
+assert(stateAfterSacrifice.outcome === "victory", "Outcome must transition to victory");
+assert(stateAfterSacrifice.victoryReason === "boat_escape", "Victory reason must be boat_escape");
+assert(stateAfterSacrifice.ironVigilPerk?.name === "Maltézský pyrotechnik", "Bartoloměj must receive Maltézský pyrotechnik perk");
+assert(stateAfterSacrifice.ironVigilPerk?.heroName === "Bratr Bartoloměj", "Perk heroName must be Bratr Bartoloměj");
+
+// Test reset clears sacrifice and perk
+stateAfterSacrifice.resetGame();
+const stateAfterReset = useGameStore.getState();
+assert(stateAfterReset.sacrificedHeroId === null, "resetGame must clear sacrificedHeroId");
+assert(stateAfterReset.ironVigilPerk === null, "resetGame must clear ironVigilPerk");
+assert(stateAfterReset.sacrificeDilemmaOpen === false, "resetGame must close dilemma");
+
+console.log("✓ Paradoxical Martyrdom and Iron Vigil induction state machine validated.");
 
 console.log("=== ALL MISSION 1 TESTS PASSED SUCCESSFULLY! ===");
