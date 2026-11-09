@@ -26,6 +26,8 @@ import { useGameStore } from "./store/useGameStore";
 export default function App() {
   const outcome = useGameStore((s) => s.outcome);
   const victoryReason = useGameStore((s) => s.victoryReason);
+  const defeatReason = useGameStore((s) => s.defeatReason);
+  const isCapturingAnim = useGameStore((s) => s.isCapturingAnim);
   const round = useGameStore((s) => s.round);
   const resetGame = useGameStore((s) => s.resetGame);
   const units = useGameStore((s) => s.units);
@@ -35,16 +37,24 @@ export default function App() {
 
   // Globální klávesové zkratky pro minimalistické taktické velení (XCOM Style):
   // - 1: Režim pohybu
-  // - 2: Režim střelby (pokud jsou viditelné cíle)
+  // - 2: Režim střelby (automaticky vybere střelce s cílem v dohledu)
   // - 3: Overwatch (hlídkování)
   // - 4: Hod granátem / petardou
+  // - 5: Zvláštní schopnost hrdiny
   // - Tab / Shift+Tab: Cyklení cílů při střelbě NEBO cyklení vojáků čety při pohybu
   // - F1: Rozbalení / sbalení postranních křídel matematického rozpisu (Breakdown Wings)
   // - Space / Enter: Potvrzení výstřelu v Režimu míření / Ukončení tahu v běžném režimu
   // - Escape: Návrat z Režimu míření nebo granátu zpět do pohybu
-  // - F: Přepínání pater budov (Roof/Floor Cutaway)
+  // - F: Přepínání celé obrazovky (Fullscreen)
+  // - V / PageUp / PageDown: Snadné přepínání pater budovy (Přízemí P0 <-> 1. Patro P1)
   // - M: Přepínání 2D billboard spritů a 3D modelů
   useEffect(() => {
+    const onFullscreenChange = () => {
+      useGameStore
+        .getState()
+        .setFullscreenState(Boolean(document.fullscreenElement));
+    };
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (
         e.target instanceof HTMLInputElement ||
@@ -54,6 +64,13 @@ export default function App() {
       }
 
       const state = useGameStore.getState();
+
+      // F: Přepnutí na celou obrazovku (Fullscreen) funguje kdykoliv
+      if ((e.key === "f" || e.key === "F") && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        state.toggleFullscreen();
+        return;
+      }
 
       if (state.sacrificeDilemmaOpen || state.outcome !== "ongoing") {
         return;
@@ -70,10 +87,20 @@ export default function App() {
         return;
       }
 
-      // F: Přepínání patra (Floor Cutaway)
-      if (e.key === "f" || e.key === "F") {
+      // V / PageUp / PageDown: Snadné přepínání pater budovy (Roof/Floor Cutaway)
+      if (e.key === "v" || e.key === "V") {
         e.preventDefault();
         state.toggleFloor();
+        return;
+      }
+      if (e.key === "PageUp") {
+        e.preventDefault();
+        state.setActiveFloor(Math.min(2, state.activeFloor + 1) as 0 | 1 | 2);
+        return;
+      }
+      if (e.key === "PageDown") {
+        e.preventDefault();
+        state.setActiveFloor(Math.max(0, state.activeFloor - 1) as 0 | 1 | 2);
         return;
       }
 
@@ -84,6 +111,13 @@ export default function App() {
         return;
       }
 
+      // G: Přepínání Barokního šerosvitu (Mlha války / Fog of War)
+      if (e.key === "g" || e.key === "G") {
+        e.preventDefault();
+        state.toggleFogOfWar();
+        return;
+      }
+
       // H: Přepínání Taktického rádce (Tutoriál)
       if (e.key === "h" || e.key === "H") {
         e.preventDefault();
@@ -91,7 +125,7 @@ export default function App() {
         return;
       }
 
-      // Klávesové zkratky akcí (1 = Pohyb, 2 = Střelba, 3 = Overwatch, 4 = Granát)
+      // Klávesové zkratky akcí (1 = Pohyb, 2 = Střelba, 3 = Overwatch, 4 = Granát, 5 = Zvláštní schopnost)
       if (state.turn === "player" && !state.isBusy) {
         if (e.key === "1") {
           e.preventDefault();
@@ -100,9 +134,7 @@ export default function App() {
         }
         if (e.key === "2") {
           e.preventDefault();
-          if (state.visibleTargets.length > 0) {
-            state.setActionMode("shoot");
-          }
+          state.setActionMode(state.actionMode === "shoot" ? "move" : "shoot");
           return;
         }
         if (e.key === "3") {
@@ -113,6 +145,11 @@ export default function App() {
         if (e.key === "4") {
           e.preventDefault();
           state.setActionMode("grenade");
+          return;
+        }
+        if (e.key === "5") {
+          e.preventDefault();
+          state.activateSpecialAbility();
           return;
         }
       }
@@ -159,7 +196,11 @@ export default function App() {
     };
 
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+    };
   }, []);
 
   return (
@@ -171,6 +212,20 @@ export default function App() {
 
       {/* 2. Filmový středový banner změny tahu */}
       <TurnSplashBanner />
+
+      {/* 2b. Krátká dramatická animace na mapě v okamžiku dokonání zajetí maršála (2/2 kola) */}
+      {isCapturingAnim && (
+        <div className="pointer-events-none fixed inset-x-0 top-24 z-40 flex justify-center px-4">
+          <div className="baroque-crimson-cartouche baroque-border rounded-xl px-7 py-3.5 shadow-[0_0_50px_rgba(239,68,68,0.7)] text-center animate-bounce">
+            <div className="font-cinzel text-xs font-bold uppercase tracking-widest text-amber-300">
+              Zajetí dokonáno · 2/2 kola zadržení
+            </div>
+            <div className="font-cinzel text-lg md:text-xl font-black uppercase tracking-wider text-rose-100 mt-0.5">
+              Švédští dragouni spoutali maršála Colloreda!
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 3. Plovoucí periferní HUD widgety (XCOM Architecture) */}
       {/* Levý horní roh: Stav mise, kolo, počasí a Taktický rádce (Tutorial) */}
@@ -192,27 +247,27 @@ export default function App() {
 
       {/* 4. Dilema oběti u pramice na Čertovce (Paradoxní oběť) */}
       {sacrificeDilemmaOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4">
-          <div className="max-w-2xl w-full bg-slate-900 border-2 border-amber-500/70 rounded-3xl p-6 shadow-[0_0_50px_rgba(245,158,11,0.25)] space-y-5 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
-              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-400/50 flex items-center justify-center text-amber-300 shrink-0">
-                <Flame className="w-6 h-6 animate-pulse" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4">
+          <div className="max-w-2xl w-full baroque-cartouche baroque-border rounded-2xl p-6 shadow-[0_0_60px_rgba(0,0,0,0.95)] space-y-5 text-amber-50 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 border-b border-amber-900/60 pb-3">
+              <div className="w-12 h-12 rounded-xl bg-amber-950/80 border border-amber-500/60 flex items-center justify-center text-amber-300 shrink-0 shadow-[0_0_15px_rgba(245,158,11,0.3)]">
+                <Flame className="w-6 h-6 animate-pulse text-amber-400" />
               </div>
               <div>
-                <h2 className="font-serif text-xl md:text-2xl font-black uppercase tracking-wider text-amber-200">
+                <h2 className="font-cinzel text-xl md:text-2xl font-black uppercase tracking-wider text-amber-200">
                   Dilema oběti: Kdo zadrží Švédy u palácové branky?
                 </h2>
-                <div className="text-xs uppercase font-extrabold tracking-widest text-amber-400 mt-0.5">
-                  26. července 1648, 02:45 · Rameno Čertovky u Velkopřevorství
+                <div className="font-literata italic text-xs text-amber-400/90 mt-0.5">
+                  Anno Salutis 1648, 26. července, 02:45 · Rameno Čertovky u Velkopřevorství
                 </div>
               </div>
             </div>
 
-            <p className="text-sm text-slate-300 leading-relaxed bg-slate-950/70 p-4 rounded-2xl border border-slate-800">
+            <p className="font-literata text-sm text-amber-100/90 leading-relaxed bg-black/60 p-4 rounded-xl border border-amber-900/60">
               Švédští dragouni generála Königsmarcka vpadli do zahrady a střílejí
               ze všech stran! Rozvodněná Vltava a malá rybářská pramice neunesou
               všechny.{" "}
-              <strong className="text-amber-300">
+              <strong className="font-cinzel text-amber-300 font-bold">
                 Jeden z vašich věrných společníků musí zůstat u palácové branky a
                 odpálit sudy s prachem
               </strong>
@@ -222,29 +277,29 @@ export default function App() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {/* Možnost 1: Jan Matěj */}
-              {units.some((u) => u.id === "player-jan-matej" && u.alive) && (
+              {units.some((u) => u.id === "player-jan-matej" && u.alive && u.hp > 0) && (
                 <button
                   type="button"
                   onClick={() => chooseSacrifice("player-jan-matej")}
-                  className="flex flex-col justify-between p-4 rounded-2xl bg-slate-950/80 hover:bg-slate-800/90 border border-slate-800 hover:border-amber-400 text-left transition-all group cursor-pointer"
+                  className="flex flex-col justify-between p-4 rounded-xl baroque-bronze-btn text-left transition-all group cursor-pointer border border-amber-700/60 hover:border-amber-400"
                 >
                   <div>
                     <div className="flex items-center gap-2 mb-1.5">
                       <UserCheck className="w-4 h-4 text-amber-400" />
-                      <span className="font-serif font-black text-sm text-white group-hover:text-amber-200">
+                      <span className="font-cinzel font-bold text-sm text-amber-100 group-hover:text-amber-200">
                         Jan Matěj
                       </span>
                     </div>
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold block mb-2">
+                    <span className="text-[10px] text-amber-400/70 font-literata uppercase tracking-wider font-bold block mb-2">
                       Osobní komorník
                     </span>
-                    <p className="text-xs text-slate-300 italic font-serif leading-snug mb-3">
+                    <p className="text-xs text-amber-200/90 italic font-literata leading-snug mb-3">
                       „Můj život už patří minulosti, milostivý pane. Odražte s maršálem!“
                     </p>
                   </div>
-                  <div className="pt-2 border-t border-slate-800/80 text-[11px] text-amber-300 font-bold">
+                  <div className="pt-2 border-t border-amber-900/60 text-[11px] text-amber-300 font-cinzel font-bold">
                     Perk: Ocelová věrnost
-                    <span className="block text-[10px] text-slate-400 font-normal">
+                    <span className="block text-[10px] text-amber-200/70 font-literata font-normal">
                       +20 % odolnost proti šoku, +1 AP při záchraně raněného
                     </span>
                   </div>
@@ -252,29 +307,29 @@ export default function App() {
               )}
 
               {/* Možnost 2: Bratr Bartoloměj */}
-              {units.some((u) => u.id === "player-bartolomej" && u.alive) && (
+              {units.some((u) => u.id === "player-bartolomej" && u.alive && u.hp > 0) && (
                 <button
                   type="button"
                   onClick={() => chooseSacrifice("player-bartolomej")}
-                  className="flex flex-col justify-between p-4 rounded-2xl bg-slate-950/80 hover:bg-slate-800/90 border border-slate-800 hover:border-amber-400 text-left transition-all group cursor-pointer"
+                  className="flex flex-col justify-between p-4 rounded-xl baroque-bronze-btn text-left transition-all group cursor-pointer border border-amber-700/60 hover:border-amber-400"
                 >
                   <div>
                     <div className="flex items-center gap-2 mb-1.5">
                       <Wrench className="w-4 h-4 text-amber-400" />
-                      <span className="font-serif font-black text-sm text-white group-hover:text-amber-200">
+                      <span className="font-cinzel font-bold text-sm text-amber-100 group-hover:text-amber-200">
                         Bratr Bartoloměj
                       </span>
                     </div>
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold block mb-2">
+                    <span className="text-[10px] text-amber-400/70 font-literata uppercase tracking-wider font-bold block mb-2">
                       Maltézský zbrojmistr
                     </span>
-                    <p className="text-xs text-slate-300 italic font-serif leading-snug mb-3">
+                    <p className="text-xs text-amber-200/90 italic font-literata leading-snug mb-3">
                       „Zasypu branku olovem a odpálím zbrojnici i se Švédy!“
                     </p>
                   </div>
-                  <div className="pt-2 border-t border-slate-800/80 text-[11px] text-amber-300 font-bold">
+                  <div className="pt-2 border-t border-amber-900/60 text-[11px] text-amber-300 font-cinzel font-bold">
                     Perk: Maltézský pyrotechnik
-                    <span className="block text-[10px] text-slate-400 font-normal">
+                    <span className="block text-[10px] text-amber-200/70 font-literata font-normal">
                       +2 dosah granátů, výbuchy prachu o +1 silnější
                     </span>
                   </div>
@@ -282,29 +337,31 @@ export default function App() {
               )}
 
               {/* Možnost 3: Václav z Michalovic */}
-              {units.some((u) => u.id === "player-vaclav-michalovic" && u.alive) && (
+              {units.some(
+                (u) => u.id === "player-vaclav-michalovic" && u.alive && u.hp > 0,
+              ) && (
                 <button
                   type="button"
                   onClick={() => chooseSacrifice("player-vaclav-michalovic")}
-                  className="flex flex-col justify-between p-4 rounded-2xl bg-slate-950/80 hover:bg-slate-800/90 border border-slate-800 hover:border-amber-400 text-left transition-all group cursor-pointer"
+                  className="flex flex-col justify-between p-4 rounded-xl baroque-bronze-btn text-left transition-all group cursor-pointer border border-amber-700/60 hover:border-amber-400"
                 >
                   <div>
                     <div className="flex items-center gap-2 mb-1.5">
                       <Sparkles className="w-4 h-4 text-amber-400" />
-                      <span className="font-serif font-black text-sm text-white group-hover:text-amber-200">
+                      <span className="font-cinzel font-bold text-sm text-amber-100 group-hover:text-amber-200">
                         Václav z Michalovic
                       </span>
                     </div>
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold block mb-2">
+                    <span className="text-[10px] text-amber-400/70 font-literata uppercase tracking-wider font-bold block mb-2">
                       Klementinský klerik & písař
                     </span>
-                    <p className="text-xs text-slate-300 italic font-serif leading-snug mb-3">
+                    <p className="text-xs text-amber-200/90 italic font-literata leading-snug mb-3">
                       „Bůh mě ochraňuj, zdržím je s křížem a karabinou!“
                     </p>
                   </div>
-                  <div className="pt-2 border-t border-slate-800/80 text-[11px] text-amber-300 font-bold">
+                  <div className="pt-2 border-t border-amber-900/60 text-[11px] text-amber-300 font-cinzel font-bold">
                     Perk: Klementinský zápal
-                    <span className="block text-[10px] text-slate-400 font-normal">
+                    <span className="block text-[10px] text-amber-200/70 font-literata font-normal">
                       +10 % k zásahu z výšky, spolehlivost v dešti
                     </span>
                   </div>
@@ -317,68 +374,68 @@ export default function App() {
 
       {/* 5. Modální okno výsledku bitvy */}
       {outcome !== "ongoing" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-4">
-          <div className="max-w-xl w-full bg-slate-900 border-2 border-amber-400/60 rounded-3xl p-6 text-center shadow-2xl space-y-4">
-            <div className="mx-auto w-14 h-14 rounded-full flex items-center justify-center bg-amber-500/20 border border-amber-400 text-amber-300">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4">
+          <div className="max-w-xl w-full baroque-cartouche baroque-border rounded-2xl p-6 text-center shadow-[0_0_70px_rgba(0,0,0,0.95)] space-y-4 text-amber-50">
+            <div className="mx-auto w-14 h-14 rounded-xl flex items-center justify-center bg-amber-950/80 border border-amber-400 text-amber-300 shadow-[0_0_20px_rgba(245,158,11,0.35)]">
               {outcome === "victory" ? (
-                <Trophy className="w-7 h-7" />
+                <Trophy className="w-7 h-7 text-amber-300" />
               ) : (
                 <Skull className="w-7 h-7 text-rose-400" />
               )}
             </div>
             <div>
-              <h2 className="font-serif text-2xl font-black uppercase tracking-wider text-white">
+              <h2 className="font-cinzel text-2xl font-black uppercase tracking-wider text-amber-200">
                 {outcome === "victory"
                   ? victoryReason === "boat_escape"
                     ? "Útěk na Vltavě dokonán & Zrod Železné vigilie"
                     : "Přepadový oddíl zničen!"
                   : "Vrchní velitel padl do zajetí"}
               </h2>
-              <div className="text-xs uppercase font-extrabold tracking-widest text-amber-400 mt-1">
+              <div className="font-cinzel text-xs uppercase tracking-widest text-amber-400 mt-1">
                 {outcome === "victory"
-                  ? `Mise splněna v ${round}. kole · 26. července 1648`
-                  : `Katastrofa v ${round}. kole · Praha padla`}
+                  ? `Mise splněna v ${round}. kole · Anno Salutis 1648, 26. července`
+                  : `Katastrofa v ${round}. kole · Maršál Colloredo zadržen po 2 kola`}
               </div>
             </div>
 
-            <div className="text-sm text-slate-300 leading-relaxed text-left bg-slate-950/60 p-4 rounded-2xl border border-slate-800 space-y-3">
+            <div className="font-literata text-sm text-amber-100/90 leading-relaxed text-left bg-black/60 p-4 rounded-xl border border-amber-900/60 space-y-3">
               {outcome === "victory" ? (
                 victoryReason === "boat_escape" ? (
                   <>
                     <div>
-                      <strong className="text-amber-300 block mb-0.5">
+                      <strong className="font-cinzel text-amber-300 block mb-0.5">
                         1. Smrt v loďce a záchrana maršála:
                       </strong>
                       Když pramice odrazila do temného proudu Vltavy, švédští mušketýři spustili ze břehu prudkou palbu. Dva věrní společníci v loďce vlastním tělem zakryli maršála Colloreda v noční košili. Na staroměstském břehu u křižovnického kláštera předali zraněného velitele strážím a v kalužích krve a nočního deště vydechli naposledy. Stráž na Staroměstské mostecké věži spustila železnou mříž doslova před nosem švédských dragounů!
                     </div>
 
                     <div>
-                      <strong className="text-amber-400 block mb-0.5">
+                      <strong className="font-cinzel text-amber-400 block mb-0.5">
                         2. Zázrak u palácové branky (Paradoxní oběť):
                       </strong>
                       Mezitím u palácové branky {ironVigilPerk?.heroName ?? "obětovaný hrdina"} odpálil sudy s prachem. Ohlušující detonace smetla švédský předvoj a tlaková vlna jej odmrštila do rozvodněné Čertovky. Zraněný, popálený, ale živý se v temnotě proplížil podél Kampy a přeplaval řeku na Staré Město!
                     </div>
 
                     <div>
-                      <strong className="text-sky-300 block mb-0.5">
+                      <strong className="font-cinzel text-amber-200 block mb-0.5">
                         3. Přijetí do ŽELEZNÉ VIGILIE Klementinských jezuitů:
                       </strong>
                       Polomrtvého hrdinu na schodech Klementina zvedl sám Pater Jiří Plachý. Když spatřil jeho odvahu, vtiskl mu do rukou posvěcenou zbraň a zahalil jej černým pláštěm: <em>„Tvá oběť z tebe smyla strach. Od této chvíle jsi mečem Železné vigilie.“</em>
                     </div>
 
                     {ironVigilPerk && (
-                      <div className="bg-amber-950/70 border border-amber-400/60 rounded-xl p-3 flex items-start gap-3 mt-2">
+                      <div className="bg-amber-950/70 border border-amber-500/60 rounded-xl p-3 flex items-start gap-3 mt-2">
                         <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-400/50 flex items-center justify-center text-amber-300 shrink-0 mt-0.5">
                           <Shield className="w-4 h-4" />
                         </div>
                         <div>
-                          <div className="text-xs font-black uppercase tracking-wider text-amber-300">
+                          <div className="font-cinzel text-xs font-bold uppercase tracking-wider text-amber-300">
                             Nový člen Železné vigilie: {ironVigilPerk.heroName}
                           </div>
-                          <div className="text-xs font-bold text-white mt-0.5">
+                          <div className="font-cinzel text-xs font-bold text-amber-100 mt-0.5">
                             Trvalý perk: {ironVigilPerk.name}
                           </div>
-                          <div className="text-[11px] text-slate-300 mt-0.5">
+                          <div className="font-literata text-[11px] text-amber-200/80 mt-0.5">
                             {ironVigilPerk.desc}
                           </div>
                         </div>
@@ -387,7 +444,7 @@ export default function App() {
                   </>
                 ) : (
                   <>
-                    <strong className="text-amber-300 block mb-1">
+                    <strong className="font-cinzel text-amber-300 block mb-1">
                       Odowalského zrada odražena:
                     </strong>
                     Švédský přepadový oddíl byl v zahradě Velkopřevorství do jednoho
@@ -398,16 +455,40 @@ export default function App() {
                 )
               ) : (
                 <>
-                  <strong className="text-rose-400 block mb-1">
-                    Vrchní velitel padl do zajetí (Kořist a výkupné):
+                  <strong className="font-cinzel text-rose-300 block mb-1">
+                    {defeatReason === "surrounded_unprotected"
+                      ? "Obklíčen bez ochranky a zajat po 2 kolech (Kořist a výkupné):"
+                      : defeatReason === "all_companions_fallen"
+                        ? "Družina padla a maršál zůstal v moci Švédů:"
+                        : "Sražen k zemi a nevyproštěn včas (Zajetí po 2 kolech):"}
                   </strong>
-                  Polní maršál Rudolf Colloredo byl švédskými dragouny dostižen v noční
-                  košili, sražen a spoután pro tučné výkupné (100 000 říšských tolarů).
-                  Švédové tak získali svou nejcennější kořist stejně jako na Hradčanech
-                  a Malé Straně, kde padlo do zajetí přes 200 šlechticů včetně arcibiskupa
-                  kardinála Harracha a těžce raněného purkrabího Martinice. Bez vrchního
-                  velitele nikdo nezorganizoval posádku na Karlově mostě včas — švédská
-                  jízda překonala řeku a celá Praha padla do rukou generála Königsmarcka!
+                  {defeatReason === "surrounded_unprotected" ? (
+                    <>
+                      Švédští vojáci pronikli přímo k nechráněnému maršálu Rudolfu
+                      Colloredovi a drželi jej v šachu po dvě kola, aniž by jej jeho
+                      družina dokázala vyprostit. Maršál byl v noční košili odzbrojen a
+                      spoután pro královské výkupné (100 000 říšských tolarů).
+                    </>
+                  ) : defeatReason === "all_companions_fallen" ? (
+                    <>
+                      Všichni věrní obránci z maršálova doprovodu v zahradě
+                      Velkopřevorství padli. Zraněného polního maršála Rudolfa Colloreda
+                      už neměl kdo vyprostit ze švédského obklíčení a dragouni jej
+                      odvlekli v poutech.
+                    </>
+                  ) : (
+                    <>
+                      Polní maršál Rudolf Colloredo klesl pod švédskou palbou k zemi
+                      (0 HP) a během dvou kol nebyl svou družinou vyproštěn. Švédští
+                      dragouni jej v noční košili spoutali pro tučné výkupné (100 000
+                      říšských tolarů).
+                    </>
+                  )}{" "}
+                  Stejně jako na Hradčanech a Malé Straně, kde padlo do zajetí přes
+                  200 šlechticů včetně kardinála Harracha a purkrabího Martinice,
+                  ztratila Praha svého vrchního velitele — nikdo nezorganizoval
+                  posádku na Karlově mostě včas a celá Praha padla do rukou generála
+                  Königsmarcka!
                 </>
               )}
             </div>
@@ -415,7 +496,7 @@ export default function App() {
             <button
               type="button"
               onClick={resetGame}
-              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-sm uppercase tracking-wider shadow-lg transition-colors cursor-pointer"
+              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 border border-amber-300 text-stone-950 font-cinzel font-bold text-sm uppercase tracking-wider shadow-[0_4px_16px_rgba(245,158,11,0.5)] transition-colors cursor-pointer"
             >
               <RotateCcw className="w-4 h-4" />
               <span>Hrát znovu</span>

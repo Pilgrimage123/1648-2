@@ -3,7 +3,9 @@
  * Neobsahuje žádné závislosti na Three.js ani Reactu.
  */
 
-export type FloorLevel = 0 | 1;
+export type FloorLevel = 0 | 1 | 2;
+
+export type StairType = "none" | "straight_stairs" | "spiral_stairs" | "ladder";
 
 export interface GridCoord {
   x: number;
@@ -19,6 +21,26 @@ export type ObstacleType = "none" | "low_wall" | "high_wall" | "pillar" | "powde
 
 export type DirectionalCover = Record<CardinalDir, CoverLevel>;
 
+/** Stav křídla dveří (zavřeno = blokuje pohyb i přímý LoS, otevřeno = volný průchod i výhled) */
+export type DoorState = "closed" | "open";
+
+/**
+ * Barokní dubové a kované dveře na mřížce (Grand Priory Palace & Garden):
+ * - V zavřeném stavu blokují pohyb a zrakovou linii (LoS)
+ * - V otevřeném stavu poskytují volný průchod a výhled
+ * - Jednotka stojící na sousedním poli (Chebyshev <= 1, stejné patro) je může otevřít/zavřít jako Free Action (0 AP)
+ */
+export interface DoorData {
+  id: string;
+  coord: GridCoord;
+  state: DoorState;
+  /** Orientace zárubně dveří (E_W = otevírá se podél osy X ve zdi Z, N_S = otevírá se podél osy Z ve zdi X) */
+  axis: "E_W" | "N_S";
+  /** Historický název brány/dveří */
+  label: string;
+}
+
+
 /** Počasí na bojišti ovlivňující viditelnost a spolehlivost doutnákových zbraní */
 export type WeatherType = "clear" | "fog" | "rain";
 
@@ -30,16 +52,32 @@ export interface TileData {
   walkable: boolean;
   /** Zda na dané souřadnici (x, y, z) existuje pochozí podlaha/střecha */
   hasFloor: boolean;
-  /** Žebřík propojující přízemí (y=0) a 1. patro (y=1) */
+  /** Vertikální spojení pater (přímé schodiště, točité schodiště nebo žebřík) */
   isLadder: boolean;
+  /** Konkrétní architektonický typ vertikálního přechodu */
+  stairType?: StairType;
+  /** Směr stoupání přímého schodiště nebo orientace vřetene */
+  stairDir?: CardinalDir;
+  /** Patra, která toto schodiště na souřadnici (x, z) přímo propojuje */
+  stairConnections?: FloorLevel[];
   /** Směrové krytí chránící jednotku na dlaždici proti střelbě ze směrů N, E, S, W */
   cover: DirectionalCover;
   /** Typ překážky na dlaždici (nízká zídka/gabion, vysoká zeď, pilíř, výbušný prachový sud) */
   obstacle: ObstacleType;
   /** Počet zbývajících kol hustého kouře z černého prachu na této dlaždici (-20 % k zásahu) */
   smokeTurns: number;
-  /** Vizuální povrch dlaždice */
-  surface: "cobble" | "stone_floor" | "wood_roof" | "rubble" | "water" | "wood_dock";
+  /** Vizuální povrch dlaždice odlišující honosný palác, zaprášenou ulici a rozstřílenou ruinu */
+  surface:
+    | "cobble"
+    | "stone_floor"
+    | "palace_carpet"
+    | "wood_roof"
+    | "rubble"
+    | "scorched_ruin"
+    | "water"
+    | "wood_dock";
+  /** Stupeň válečné devastace dlaždice a přilehlého krytu (0 = neporušený, 1 = rozstřílený/omítka, 2 = ohořelá ruina/kráter) */
+  damageLevel?: 0 | 1 | 2;
   /** Zda je toto pole únikovou zónou k rybářské pramici na Čertovce */
   isEscapeZone?: boolean;
 }
@@ -89,6 +127,29 @@ export interface WeaponStats {
   supportsRestFork: boolean;
 }
 
+/** Důvod zadržení či zajetí polního maršála Colloreda */
+export type CaptureReason =
+  | "zero_hp"
+  | "surrounded_unprotected"
+  | "all_companions_fallen";
+
+/** Identifikátory unikátních aktivovaných schopností postav v 1. misi */
+export type SpecialAbilityId =
+  | "protector_oath"
+  | "klementinum_verdict"
+  | "maltese_shrapnel"
+  | "marshal_command";
+
+export interface SpecialAbilityDef {
+  id: SpecialAbilityId;
+  name: string;
+  subtitle: string;
+  description: string;
+  apCost: 0 | 1;
+  cooldownTurns: number;
+  currentCooldown: number;
+}
+
 export interface UnitData {
   id: string;
   name: string;
@@ -116,10 +177,18 @@ export interface UnitData {
   movedThisTurn: boolean;
   /** Zda je morálka jednotky otřesena (Suppressed / Shaken: -20 % k zásahu) */
   isShaken: boolean;
-  /** Zda je jednotka klíčovým velitelem (pokud padne, mise končí prohrou) */
+  /** Zda je jednotka klíčovým velitelem (pokud je zadržen po 2 kola, mise končí prohrou) */
   isVip?: boolean;
+  /** Počet kol, po která je VIP maršál nepřetržitě zadržen nepřáteli (0 = volný, 1 = 1. kolo, 2 = zajat / Game Over) */
+  detainedTurns?: number;
+  /** Důvod aktuálního zadržení nebo zajetí VIP maršála */
+  captureReason?: CaptureReason | null;
   /** Popisek aktivního taktického posílení (např. "Podepřen komorníkem") */
   buffTitle?: string;
+  /** Unikátní aktivovaná schopnost postavy [Klávesa 5] */
+  ability?: SpecialAbilityDef;
+  /** Zda má postava v tomto kole aktivní posílení ze své zvláštní schopnosti */
+  abilityBuffActive?: boolean;
   alive: boolean;
 }
 
@@ -227,3 +296,41 @@ export interface CombatLogEntry {
   text: string;
   tone: "info" | "hit" | "crit" | "miss" | "misfire" | "overwatch" | "alert" | "buff" | "story";
 }
+
+/**
+ * Stav viditelnosti dlaždice v barokní Mlze války (Chiaroscuro Fog of War):
+ * - 'unexplored': Neprozkoumaná temnota (Terra Incognita) — dosud nespatřeno žádným členem družiny
+ * - 'shrouded': Prozkoumaný šerosvit (Paměť bojiště) — dříve odhaleno nebo známý půdorys paláce, nyní mimo přímý dohled (LoS)
+ * - 'visible': Aktivní zorné pole (Osvětleno šerosvitem) — právě teď v přímém 3D LoS družiny nebo ozářeno výbuchem/lucernou
+ */
+export type FogVisibilityState = "unexplored" | "shrouded" | "visible";
+
+/**
+ * Zvukový nebo světelný kontakt se skrytým nepřítelem v šerosvitu (17. století):
+ * - 'matchcord_glow': Žhnoucí doutnák doutnákové muškety ve tmě a dešti
+ * - 'footsteps': Šramot ocelového kyrysu a kroky na mokré dlažbě
+ * - 'gunfire_flash': Záblesk výstřelu z pánvičky v temnotě
+ */
+export type SoundContactKind = "matchcord_glow" | "footsteps" | "gunfire_flash";
+
+export interface SoundContact {
+  unitId: string;
+  pos: GridCoord;
+  kind: SoundContactKind;
+  label: string;
+  distanceToNearestAlly: number;
+}
+
+export interface FogOfWarSnapshot {
+  /** Klíče souřadnic (`x,y,z`) dlaždic, které jsou právě teď v aktivním zorném poli ('visible') */
+  visibleCoords: Set<string>;
+  /** Klíče souřadnic (`x,y,z`) všech dlaždic, které již družina odhalila ('shrouded' | 'visible') */
+  exploredCoords: Set<string>;
+  /** ID nepřátelských jednotek, které jsou právě teď přímo viditelné a zaměřitelné */
+  visibleEnemyIds: Set<string>;
+  /** Zvukové a doutnákové kontakty nepřátel skrytých v mlze války */
+  soundContacts: SoundContact[];
+  /** Efektivní poloměr dohledu (v polích) pro každou hráčovu jednotku */
+  unitSightRadii: Record<string, number>;
+}
+

@@ -123,3 +123,30 @@ The tactical presence of Bohemia's supreme commander granting a +8% marksmanship
 
 **Prachový sud** (*Explosive Powder Keg*):
 Destructible black-powder storage barrels placed on the battlefield that explode in a 3×3 radius (5 damage, 2 armor shred, and thick smoke) when struck by heavy shots, petards, or secondary blast waves.
+
+### Baroque Art Direction, Environmental Biomes & Ballistics (ADR-0007)
+
+**Barokní šerosvit** (*Chiaroscuro Lighting*):
+The Caravaggio/Rembrandt lighting hierarchy contrasting the brightly illuminated playable mid-ground (golden God-rays, warm torchlight) against deeply shadowed non-playable map borders and foreground vignettes.
+
+**Pravidlo barev 60-30-10** (*60-30-10 Color Rule*):
+The strict color allocation across the scene: 60% desaturated calm ground & atmosphere (slate, mud, ash, warm muted limestone parquet), 30% secondary architectural structures (weathered sandstone, palace stucco, dark timber rafters), and 10% saturated tactical/heraldic accents (royal gold, scarlet crimson, cobalt blue, warm torch orange) restricted exclusively to units, active cover, explosive hazards, and objectives.
+
+**Jazyk tvarů** (*Top-Down Class Silhouettes*):
+The rule that all 5 unit archetypes (`ranger`, `sniper`, `trooper`, `sectoid`, `commander`) are immediately distinguishable from a bird's-eye view by their silhouette (tall triangular polearms, wide plumed cavalier hats with capes, square cuirassier pauldrons with morions, asymmetric back-banners with censers) and that all headgear sits physically low on the brow covering the upper cranium.
+
+**Nevypleněný honosný palác** (*Unplundered Opulent Palace Biome*):
+The intact interior of the Grand Priory Palace (`x: 2..13, z: 12..15`, `damageLevel === 0`) characterized by warm polished limestone parquet (`stone_floor`), a central cardinal-burgundy royal runner (`palace_carpet`) with flat gold brocade borders, cream-stucco masonry, gilded Corinthian pillar capitals, carved walnut furniture barricades, and framed Chiaroscuro oil paintings.
+
+**Zaprášená malostranská ulice a nádvoří** (*Dusty Street & Courtyard Biome*):
+The outdoor section of the battlefield (`z: 3..11`, `damageLevel === 0`) characterized by cool matte slate-mud cobblestones (`cobble`), worn carriage tracks, weathered mossy sandstone walls, and rough field stone gabions.
+
+**Zdevastovaná rozstřílená ruina** (*Devastated Shot-Up & Scorched Ruin Biome*):
+The dynamic battle-scarred state (`damageLevel: 1 | 2`, `rubble` / `scorched_ruin`) applied to any tile struck by gunfire (`damageLevel = 1`, fallen plaster/mortar rubble) or a 3×3 explosion (`damageLevel = 2`, charred soot crater, glowing ember cracks, blackened neighboring walls, and low-profile perimeter debris that keeps the tile center clear for tactical grid readability).
+
+**Krytý palácový interiér** (*Enclosed Roofed Masking* / `isEnclosedRoofedCoord`):
+The spatial boundary excluding enclosed palace halls and roofed ground-floor arcades from outdoor rain/snow and pre-combat floating dust or smoke.
+
+**Organické šíření prachu a dýmu** (*Causal Combat Diffusion* / `blastZones`):
+The physical rule that indoor and courtyard ash, plaster dust, embers, and creeping ground mist start at zero before combat and expand radially outward ($R(t) = \min(R_{\max}, R_0 + v_{\text{diff}} \cdot \Delta t)$) exclusively from actual gunfire and explosion epicenters.
+

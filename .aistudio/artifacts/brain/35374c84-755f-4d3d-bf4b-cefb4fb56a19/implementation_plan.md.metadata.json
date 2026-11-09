@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for atmospheric dynamic lighting in Malá Strana 1648, covering transient combat point lights, volumetric moon and window light shafts, storm lightning flashes, organic torchlight shadow sway, phase-driven and manual HUD atmosphere presets, post-processing bloom, rain-rippled wet cobblestone puddles, and ground-hugging street mist.",
-  "updatedAt":  "2026-11-07T14:13:06.461234679Z",
+  "summary":  "Kompletní výtvarný a architektonický plán (Art Direction Blueprint) pro opravu posazení klobouků/přileb na hlavách postav a implementaci 4 pilířů barokního výtvarného stylu (Chiaroscuro kompozice, pravidlo barev 60-30-10 s živými erbovními barvami jednotek, odlišení siluet všech 5 tříd jednotek a sekundární pohyb živoucího bojiště).",
+  "updatedAt":  "2026-11-09T09:34:29.867190937Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

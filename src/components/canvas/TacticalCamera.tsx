@@ -22,10 +22,13 @@ export function TacticalCamera() {
   const selectedTargetId = useGameStore((s) => s.selectedTargetId);
   const units = useGameStore((s) => s.units);
 
-  const orbitCenterRef = useRef(new THREE.Vector3(0, 0, 2.5));
-  const currentLookAtRef = useRef(new THREE.Vector3(0, 0, 2.5));
+  const activeProjectile = useGameStore((s) => s.activeProjectile);
+  const turn = useGameStore((s) => s.turn);
+
+  const orbitCenterRef = useRef(new THREE.Vector3(0, 0, 4.2));
+  const currentLookAtRef = useRef(new THREE.Vector3(0, 0, 4.2));
   const currentAngleRef = useRef(Math.PI * 0.25);
-  const distanceRef = useRef(22);
+  const distanceRef = useRef(24);
   const keysPressedRef = useRef<Set<string>>(new Set());
   const isRightDraggingRef = useRef(false);
   const lastPointerRef = useRef({ x: 0, y: 0 });
@@ -47,10 +50,6 @@ export function TacticalCamera() {
         useGameStore.getState().rotateCamera(-1);
       } else if (key === "e" && !e.repeat) {
         useGameStore.getState().rotateCamera(1);
-      } else if (key === "f" && !e.repeat && e.key !== "F1") {
-        useGameStore.getState().toggleFloor();
-      } else if (key === "m" && !e.repeat) {
-        useGameStore.getState().toggleRenderMode();
       }
     };
 
@@ -80,13 +79,13 @@ export function TacticalCamera() {
 
       orbitCenterRef.current.x = THREE.MathUtils.clamp(
         orbitCenterRef.current.x - (rightX * dx - forwardX * dy) * panScale,
-        -13,
-        13,
+        -17,
+        17,
       );
       orbitCenterRef.current.z = THREE.MathUtils.clamp(
         orbitCenterRef.current.z - (rightZ * dx - forwardZ * dy) * panScale,
-        -13,
-        13,
+        -20,
+        20,
       );
     };
 
@@ -98,10 +97,22 @@ export function TacticalCamera() {
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      if (e.altKey || e.shiftKey) {
+        const state = useGameStore.getState();
+        const deltaFloor = e.deltaY < 0 ? 1 : -1;
+        const nextFloor = Math.max(
+          0,
+          Math.min(2, state.activeFloor + deltaFloor),
+        ) as 0 | 1 | 2;
+        if (nextFloor !== state.activeFloor) {
+          state.setActiveFloor(nextFloor);
+        }
+        return;
+      }
       distanceRef.current = THREE.MathUtils.clamp(
         distanceRef.current + e.deltaY * 0.015,
         10,
-        34,
+        42,
       );
     };
 
@@ -138,19 +149,34 @@ export function TacticalCamera() {
       dt,
     );
 
-    // 2. Kontrola, zda jsme v Režimu míření (Over-the-Shoulder XCOM 2 kamera)
+    // 2. Kontrola, zda jsme v Režimu míření nebo právě probíhá výstřel (Over-the-Shoulder XCOM 2 kamera)
     const shooter =
       actionMode === "shoot"
         ? units.find((u) => u.id === selectedUnitId && u.alive)
         : undefined;
     const target =
-      actionMode === "shoot"
+      actionMode === "shoot" && selectedTargetId
         ? units.find((u) => u.id === selectedTargetId && u.alive)
         : undefined;
 
-    if (shooter && target) {
-      const [sx, sy, sz] = gridToWorld(shooter.pos);
-      const [tx, ty, tz] = gridToWorld(target.pos);
+    const isShootingCamera =
+      (actionMode === "shoot" && !!shooter && !!target) ||
+      (turn === "player" &&
+        !!activeProjectile &&
+        activeProjectile.kind !== "grenade");
+
+    if (isShootingCamera) {
+      const fromCoord =
+        activeProjectile && turn === "player"
+          ? activeProjectile.from
+          : shooter!.pos;
+      const toCoord =
+        activeProjectile && turn === "player"
+          ? activeProjectile.to
+          : target!.pos;
+
+      const [sx, sy, sz] = gridToWorld(fromCoord);
+      const [tx, ty, tz] = gridToWorld(toCoord);
 
       const dirX = tx - sx;
       const dirZ = tz - sz;
@@ -162,58 +188,70 @@ export function TacticalCamera() {
       const rightX = -normZ;
       const rightZ = normX;
 
-      // Pozice kamery: za střelcem, lehce vpravo u ramene a vyvýšená, aby bylo vidět střelce i cíl
-      const desiredCamX = sx - normX * 4.4 + rightX * 1.45;
-      const desiredCamY = Math.max(sy, ty * 0.5) + 3.35;
-      const desiredCamZ = sz - normZ * 4.4 + rightZ * 1.45;
+      // Jemný zpětný ráz kamery (camera shake) v okamžiku výstřelu
+      let shakeX = 0;
+      let shakeY = 0;
+      if (activeProjectile) {
+        const elapsed = (performance.now() - activeProjectile.createdAt) / 1000;
+        if (elapsed >= 0 && elapsed < 0.35) {
+          const intensity = (1 - elapsed / 0.35) * 0.16;
+          shakeX = Math.sin(elapsed * 95) * intensity;
+          shakeY = Math.cos(elapsed * 110) * intensity * 0.8;
+        }
+      }
 
-      // Bod pohledu: směrem k cíli (cca 65 % vzdálenosti od střelce k cíli ve výšce hrudi)
-      const desiredLookX = sx * 0.32 + tx * 0.68;
-      const desiredLookY = sy * 0.3 + ty * 0.7 + 1.05;
-      const desiredLookZ = sz * 0.32 + tz * 0.68;
+      // Pozice kamery: za střelcem, lehce vpravo u ramene a vyvýšená, aby bylo vidět střelce, dráhu střely i cíl
+      const desiredCamX = sx - normX * 4.2 + rightX * 1.65 + shakeX;
+      const desiredCamY = Math.max(sy, ty * 0.55) + 3.15 + shakeY;
+      const desiredCamZ = sz - normZ * 4.2 + rightZ * 1.65;
+
+      // Bod pohledu: směrem k cíli (cca 72 % vzdálenosti od střelce k cíli ve výšce hrudi)
+      const desiredLookX = sx * 0.28 + tx * 0.72 + shakeX * 0.5;
+      const desiredLookY = sy * 0.28 + ty * 0.72 + 1.05 + shakeY * 0.5;
+      const desiredLookZ = sz * 0.28 + tz * 0.72;
 
       camera.position.x = THREE.MathUtils.damp(
         camera.position.x,
         desiredCamX,
-        6.5,
+        9.5,
         dt,
       );
       camera.position.y = THREE.MathUtils.damp(
         camera.position.y,
         desiredCamY,
-        6.5,
+        9.5,
         dt,
       );
       camera.position.z = THREE.MathUtils.damp(
         camera.position.z,
         desiredCamZ,
-        6.5,
+        9.5,
         dt,
       );
 
       currentLookAtRef.current.x = THREE.MathUtils.damp(
         currentLookAtRef.current.x,
         desiredLookX,
-        7.5,
+        10.5,
         dt,
       );
       currentLookAtRef.current.y = THREE.MathUtils.damp(
         currentLookAtRef.current.y,
         desiredLookY,
-        7.5,
+        10.5,
         dt,
       );
       currentLookAtRef.current.z = THREE.MathUtils.damp(
         currentLookAtRef.current.z,
         desiredLookZ,
-        7.5,
+        10.5,
         dt,
       );
 
       // Plynule synchronizujeme orbitCenterRef se střelcem, aby při návratu z režimu míření (Esc)
       // kamera plynule odcouvala k aktivnímu vojákovi a neskákala na staré souřadnice
-      orbitCenterRef.current.x = THREE.MathUtils.damp(orbitCenterRef.current.x, sx, 3.5, dt);
-      orbitCenterRef.current.z = THREE.MathUtils.damp(orbitCenterRef.current.z, sz, 3.5, dt);
+      orbitCenterRef.current.x = THREE.MathUtils.damp(orbitCenterRef.current.x, sx, 4.5, dt);
+      orbitCenterRef.current.z = THREE.MathUtils.damp(orbitCenterRef.current.z, sz, 4.5, dt);
 
       camera.lookAt(currentLookAtRef.current);
       return;
@@ -251,14 +289,14 @@ export function TacticalCamera() {
       orbitCenterRef.current.x = THREE.MathUtils.clamp(
         orbitCenterRef.current.x +
           (forwardX * moveForward + rightX * moveRight) * panSpeed,
-        -13,
-        13,
+        -17,
+        17,
       );
       orbitCenterRef.current.z = THREE.MathUtils.clamp(
         orbitCenterRef.current.z +
           (forwardZ * moveForward + rightZ * moveRight) * panSpeed,
-        -13,
-        13,
+        -20,
+        20,
       );
     }
 

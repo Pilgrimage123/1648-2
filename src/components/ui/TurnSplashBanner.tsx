@@ -44,34 +44,46 @@ export function TurnSplashBanner() {
       className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center select-none"
     >
       <div
-        className={`pointer-events-none select-none flex flex-col items-center justify-center px-10 py-5 rounded-3xl border-2 backdrop-blur-xl shadow-[0_0_80px_rgba(0,0,0,0.9)] transition-all duration-300 ease-out ${
+        className={`pointer-events-none select-none flex flex-col items-center justify-center px-10 py-6 rounded-2xl border-2 backdrop-blur-2xl shadow-[0_0_90px_rgba(0,0,0,0.95)] transition-all duration-300 ease-out ${
           isPlayer
-            ? "bg-slate-950/92 border-amber-500/70 text-slate-100 shadow-amber-950/40"
-            : "bg-red-950/92 border-red-500/70 text-white shadow-red-950/60"
+            ? "baroque-cartouche baroque-border text-amber-50"
+            : "baroque-crimson-cartouche text-rose-100"
         }`}
       >
-        <div className="flex items-center gap-3 mb-1">
-          {isPlayer ? (
-            <Swords className="w-6 h-6 text-amber-400" />
-          ) : (
-            <ShieldAlert className="w-6 h-6 text-red-400" />
-          )}
-          <span className="text-[11px] font-extrabold tracking-widest uppercase text-amber-300/90">
-            Kolo {round}
-          </span>
+        <div className="flex items-center gap-3 mb-1.5">
+          <span className="text-amber-500/80 text-xs">❖ ✦ ❖</span>
+          <div className="flex items-center gap-2">
+            {isPlayer ? (
+              <Swords className="w-5 h-5 text-amber-300" />
+            ) : (
+              <ShieldAlert className="w-5 h-5 text-rose-400" />
+            )}
+            <span className="font-cinzel text-xs font-bold tracking-widest uppercase text-amber-300">
+              Kolo {round} · Anno 1648
+            </span>
+          </div>
+          <span className="text-amber-500/80 text-xs">❖ ✦ ❖</span>
         </div>
 
         <h2
-          className={`font-serif text-2xl sm:text-3xl font-black uppercase tracking-widest ${
-            isPlayer ? "text-amber-300" : "text-rose-100"
+          className={`font-cinzel text-2xl sm:text-3xl font-black uppercase tracking-widest mt-1 ${
+            isPlayer ? "baroque-gold" : "text-rose-200"
           }`}
         >
           {isPlayer ? "Útěk maršála Colloreda" : "Přepad Odowalského"}
         </h2>
 
-        <p className="text-xs text-slate-300 tracking-wide mt-1">
+        <div className="w-48 h-px bg-gradient-to-r from-transparent via-amber-500/60 to-transparent my-2" />
+
+        <p className="font-literata italic text-xs text-amber-200/90 tracking-wide text-center px-4">
           {isPlayer
-            ? "Eskortujte kulhajícího maršála k pramici na Čertovce!"
+            ? round === 3
+              ? "Polnice z Mostecké ulice! Těžké švédské posily dorazí v kole 5!"
+              : round === 4
+                ? "POZOR: Švédská jízda obkličuje bránu — posily vtrhnou v příštím kole!"
+                : round >= 5
+                  ? "POPLACH: Švédská jízda generála Königsmarcka vpadla do zahrady!"
+                  : "Eskortujte kulhajícího maršála k rybářské pramici na Čertovce!"
             : "Švédští dragouni prohledávají zahradu Velkopřevorství!"}
         </p>
       </div>

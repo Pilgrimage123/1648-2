@@ -1,65 +1,187 @@
 /**
  * Top-Level R3F Tactical 3D Scene (/src/components/canvas/TacticalScene.tsx).
- * Configures shadow-casting lights, fog, TacticalCamera, InstancedBattlefield,
- * UnitActor containers, and 3D Line of Sight visualizers.
+ * Implements Pillar 1 (Baroque Chiaroscuro / Caravaggio-Rembrandt Lighting) & Pillar 4 (Living Battlefield):
+ * - Strong contrast of warm golden-amber light in the playable mid-ground against deep slate shadow at map edges.
+ * - Volumetric light shafts (god-rays) piercing through the battlefield smoke.
+ * - Real-time flickering torch & altar point lights.
  */
 
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { useRef } from "react";
+import * as THREE from "three";
+import type { WeatherType } from "../../core/types";
 import { useGameStore } from "../../store/useGameStore";
 import { CombatLines3D } from "./CombatLines3D";
 import { InstancedBattlefield } from "./InstancedBattlefield";
+import { RainParticles } from "./RainParticles";
 import { TacticalCamera } from "./TacticalCamera";
 import { UnitActor } from "./UnitActor";
 
-export function TacticalScene() {
-  const units = useGameStore((s) => s.units);
+function ChiaroscuroLightingRig({ weather }: { weather: WeatherType }) {
+  const torch1Ref = useRef<THREE.PointLight>(null);
+  const torch2Ref = useRef<THREE.PointLight>(null);
+  const torch3Ref = useRef<THREE.PointLight>(null);
+  const beam1Ref = useRef<THREE.Mesh>(null);
+  const beam2Ref = useRef<THREE.Mesh>(null);
+
+  useFrame(({ clock }) => {
+    const t = clock.getElapsedTime();
+    if (torch1Ref.current) {
+      torch1Ref.current.intensity =
+        8.5 + Math.sin(t * 7.3) * 1.4 + Math.cos(t * 13.1) * 0.8;
+    }
+    if (torch2Ref.current) {
+      torch2Ref.current.intensity =
+        8.5 + Math.cos(t * 6.7 + 1.2) * 1.5 + Math.sin(t * 15.4) * 0.7;
+    }
+    if (torch3Ref.current) {
+      torch3Ref.current.intensity =
+        7.2 + Math.sin(t * 8.9 + 2.4) * 1.3 + Math.cos(t * 11.8) * 0.6;
+    }
+    if (beam1Ref.current) {
+      (beam1Ref.current.material as THREE.MeshBasicMaterial).opacity =
+        0.055 + Math.sin(t * 1.4) * 0.015;
+    }
+    if (beam2Ref.current) {
+      (beam2Ref.current.material as THREE.MeshBasicMaterial).opacity =
+        0.048 + Math.cos(t * 1.1 + 1.5) * 0.014;
+    }
+  });
 
   return (
-    <div className="relative w-full h-full bg-slate-950 select-none">
+    <group>
+      {/* Controlled low ambient so shadows stay deep and dramatic (Caravaggio Chiaroscuro) */}
+      <ambientLight
+        intensity={weather === "fog" ? 0.32 : 0.45}
+        color="#64748b"
+      />
+      <hemisphereLight
+        color="#93c5fd"
+        groundColor="#1c140f"
+        intensity={0.68}
+      />
+
+      {/* Primary Dramatic Key Light Illuminating the Playable Courtyard Mid-Ground */}
+      <directionalLight
+        position={[14, 28, 13]}
+        intensity={2.65}
+        color="#fef3c7"
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-camera-left={-24}
+        shadow-camera-right={24}
+        shadow-camera-top={24}
+        shadow-camera-bottom={-24}
+        shadow-camera-near={2}
+        shadow-camera-far={65}
+        shadow-bias={-0.0005}
+      />
+
+      {/* Flickering Warm Baroque Torch & Brazier Point Lights in Playable Center */}
+      <pointLight
+        ref={torch1Ref}
+        position={[-3.2, 2.5, 0.5]}
+        intensity={8.5}
+        distance={16}
+        color="#f97316"
+      />
+      <pointLight
+        ref={torch2Ref}
+        position={[3.4, 4.2, -1.5]}
+        intensity={8.5}
+        distance={16}
+        color="#fbbf24"
+      />
+      <pointLight
+        ref={torch3Ref}
+        position={[4.2, 2.1, 7.5]}
+        intensity={7.2}
+        distance={14}
+        color="#ea580c"
+      />
+
+      {/* Mystic Golden Relic / Marshal Spotlight in Courtyard South */}
+      <pointLight
+        position={[2.0, 3.2, 11.5]}
+        intensity={5.5}
+        distance={12}
+        color="#facc15"
+      />
+
+      {/* Volumetric Chiaroscuro Light Shafts (Rays of Golden Light Piercing Through Smoke) */}
+      <mesh
+        ref={beam1Ref}
+        position={[0.5, 6.2, 1.5]}
+        rotation={[0.18, 0, -0.26]}
+        raycast={() => null}
+      >
+        <cylinderGeometry args={[1.2, 4.8, 14, 18, 1, true]} />
+        <meshBasicMaterial
+          color="#fde047"
+          transparent
+          opacity={0.055}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
+
+      <mesh
+        ref={beam2Ref}
+        position={[3.2, 5.8, 7.2]}
+        rotation={[0.15, 0, -0.22]}
+        raycast={() => null}
+      >
+        <cylinderGeometry args={[0.9, 3.8, 13, 18, 1, true]} />
+        <meshBasicMaterial
+          color="#fb923c"
+          transparent
+          opacity={0.048}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
+
+      {/* Outer Non-Playable Map Perimeter Shadow Ring (Ground Framing in Deep Shadow) */}
+      <mesh
+        position={[0, -0.15, 0]}
+        rotation={[-Math.PI * 0.5, 0, 0]}
+        raycast={() => null}
+      >
+        <ringGeometry args={[18.5, 52, 36]} />
+        <meshBasicMaterial
+          color="#05080f"
+          transparent
+          opacity={0.92}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+export function TacticalScene() {
+  const units = useGameStore((s) => s.units);
+  const weather = useGameStore((s) => s.weather);
+
+  const fogColor = weather === "fog" ? "#161e2b" : "#070b12";
+  const fogFar = weather === "fog" ? 44 : 68;
+
+  return (
+    <div className="relative w-full h-full bg-slate-950 select-none overflow-hidden">
       <Canvas
-        shadows
+        shadows="percentage"
         camera={{ fov: 38, near: 0.5, far: 120, position: [14, 18, 14] }}
         gl={{ antialias: true }}
       >
-        <color attach="background" args={["#0b111e"]} />
-        <fog attach="fog" args={["#0b111e", 26, 62]} />
+        <color attach="background" args={[fogColor]} />
+        <fog attach="fog" args={[fogColor, 18, fogFar]} />
 
-        {/* High-Contrast Moonlight + Warm Baroque Torch Rim Lighting */}
-        <ambientLight intensity={0.55} color="#cbd5e1" />
-        <hemisphereLight
-          color="#93c5fd"
-          groundColor="#332218"
-          intensity={0.75}
-        />
+        <ChiaroscuroLightingRig weather={weather} />
 
-        <directionalLight
-          position={[14, 24, 12]}
-          intensity={2.2}
-          color="#f8fafc"
-          castShadow
-          shadow-mapSize={[2048, 2048]}
-          shadow-camera-left={-18}
-          shadow-camera-right={18}
-          shadow-camera-top={18}
-          shadow-camera-bottom={-18}
-          shadow-camera-near={2}
-          shadow-camera-far={55}
-          shadow-bias={-0.0005}
-        />
-
-        {/* Warm Torch Point Lights in the Ruined Building Courtyard */}
-        <pointLight
-          position={[-3.5, 2.2, 0]}
-          intensity={6}
-          distance={14}
-          color="#fb923c"
-        />
-        <pointLight
-          position={[3.5, 4.2, -1.5]}
-          intensity={6}
-          distance={14}
-          color="#f59e0b"
-        />
+        {/* Atmospheric 3D Rain, Drifting Ash & Rising Torch Embers */}
+        <RainParticles />
 
         <TacticalCamera />
         <InstancedBattlefield />
@@ -69,6 +191,15 @@ export function TacticalScene() {
           <UnitActor key={unit.id} unit={unit} />
         ))}
       </Canvas>
+
+      {/* Baroque Chiaroscuro Edge Vignette (Darkens non-playable periphery & camera foreground while keeping center vivid) */}
+      <div
+        className="pointer-events-none absolute inset-0 z-[1]"
+        style={{
+          background:
+            "radial-gradient(ellipse 72% 68% at 50% 48%, rgba(7,11,18,0) 52%, rgba(7,11,18,0.48) 80%, rgba(3,5,9,0.82) 100%)",
+        }}
+      />
     </div>
   );
 }

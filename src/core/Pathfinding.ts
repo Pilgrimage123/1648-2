@@ -1,6 +1,8 @@
 /**
  * Pure TypeScript 3D A* Pathfinding and Dijkstra Movement Zone Calculator (/src/core/Pathfinding.ts).
- * Supports multi-floor navigation via ladders (isLadder). Zero Three.js or React imports.
+ * Supports multi-floor navigation (P0 <-> P1 <-> P2) via straight and spiral staircases,
+ * including anti-deadlock diagonal ramp transitions when a landing is occupied.
+ * Zero Three.js or React imports.
  */
 
 import {
@@ -15,6 +17,7 @@ import type {
   FloorLevel,
   GridCoord,
   ReachableTile,
+  TileData,
   UnitData,
 } from "./types";
 
@@ -26,12 +29,28 @@ interface AStarNode {
 }
 
 function heuristic3D(a: GridCoord, b: GridCoord): number {
-  return Math.abs(a.x - b.x) + Math.abs(a.z - b.z) + Math.abs(a.y - b.y) * 2;
+  return Math.abs(a.x - b.x) + Math.abs(a.z - b.z) + Math.abs(a.y - b.y);
+}
+
+function getConnectedStairFloors(tile: TileData, currentFloor: FloorLevel): FloorLevel[] {
+  if (!tile.isLadder && (!tile.stairType || tile.stairType === "none")) {
+    return [];
+  }
+  if (tile.stairConnections && tile.stairConnections.length > 0) {
+    return tile.stairConnections;
+  }
+  // Fallback pro zpětnou kompatibilitu s `setLadder` bez explicitních `stairConnections`
+  if (currentFloor === 0) return [1];
+  if (currentFloor === 1) return [0];
+  return [1];
 }
 
 /**
- * Returns valid neighboring walkable coordinates from `current`, including
- * cardinal neighbors on the same floor and vertical ladder transitions (`isLadder`).
+ * Returns valid neighboring walkable coordinates from `current`, including:
+ * 1. Cardinal neighbors on the same floor (`stepCost: 1`)
+ * 2. Direct vertical transitions on a staircase (`(x, y, z) <-> (x, targetFloor, z)`, `stepCost: 1`)
+ * 3. Diagonal ramp step-off / step-on transitions (`stepCost: 2`) so units can smoothly walk past
+ *    a staircase landing even if another unit is standing on one end of the stairs.
  */
 export function getNeighbors(
   grid: GridSystem,
@@ -40,8 +59,16 @@ export function getNeighbors(
   movingUnitId?: string,
 ): { coord: GridCoord; stepCost: number }[] {
   const results: { coord: GridCoord; stepCost: number }[] = [];
+  const seenKeys = new Set<string>();
   const currentTile = grid.getTile(current);
   if (!currentTile) return results;
+
+  const pushNeighbor = (coord: GridCoord, stepCost: number) => {
+    const key = coordKey(coord);
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+    results.push({ coord, stepCost });
+  };
 
   // 1. Cardinal movement on the same floor
   for (const dir of ["N", "E", "S", "W"] as CardinalDir[]) {
@@ -53,27 +80,65 @@ export function getNeighbors(
     };
     const nextTile = grid.getTile(nextCoord);
     if (!nextTile || !nextTile.hasFloor || !nextTile.walkable) continue;
-    if (grid.isBlockedByUnit(nextCoord, units, movingUnitId)) continue;
-    results.push({ coord: nextCoord, stepCost: 1 });
+
+    if (!grid.isBlockedByUnit(nextCoord, units, movingUnitId)) {
+      pushNeighbor(nextCoord, 1);
+    }
+
+    // 1b. Ramp step-on: if the adjacent tile on our floor is a staircase whose landing on our floor
+    // is occupied, allow stepping directly onto its connected upper/lower floor landing (cost 2).
+    const neighborStairFloors = getConnectedStairFloors(nextTile, current.y);
+    for (const targetFloor of neighborStairFloors) {
+      const upperOrLowerLanding: GridCoord = {
+        x: nextCoord.x,
+        y: targetFloor,
+        z: nextCoord.z,
+      };
+      const landingTile = grid.getTile(upperOrLowerLanding);
+      if (
+        landingTile &&
+        landingTile.hasFloor &&
+        landingTile.walkable &&
+        !grid.isBlockedByUnit(upperOrLowerLanding, units, movingUnitId)
+      ) {
+        pushNeighbor(upperOrLowerLanding, 2);
+      }
+    }
   }
 
-  // 2. Vertical movement via ladder between y=0 and y=1
-  if (currentTile.isLadder) {
-    const targetFloor: FloorLevel = current.y === 0 ? 1 : 0;
+  // 2. Vertical movement via straight or spiral staircase across connected floors (P0 <-> P1 <-> P2)
+  const targetFloors = getConnectedStairFloors(currentTile, current.y);
+  for (const targetFloor of targetFloors) {
     const verticalCoord: GridCoord = {
       x: current.x,
       y: targetFloor,
       z: current.z,
     };
     const verticalTile = grid.getTile(verticalCoord);
-    if (
-      verticalTile &&
-      verticalTile.hasFloor &&
-      verticalTile.walkable &&
-      verticalTile.isLadder &&
-      !grid.isBlockedByUnit(verticalCoord, units, movingUnitId)
-    ) {
-      results.push({ coord: verticalCoord, stepCost: 1 });
+    if (!verticalTile || !verticalTile.hasFloor || !verticalTile.walkable) continue;
+
+    if (!grid.isBlockedByUnit(verticalCoord, units, movingUnitId)) {
+      pushNeighbor(verticalCoord, 1);
+    } else {
+      // 2b. Ramp step-off: if the target floor landing directly above/below is occupied by an ally,
+      // allow stepping directly off the stairs onto an adjacent walkable tile on `targetFloor` (cost 2).
+      for (const dir of ["N", "E", "S", "W"] as CardinalDir[]) {
+        const { dx, dz } = CARDINAL_OFFSETS[dir];
+        const stepOffCoord: GridCoord = {
+          x: current.x + dx,
+          y: targetFloor,
+          z: current.z + dz,
+        };
+        const stepOffTile = grid.getTile(stepOffCoord);
+        if (
+          stepOffTile &&
+          stepOffTile.hasFloor &&
+          stepOffTile.walkable &&
+          !grid.isBlockedByUnit(stepOffCoord, units, movingUnitId)
+        ) {
+          pushNeighbor(stepOffCoord, 2);
+        }
+      }
     }
   }
 
@@ -81,7 +146,7 @@ export function getNeighbors(
 }
 
 /**
- * 3D A* Pathfinding across floors (using ladders).
+ * 3D A* Pathfinding across floors (using straight and spiral staircases).
  * Returns an array of GridCoord steps (excluding start, including goal), or empty array if unreachable.
  */
 export function findPathAStar(

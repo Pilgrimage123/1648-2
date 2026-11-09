@@ -36,6 +36,8 @@ export interface BattlefieldState {
  * Vrací všechny navštívené dlaždice od `start` do `end` (včetně).
  */
 export function bresenham3D(start: GridCoord, end: GridCoord): GridCoord[] {
+  const clampFloor = (val: number): FloorLevel =>
+    Math.max(0, Math.min(2, Math.round(val))) as FloorLevel;
   const points: GridCoord[] = [];
   let x1 = start.x;
   let y1 = start.y as number;
@@ -44,7 +46,7 @@ export function bresenham3D(start: GridCoord, end: GridCoord): GridCoord[] {
   const y2 = end.y as number;
   const z2 = end.z;
 
-  points.push({ x: x1, y: (y1 > 0 ? 1 : 0) as FloorLevel, z: z1 });
+  points.push({ x: x1, y: clampFloor(y1), z: z1 });
 
   const dx = Math.abs(x2 - x1);
   const dy = Math.abs(y2 - y1);
@@ -69,7 +71,7 @@ export function bresenham3D(start: GridCoord, end: GridCoord): GridCoord[] {
       }
       p1 += 2 * dy;
       p2 += 2 * dz;
-      points.push({ x: x1, y: (y1 > 0 ? 1 : 0) as FloorLevel, z: z1 });
+      points.push({ x: x1, y: clampFloor(y1), z: z1 });
     }
   } else if (dz >= dx && dz >= dy) {
     let p1 = 2 * dy - dz;
@@ -86,7 +88,7 @@ export function bresenham3D(start: GridCoord, end: GridCoord): GridCoord[] {
       }
       p1 += 2 * dy;
       p2 += 2 * dx;
-      points.push({ x: x1, y: (y1 > 0 ? 1 : 0) as FloorLevel, z: z1 });
+      points.push({ x: x1, y: clampFloor(y1), z: z1 });
     }
   } else {
     let p1 = 2 * dx - dy;
@@ -103,7 +105,7 @@ export function bresenham3D(start: GridCoord, end: GridCoord): GridCoord[] {
       }
       p1 += 2 * dx;
       p2 += 2 * dz;
-      points.push({ x: x1, y: (y1 > 0 ? 1 : 0) as FloorLevel, z: z1 });
+      points.push({ x: x1, y: clampFloor(y1), z: z1 });
     }
   }
 
@@ -111,45 +113,52 @@ export function bresenham3D(start: GridCoord, end: GridCoord): GridCoord[] {
 }
 
 /**
- * Ověří přímou viditelnost (Line of Sight) pomocí 3D Bresenhamova algoritmu nad datovou mřížkou.
- * Vysoké zdi (`high_wall`), pilíře (`pillar`) a plné stropy horního patra blokují výhled.
+ * Pomocná kontrola přímého 3D Bresenhamova paprsku mezi dvěma body.
+ * Pokud je `allowAdjacentPillarPeek` true, kamenný sloup (`pillar`) na poli
+ * bezprostředně sousedícím se střelcem (`i === 1`) nebo cílem (`i === ray.length - 2`)
+ * neblokuje přímou viditelnost, protože postava se kolem úzkého sloupu vykloní.
  */
-export function checkLineOfSight3D(
+function checkDirectRay3D(
   grid: GridSystem,
   from: GridCoord,
   to: GridCoord,
+  allowAdjacentPillarPeek = true,
 ): { clear: boolean; ray: GridCoord[] } {
   const ray = bresenham3D(from, to);
   if (ray.length <= 2) {
     return { clear: true, ray };
   }
 
+  const maxEndpointFloor = Math.max(from.y, to.y);
+  const upperEnd = from.y >= to.y ? from : to;
+
   for (let i = 1; i < ray.length - 1; i++) {
     const cell = ray[i]!;
     const tile = grid.getTile(cell);
     if (!tile) return { clear: false, ray };
 
-    // Vysoké zdi a kamenné pilíře blokují přímou viditelnost
-    if (tile.obstacle === "high_wall" || tile.obstacle === "pillar") {
+    // Vysoké zdi a zavřené dveře blokují vždy; pilíř na sousedním poli (i === 1 nebo i === ray.length - 2)
+    // umožňuje vyklonění (step-out peek)
+    if (tile.obstacle === "high_wall" || grid.isDoorClosedAt(cell)) {
       return { clear: false, ray };
     }
+    if (tile.obstacle === "pillar") {
+      const isEndpointNeighbor = i === 1 || i === ray.length - 2;
+      if (!allowAdjacentPillarPeek || !isEndpointNeighbor) {
+        return { clear: false, ray };
+      }
+    }
 
-    // Přechod paprsku mezi patry: plná podlaha horního patra blokuje výhled dovnitř přízemí,
-    // pokud nejde o žebřík nebo střelbu přes okraj střechy.
-    if (from.y !== to.y && cell.y === 0) {
-      const roofAbove = grid.getTile({ x: cell.x, y: 1, z: cell.z });
-      const prevCell = ray[i - 1]!;
-      const nextCell = ray[i + 1]!;
-      const crossingSlabHere = prevCell.y !== nextCell.y || cell.y !== from.y;
-      if (
-        crossingSlabHere &&
-        roofAbove &&
-        roofAbove.hasFloor &&
-        !roofAbove.isLadder
-      ) {
-        const upperEnd = from.y === 1 ? from : to;
-        const distFromUpper =
-          Math.abs(cell.x - upperEnd.x) + Math.abs(cell.z - upperEnd.z);
+    // Přechod paprsku mezi patry: plná podlaha vyššího patra blokuje výhled dovnitř nižšího patra,
+    // pokud nejde o schodišťový průvlak nebo střelbu přes okraj balustrády.
+    if (from.y !== to.y && cell.y < maxEndpointFloor) {
+      const nextFloorAbove = Math.min(2, cell.y + 1) as FloorLevel;
+      const roofAbove = grid.getTile({ x: cell.x, y: nextFloorAbove, z: cell.z });
+      if (roofAbove && roofAbove.hasFloor && !roofAbove.isLadder) {
+        const distFromUpper = Math.max(
+          Math.abs(cell.x - upperEnd.x),
+          Math.abs(cell.z - upperEnd.z),
+        );
         if (distFromUpper > 1) {
           return { clear: false, ray };
         }
@@ -158,6 +167,63 @@ export function checkLineOfSight3D(
   }
 
   return { clear: true, ray };
+}
+
+/**
+ * Ověří přímou viditelnost (Line of Sight) pomocí 3D Bresenhamova algoritmu nad datovou mřížkou,
+ * včetně XCOM mechaniky vyklonění z plného krytu (Step-Out Peeking):
+ * - Pokud jednotka stojí přímo za vysokou zdí nebo rohem, vykloní se do sousedního volného pole
+ *   kolmo na směr střelby, aby mohla přes roh pálit (a být zasažena s postihem krytu).
+ */
+export function checkLineOfSight3D(
+  grid: GridSystem,
+  from: GridCoord,
+  to: GridCoord,
+): { clear: boolean; ray: GridCoord[] } {
+  const direct = checkDirectRay3D(grid, from, to, true);
+  if (direct.clear) {
+    return direct;
+  }
+
+  // XCOM Step-Out Peeking: vyzkoušíme vyklonění střelce nebo cíle o 1 pole do boku
+  const stepOffsets = [
+    { dx: 1, dz: 0 },
+    { dx: -1, dz: 0 },
+    { dx: 0, dz: 1 },
+    { dx: 0, dz: -1 },
+  ];
+
+  const canStepTo = (base: GridCoord, dx: number, dz: number): GridCoord | null => {
+    const c: GridCoord = { x: base.x + dx, y: base.y, z: base.z + dz };
+    const t = grid.getTile(c);
+    if (!t || !t.hasFloor || !t.walkable) return null;
+    return c;
+  };
+
+  // 1. Vyklonění střelce zpoza rohu vysoké zdi / pilíře
+  for (const off of stepOffsets) {
+    const peekFrom = canStepTo(from, off.dx, off.dz);
+    if (!peekFrom) continue;
+    const peekCheck = checkDirectRay3D(grid, peekFrom, to, true);
+    if (peekCheck.clear) {
+      return { clear: true, ray: [from, ...peekCheck.ray.slice(1)] };
+    }
+  }
+
+  // 2. Vyklonění cíle zpoza rohu vysoké zdi / pilíře
+  for (const off of stepOffsets) {
+    const peekTo = canStepTo(to, off.dx, off.dz);
+    if (!peekTo) continue;
+    const peekCheck = checkDirectRay3D(grid, from, peekTo, true);
+    if (peekCheck.clear) {
+      return {
+        clear: true,
+        ray: [...peekCheck.ray.slice(0, -1), to],
+      };
+    }
+  }
+
+  return direct;
 }
 
 /**
@@ -347,6 +413,19 @@ export class CombatCalculator {
       });
     }
 
+    // Průraz překážek při aktivní schopnosti Svatováclavský ortel
+    if (shooter.abilityBuffActive && shooter.ability?.id === "klementinum_verdict" && coverModifier < 0) {
+      hitModifiers.push({
+        id: "ability-klementinum-wall-pierce",
+        label: "Průraz překážky [Svatováclavské soustředění]",
+        detail: "Těžká olověná kule proráží kamennou zídku (ruší postih krytu)",
+        value: Math.abs(coverModifier),
+        unit: "%",
+        kind: "bonus",
+      });
+      coverModifier = 0;
+    }
+
     // D) Výšková převaha (High Ground bonus: +15 %)
     const heightAdvantage = fromPos.y > target.pos.y;
     const heightModifier = heightAdvantage ? 15 : 0;
@@ -431,11 +510,15 @@ export class CombatCalculator {
       });
     }
 
-    // H) Autorita polního maršála Colloreda (+8 % pro spojence v okruhu 7 polí)
+    // H) Autorita polního maršála Colloreda (+8 % pro spojence v okruhu 7 polí, pokud není zadržen)
     let marshalModifier = 0;
     if (shooter.faction === "player" && battlefield.units) {
       const colloredo = battlefield.units.find(
-        (u) => u.id === "player-colloredo" && u.alive,
+        (u) =>
+          u.id === "player-colloredo" &&
+          u.alive &&
+          u.hp > 0 &&
+          (u.detainedTurns ?? 0) === 0,
       );
       if (colloredo) {
         const distToMarshal = gridDistance3D(fromPos, colloredo.pos);
@@ -456,6 +539,32 @@ export class CombatCalculator {
       }
     }
 
+    // I) Aktivovaná zvláštní schopnost postavy [Klávesa 5]
+    let abilityHitModifier = 0;
+    if (shooter.abilityBuffActive) {
+      if (shooter.ability?.id === "klementinum_verdict") {
+        abilityHitModifier = 35;
+        hitModifiers.push({
+          id: "ability-klementinum-verdict",
+          label: "Svatováclavské soustředění [Schopnost 5]",
+          detail: "Suchý prach z Klementina a dokonalá balistická dráha (+35 %)",
+          value: abilityHitModifier,
+          unit: "%",
+          kind: "bonus",
+        });
+      } else {
+        abilityHitModifier = 15;
+        hitModifiers.push({
+          id: "ability-heroic-focus",
+          label: `${shooter.ability?.name ?? "Zvláštní schopnost"} [5]`,
+          detail: "Taktické odhodlání (+15 % k zásahu)",
+          value: abilityHitModifier,
+          unit: "%",
+          kind: "bonus",
+        });
+      }
+    }
+
     const rawHitChance =
       baseMarksmanship +
       weapon.baseAccuracy +
@@ -466,7 +575,8 @@ export class CombatCalculator {
       weatherHitModifier +
       forkModifier +
       shakenModifier +
-      marshalModifier;
+      marshalModifier +
+      abilityHitModifier;
 
     const hitChance = Math.max(0, Math.min(100, Math.round(rawHitChance)));
 
@@ -525,20 +635,41 @@ export class CombatCalculator {
       });
     }
 
+    // D2) Bonus kritického zásahu ze Svatováclavského soustředění (+45 %)
+    let abilityCritModifier = 0;
+    if (shooter.abilityBuffActive && shooter.ability?.id === "klementinum_verdict") {
+      abilityCritModifier = 45;
+      critModifiers.push({
+        id: "crit-klementinum-verdict",
+        label: "Svatováclavské soustředění [Schopnost 5]",
+        detail: "Mířená rána na spáry švédského kyrysu (+45 % krit, +3 HP poškození)",
+        value: abilityCritModifier,
+        unit: "%",
+        kind: "bonus",
+      });
+    }
+
     const rawCritChance =
       weapon.baseCritChance +
       flankCritModifier +
       pointBlankCritModifier +
-      armorCritPenalty;
+      armorCritPenalty +
+      abilityCritModifier;
     const critChance = Math.max(0, Math.min(100, Math.round(rawCritChance)));
 
+    const effectiveArmorPierce =
+      weapon.armorPierce +
+      (shooter.abilityBuffActive && shooter.ability?.id === "klementinum_verdict"
+        ? 2
+        : 0);
+
     // E) Informace o průrazu a zničení zbroje (Armor Pierce / Armor Shred) v pravém křídle
-    if (weapon.armorPierce > 0) {
+    if (effectiveArmorPierce > 0) {
       critModifiers.push({
         id: "weapon-armor-pierce",
         label: "Průraz zbroje (Armor Pierce)",
         detail: "Kolik bodů kyrysu cíle výstřel zcela ignoruje",
-        value: weapon.armorPierce,
+        value: effectiveArmorPierce,
         unit: "ZBROJ",
         kind: "bonus",
       });
@@ -565,15 +696,18 @@ export class CombatCalculator {
       weatherMisfireAdd = weapon.lockType === "matchlock" ? 5 : 2;
     }
     const smokeMisfireAdd = shooterInSmoke ? 3 : 0;
-    const misfireChance = Math.max(
-      0,
-      Math.min(
-        60,
-        Math.round(
-          weapon.baseMisfireChance + weatherMisfireAdd + smokeMisfireAdd,
-        ),
-      ),
-    );
+    const misfireChance =
+      shooter.abilityBuffActive && shooter.ability?.id === "klementinum_verdict"
+        ? 0
+        : Math.max(
+            0,
+            Math.min(
+              60,
+              Math.round(
+                weapon.baseMisfireChance + weatherMisfireAdd + smokeMisfireAdd,
+              ),
+            ),
+          );
 
     // =========================================================================
     // 4. NÁHLED POŠKOZENÍ NA UKAZATELI ZDRAVÍ A ZBROJE (HP & Armor Preview)
@@ -585,7 +719,7 @@ export class CombatCalculator {
     );
     const effectiveArmorAbsorption = Math.max(
       0,
-      remainingArmorAfterShred - weapon.armorPierce,
+      remainingArmorAfterShred - effectiveArmorPierce,
     );
 
     const expectedHpLossMin = Math.max(
@@ -628,7 +762,7 @@ export class CombatCalculator {
       minDamage: weapon.minDamage,
       maxDamage: weapon.maxDamage,
       critBonusDamage: weapon.critBonusDamage,
-      armorPierce: weapon.armorPierce,
+      armorPierce: effectiveArmorPierce,
       armorShred: weapon.armorShred,
       expectedArmorLoss,
       expectedHpLossMin,
@@ -661,19 +795,33 @@ export function calculateShot(
 
 /**
  * Vyhodnotí všechny živé nepřátele z pohledu střelce `attacker`.
- * Vrací pouze cíle, které jsou v dosahu zbraně a mají čistou 3D Bresenhamovu přímou viditelnost (LoS).
+ * Vrací pouze cíle, které jsou v dosahu zbraně, mají čistou 3D Bresenhamovu přímou viditelnost (LoS)
+ * a (pokud je aktivní Mlha války `visibleEnemyIds`) jsou odhaleny v zorném poli družiny.
  */
 export function evaluateVisibleTargets(
   grid: GridSystem,
   attacker: UnitData,
   allUnits: UnitData[],
   weather: WeatherType = "clear",
-  fromPos: GridCoord = attacker.pos,
+  fromPosOrVisibleIds?: GridCoord | Set<string>,
+  visibleEnemyIdsArg?: Set<string>,
 ): TargetEvaluation[] {
+  const fromPos: GridCoord =
+    fromPosOrVisibleIds && !(fromPosOrVisibleIds instanceof Set)
+      ? fromPosOrVisibleIds
+      : attacker.pos;
+  const visibleEnemyIds: Set<string> | undefined =
+    fromPosOrVisibleIds instanceof Set
+      ? fromPosOrVisibleIds
+      : visibleEnemyIdsArg;
+
   const results: TargetEvaluation[] = [];
 
   for (const unit of allUnits) {
-    if (!unit.alive || unit.faction === attacker.faction) continue;
+    if (!unit.alive || unit.hp <= 0 || unit.faction === attacker.faction)
+      continue;
+    if (visibleEnemyIds && !visibleEnemyIds.has(unit.id)) continue;
+
     const dist = gridDistance3D(fromPos, unit.pos);
     const inRange = dist <= attacker.weapon.maxRange;
     if (!inRange) continue;
@@ -770,15 +918,22 @@ export function rollRangedAttack(
   const span = attacker.weapon.maxDamage - attacker.weapon.minDamage + 1;
   const rawRollDamage =
     attacker.weapon.minDamage + Math.floor(rng() * Math.max(1, span));
+  const isVerdict =
+    attacker.abilityBuffActive && attacker.ability?.id === "klementinum_verdict";
   const rawDamage =
-    rawRollDamage + (critical ? attacker.weapon.critBonusDamage : 0);
+    rawRollDamage +
+    (critical ? attacker.weapon.critBonusDamage : 0) +
+    (isVerdict ? 3 : 0);
 
   // Destrukce zbroje (Shred) a průraz (Pierce)
-  const armorShredded = Math.min(target.armor, attacker.weapon.armorShred);
+  const shredAmount = attacker.weapon.armorShred + (isVerdict ? 1 : 0);
+  const armorShredded = Math.min(target.armor, shredAmount);
   const remainingArmor = Math.max(0, target.armor - armorShredded);
   // Kritický zásah pronikne mimo zbroj (ignoruje +1 bod zbroje navíc)
   const effectivePierce =
-    attacker.weapon.armorPierce + (critical ? 1 : 0);
+    attacker.weapon.armorPierce +
+    (critical ? 1 : 0) +
+    (isVerdict ? 2 : 0);
   const armorAbsorbed = Math.max(0, remainingArmor - effectivePierce);
 
   const finalDamage = Math.max(1, rawDamage - armorAbsorbed);
@@ -834,8 +989,13 @@ export function computeEnemyAiDecision(
   allUnits: UnitData[],
   weather: WeatherType = "clear",
 ): EnemyAiDecision {
-  const players = allUnits.filter((u) => u.alive && u.faction === "player");
-  if (players.length === 0 || !enemy.alive || enemy.ap <= 0) {
+  const players = allUnits.filter(
+    (u) => u.alive && u.hp > 0 && u.faction === "player",
+  );
+  const colloredoUnit = allUnits.find(
+    (u) => u.id === "player-colloredo" && u.alive,
+  );
+  if ((players.length === 0 && !colloredoUnit) || !enemy.alive || enemy.ap <= 0) {
     return { movePath: [], moveApCost: 0, targetId: null };
   }
 
@@ -855,9 +1015,12 @@ export function computeEnemyAiDecision(
     const tile = grid.getTile(coord);
     if (!tile) return;
 
-    let nearestPlayer = players[0]!;
+    const refPlayers = players.length > 0 ? players : colloredoUnit ? [colloredoUnit] : [];
+    if (refPlayers.length === 0) return;
+
+    let nearestPlayer = refPlayers[0]!;
     let nearestDist = Infinity;
-    for (const p of players) {
+    for (const p of refPlayers) {
       const d = gridDistance3D(coord, p.pos);
       if (d < nearestDist) {
         nearestDist = d;
@@ -881,7 +1044,26 @@ export function computeEnemyAiDecision(
 
     const heightScore = coord.y > 0 ? 18 : 0;
 
-    const colloredo = players.find((p) => p.id === "player-colloredo");
+    // Bonus za těsné obklíčení / střežení maršála Colloreda (vzdálenost <= 1 na stejném patře)
+    const adjacentToColloredo =
+      colloredoUnit &&
+      coord.y === colloredoUnit.pos.y &&
+      Math.abs(coord.x - colloredoUnit.pos.x) <= 1 &&
+      Math.abs(coord.z - colloredoUnit.pos.z) <= 1;
+    const colloredoHasEscort =
+      colloredoUnit &&
+      allUnits.some(
+        (u) =>
+          u.faction === "player" &&
+          u.alive &&
+          u.hp > 0 &&
+          u.id !== "player-colloredo" &&
+          u.pos.y === colloredoUnit.pos.y &&
+          Math.abs(u.pos.x - colloredoUnit.pos.x) <= 1 &&
+          Math.abs(u.pos.z - colloredoUnit.pos.z) <= 1,
+      );
+    const captureProximityBonus =
+      adjacentToColloredo && !colloredoHasEscort ? 55 : 0;
 
     if (canShootAfter) {
       const simulatedEnemy: UnitData = {
@@ -898,8 +1080,12 @@ export function computeEnemyAiDecision(
       );
       if (targets.length > 0) {
         // Švédský přepadový oddíl má rozkaz maršála nezabít, ale zajmout pro tučné výkupné!
-        // Prioritně cílí na Colloreda, pokud je v palebném poli.
-        const colloredoTarget = targets.find((t) => t.targetId === "player-colloredo");
+        // Prioritně cílí na Colloreda, pokud ještě není zadržen.
+        const colloredoTarget = targets.find(
+          (t) =>
+            t.targetId === "player-colloredo" &&
+            (colloredoUnit?.detainedTurns ?? 0) === 0,
+        );
         const bestTarget =
           colloredoTarget && colloredoTarget.calculation.hitChance >= 25
             ? colloredoTarget
@@ -913,7 +1099,13 @@ export function computeEnemyAiDecision(
         candidates.push({
           coord,
           apCost,
-          score: 100 + coverScore + heightScore + shotScore - apCost * 6,
+          score:
+            100 +
+            coverScore +
+            heightScore +
+            shotScore +
+            captureProximityBonus -
+            apCost * 6,
           bestTargetId: bestTarget.targetId,
         });
         return;
@@ -921,11 +1113,18 @@ export function computeEnemyAiDecision(
     }
 
     const distDiff = Math.abs(nearestDist - 6);
-    const interceptScore = colloredo ? Math.max(0, (12 - gridDistance3D(coord, colloredo.pos)) * 4) : 0;
+    const interceptScore = colloredoUnit
+      ? Math.max(0, (12 - gridDistance3D(coord, colloredoUnit.pos)) * 4)
+      : 0;
     candidates.push({
       coord,
       apCost,
-      score: coverScore + heightScore + interceptScore - distDiff * 6,
+      score:
+        coverScore +
+        heightScore +
+        interceptScore +
+        captureProximityBonus -
+        distDiff * 6,
       bestTargetId: null,
     });
   };
