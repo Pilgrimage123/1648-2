@@ -26,6 +26,7 @@ import {
 import {
   computeFogOfWar,
   createInitialExploredCoords,
+  previewReconFromTile,
   type DynamicLightSource,
 } from "../core/FogOfWar";
 import { computeReachableTiles, findPathAStar } from "../core/Pathfinding";
@@ -116,6 +117,7 @@ interface GameStoreState {
   reachableTiles: Map<string, ReachableTile>;
   hoveredTile: GridCoord | null;
   hoveredPath: GridCoord[];
+  hoveredSpottedEnemyIds: string[];
   visibleTargets: TargetEvaluation[];
   selectedTargetId: string | null;
 
@@ -1047,6 +1049,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     reachableTiles: derived.reachableTiles,
     hoveredTile: null,
     hoveredPath: [],
+    hoveredSpottedEnemyIds: [],
     visibleTargets: derived.visibleTargets,
     selectedTargetId: derived.selectedTargetId,
 
@@ -1482,8 +1485,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     setHoveredTile: (coord: GridCoord | null) => {
       const state = get();
       if (!coord) {
-        if (state.hoveredTile !== null || state.hoveredPath.length > 0) {
-          set({ hoveredTile: null, hoveredPath: [] });
+        if (
+          state.hoveredTile !== null ||
+          state.hoveredPath.length > 0 ||
+          state.hoveredSpottedEnemyIds.length > 0
+        ) {
+          set({ hoveredTile: null, hoveredPath: [], hoveredSpottedEnemyIds: [] });
         }
         return;
       }
@@ -1496,14 +1503,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         state.actionMode !== "move" ||
         !state.selectedUnitId
       ) {
-        set({ hoveredTile: coord, hoveredPath: [] });
+        set({ hoveredTile: coord, hoveredPath: [], hoveredSpottedEnemyIds: [] });
         return;
       }
 
       const unit = state.units.find((u) => u.id === state.selectedUnitId);
       const reachable = state.reachableTiles.get(coordKey(coord));
       if (!unit || !reachable) {
-        set({ hoveredTile: coord, hoveredPath: [] });
+        set({ hoveredTile: coord, hoveredPath: [], hoveredSpottedEnemyIds: [] });
         return;
       }
 
@@ -1514,7 +1521,19 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         state.units,
         unit.id,
       );
-      set({ hoveredTile: coord, hoveredPath: path });
+      const recon = previewReconFromTile(
+        state.grid,
+        unit,
+        coord,
+        state.units,
+        state.weather,
+        state.fogSnapshot.visibleEnemyIds,
+      );
+      set({
+        hoveredTile: coord,
+        hoveredPath: path,
+        hoveredSpottedEnemyIds: recon.spottedEnemyIds,
+      });
     },
 
     handleUnitClick: (unitId: string) => {

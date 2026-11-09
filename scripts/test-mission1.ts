@@ -4,9 +4,11 @@ import {
   checkLineOfSight3D,
   computeEnemyAiDecision,
   gridDistance3D,
+  resolveTargetCoverAgainstShot,
   rollRangedAttack,
 } from "../src/core/CombatSystem.ts";
 import {
+  coordKey,
   createInitialGrid,
   createInitialUnits,
   createReinforcementUnits,
@@ -1019,6 +1021,125 @@ assert(
 
 console.log(
   "✓ Interactive Doors (Free action 0 AP, LoS & movement blocking) and consistent character names validated.",
+);
+
+// 18. Test Multi-Floor Combat, Edge Peeking & High Ground Advantage (ADR-0010)
+// Václav is on P1 loggia ({ x: 8, y: 1, z: 15 }) with balustrade and Swedish patrol is below on P0 ({ x: 8, y: 0, z: 13 })
+const p1EdgeCoord: GridCoord = { x: 8, y: 1, z: 15 };
+const p0CourtyardCoord: GridCoord = { x: 8, y: 0, z: 13 };
+const losDown = checkLineOfSight3D(grid, p1EdgeCoord, p0CourtyardCoord);
+assert(
+  losDown.clear,
+  "Edge Peeking from P1 balcony edge down into P0 courtyard must yield clear LoS",
+);
+
+// High Ground bonus (+15 %)
+const elevatedShooter = { ...vaclav!, pos: p1EdgeCoord };
+const courtyardTarget = { ...odowalsky!, pos: p0CourtyardCoord };
+const elevatedShotCalc = calculateShot(
+  grid,
+  elevatedShooter,
+  courtyardTarget,
+  "clear",
+  p1EdgeCoord,
+  units,
+);
+const highGroundMod = elevatedShotCalc.hitModifiers.find(
+  (m) => m.id === "high-ground",
+);
+assert(
+  highGroundMod && highGroundMod.value === 15,
+  "Shooting downward from P1 to P0 must grant High Ground +15 % bonus",
+);
+
+// Downward fire bypasses low half-cover
+const lowObstacleCoord: GridCoord = { x: 7, y: 0, z: 15 };
+const coverDown = resolveTargetCoverAgainstShot(grid, p1EdgeCoord, lowObstacleCoord);
+assert(
+  coverDown.cover === "none",
+  "Shooting downward from P1 must degrade target half-cover to none",
+);
+
+// Upward fire against elevated target with balustrade grants full cover (-40 %)
+const coverUp = resolveTargetCoverAgainstShot(grid, p0CourtyardCoord, p1EdgeCoord);
+assert(
+  coverUp.cover === "full",
+  "Shooting upward against an elevated target on P1 must grant Full Cover",
+);
+
+console.log(
+  "✓ Multi-Floor Vertical Combat (Edge Peeking, High Ground +15%, and vertical cover asymmetry) validated.",
+);
+
+// 19. Test Pre-Move LoS Crosshair & Stairway Recon Preview (ADR-0010 Ticket 02)
+const stairHoverRecon = previewReconFromTile(
+  grid,
+  janMatej!,
+  { x: 6, y: 1, z: 19 },
+  units,
+  "rain",
+  new Set(),
+);
+assert(
+  typeof stairHoverRecon.newlyRevealedTilesCount === "number",
+  "previewReconFromTile must return newlyRevealedTilesCount",
+);
+assert(
+  Array.isArray(stairHoverRecon.spottedEnemyIds),
+  "previewReconFromTile must return spottedEnemyIds array",
+);
+
+// Verify store setHoveredTile populates hoveredSpottedEnemyIds
+useGameStore.getState().selectUnit(janMatej!.id);
+useGameStore.getState().setActionMode("move");
+const candidateTile = { x: 9, y: 0, z: 17 };
+useGameStore.getState().setHoveredTile(candidateTile);
+assert(
+  Array.isArray(useGameStore.getState().hoveredSpottedEnemyIds),
+  "Store must track hoveredSpottedEnemyIds",
+);
+useGameStore.getState().setHoveredTile(null);
+assert(
+  useGameStore.getState().hoveredSpottedEnemyIds.length === 0,
+  "Clearing hoveredTile must clear hoveredSpottedEnemyIds",
+);
+
+console.log(
+  "✓ Pre-Move LoS Crosshairs & Stairway Recon Preview validated.",
+);
+
+// 20. Test Multi-Floor Fog of War & Smoke Horizon Piercing (ADR-0010 Ticket 03)
+// A) Smoke Horizon Piercing: Elevated shooter from P1 shooting at P0 target in smoke
+const smokyP0TargetCoord: GridCoord = { x: 8, y: 0, z: 13 };
+grid.addSmoke(smokyP0TargetCoord, 2);
+const smokeTarget = { ...odowalsky!, pos: smokyP0TargetCoord };
+const smokePiercingShot = calculateShot(
+  grid,
+  elevatedShooter,
+  smokeTarget,
+  "clear",
+  p1EdgeCoord,
+  units,
+);
+const smokePiercingMod = smokePiercingShot.hitModifiers.find(
+  (m) => m.id === "smoke-horizon-piercing",
+);
+assert(
+  smokePiercingMod && smokePiercingMod.value === -10,
+  "Shooting downward from P1 into ground smoke must trigger Smoke Horizon Piercing (-10 %)",
+);
+
+// B) Per-floor Fog of War separation (ADR-0010)
+const fogSnap = computeFogOfWar(grid, units, "rain");
+const p0Key = coordKey({ x: 8, y: 0, z: 13 });
+const p2Key = coordKey({ x: 8, y: 2, z: 13 });
+assert(
+  fogSnap.visibleCoords.has(p0Key) !== fogSnap.visibleCoords.has(p2Key),
+  "Fog of War visible coordinates must be strictly partitioned by floor level",
+);
+
+console.log(
+  "✓ Multi-Floor Fog of War Blackout & Smoke Horizon Piercing validated.",
 );
 
 console.log("=== ALL MISSION 1 TESTS PASSED SUCCESSFULLY! ===");

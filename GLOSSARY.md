@@ -56,6 +56,30 @@ _Avoid_: Node, cell
 The visual and interactive filter controlled by `activeFloor` (`0 | 1 | 2`) via `V` or `PageUp/PageDown`: when viewing ground floor (`y = 0`), upper floor geometry (`y > 0`) becomes ghosted/hidden and non-intercepting so it does not occlude the interior.
 _Avoid_: Roof toggle, camera clip
 
+**Floor Cutaway Fog Blackout** (*Zatemnění neprozkoumaných pater*):
+The rule that unvisited and unseen upper floors remain in complete Terra Incognita darkness when the camera cutaway level is raised, preventing camera-based scouting through solid ceilings.
+_Avoid_: Black roof, cutaway shroud
+
+**Vertical Light Shaft** (*Vertikální světlík / Průhled šachtou*):
+An architectural opening between floors (courtyard well `Cour d'honneur`, open Sala Terrena archway, staircase void) through which light, line of sight, and explosion illumination travel bidirectionally.
+_Avoid_: Ceiling hole, vertical window
+
+**Wall Stub** (*Sokl zdi*):
+The low (0.35m) perimeter masonry remnant left at ground level when camera-facing walls are culled, preserving tactical room boundary reading and cover lines without occluding interior units.
+_Avoid_: Wall footing, cut wall, low border
+
+**Cursor Drop Line** (*Svislá kotva kurzoru*):
+The vertical projection beam dropping from an elevated tile cursor or stair span down to the ground plane, preventing isometric vertical parallax errors.
+_Avoid_: Cursor pillar, drop tether
+
+**Unit Visual Ghosting** (*Duch jednotky na patře*):
+The semi-transparent (~30% opacity) rendering of spotted units positioned on floors above the active cutaway level, maintaining tactical awareness while keeping lower-floor tiles clickable and unobstructed.
+_Avoid_: X-ray unit, phantom soldier
+
+**Elevation Badge** (*Výškový štítek*):
+The directional tactical badge (`▲ +1`, `▼ -1`) anchored to a unit's health bar indicating elevation difference relative to the current camera floor view, auto-hiding when on the active floor.
+_Avoid_: Floor indicator, height tag
+
 **Unit Actor** (`UnitActor`):
 The 3D container component responsible for world position interpolation along an A* path, walk-cycle bobbing and tilt, attack lunge, hit flash/shake, and the floating `<Html>` tactical plate (including blinking HP & Armor loss preview when targeted), while delegating visual rendering to either `UnitVisual2D` or `UnitVisual3D`.
 _Avoid_: Monolithic unit mesh
@@ -78,6 +102,26 @@ _Avoid_: Far mark, run zone
 
 **Line of Sight (LoS)**:
 Pure 3D Bresenham voxel traversal over the `GridSystem` data grid (never `THREE.Raycaster`), blocked by `high_wall`, `pillar`, and solid upper floors.
+
+**Edge Peeking** (*Vyklonění přes balustrádu*):
+The tactical rule allowing a unit positioned adjacent to a floor edge or low parapet to lean outward by 0.35m to achieve vertical line of sight into lower courtyards without being blocked by its own floor.
+_Avoid_: Balcony peek, edge lean
+
+**High Ground Advantage** (*Výšková převaha*):
+The tactical marksmanship modifier granting +15% hit chance and partial cover bypass when firing downward from an elevated floor (`shooter.y > target.y`).
+_Avoid_: Elevation bonus, height buff
+
+**Pre-Move LoS Crosshair** (*Prediktivní zaměřovač cílů*):
+The dynamic reticle indicator displayed over enemy units and within the Target Ribbon when hovering a potential movement destination, confirming weapon range and line of sight before moving.
+_Avoid_: Move target preview, sightline icon
+
+**Smoke Horizon Piercing** (*Průhled z výšky přes přízemní dým*):
+The vertical vision rule allowing marksmen stationed on elevated floors (`shooter.y > target.y`, such as the Piano Nobile balcony or Maltese Watchtower) to spot and target enemies through low-lying ground smoke with a reduced -10% accuracy penalty rather than complete LoS blockage.
+_Avoid_: Smoke bypass, high vision
+
+**Stairway Recon Preview** (*Predikce průzkumu na schodišti*):
+The movement hover indicator calculating anticipated field-of-view and enemy alerts on an unexplored floor before committing an action point to ascend a staircase or ladder.
+_Avoid_: Stair preview, ladder check
 
 ### 17th-Century Aiming HUD & Shot Breakdown System
 

@@ -185,7 +185,8 @@ export function checkLineOfSight3D(
     return direct;
   }
 
-  // XCOM Step-Out Peeking: vyzkoušíme vyklonění střelce nebo cíle o 1 pole do boku
+  // XCOM Step-Out Peeking & ADR-0010 Edge Peeking přes balustrádu patra:
+  // Vyzkoušíme vyklonění střelce nebo cíle o 1 pole do boku či přes okraj patra
   const stepOffsets = [
     { dx: 1, dz: 0 },
     { dx: -1, dz: 0 },
@@ -200,9 +201,33 @@ export function checkLineOfSight3D(
     return c;
   };
 
-  // 1. Vyklonění střelce zpoza rohu vysoké zdi / pilíře
+  // Edge Peeking (ADR-0010): Střelec na okraji vyvýšeného patra se vykloní přes balustrádu / hranu podlahy
+  // do volného prostoru nad nádvořím, čímž získá přímý výhled dolů
+  const canEdgePeek = (base: GridCoord, dx: number, dz: number, otherEnd: GridCoord): GridCoord | null => {
+    const c: GridCoord = { x: base.x + dx, y: base.y, z: base.z + dz };
+    if (!grid.inBounds(c)) return null;
+    const t = grid.getTile(c);
+    if (!t) return null;
+    if (t.obstacle === "high_wall" || t.obstacle === "pillar" || grid.isDoorClosedAt(c)) {
+      return null;
+    }
+    // Vyklonění musí směřovat k cíli (kladný skalární součin)
+    const dot = dx * (otherEnd.x - base.x) + dz * (otherEnd.z - base.z);
+    if (dot < 0) return null;
+
+    // Pokud je tam volný prostor nad nižším patrem (nemá podlahu) nebo pochozí plocha,
+    // postava se může vyklonit přes zábradlí
+    if (!t.hasFloor || (t.hasFloor && t.walkable)) {
+      return c;
+    }
+    return null;
+  };
+
+  // 1. Vyklonění střelce zpoza rohu vysoké zdi / pilíře nebo přes hranu balustrády
   for (const off of stepOffsets) {
-    const peekFrom = canStepTo(from, off.dx, off.dz);
+    const peekFrom =
+      canStepTo(from, off.dx, off.dz) ??
+      (from.y !== to.y ? canEdgePeek(from, off.dx, off.dz, to) : null);
     if (!peekFrom) continue;
     const peekCheck = checkDirectRay3D(grid, peekFrom, to, true);
     if (peekCheck.clear) {
@@ -210,9 +235,11 @@ export function checkLineOfSight3D(
     }
   }
 
-  // 2. Vyklonění cíle zpoza rohu vysoké zdi / pilíře
+  // 2. Vyklonění cíle zpoza rohu vysoké zdi / pilíře nebo přes hranu balustrády
   for (const off of stepOffsets) {
-    const peekTo = canStepTo(to, off.dx, off.dz);
+    const peekTo =
+      canStepTo(to, off.dx, off.dz) ??
+      (from.y !== to.y ? canEdgePeek(to, off.dx, off.dz, from) : null);
     if (!peekTo) continue;
     const peekCheck = checkDirectRay3D(grid, from, peekTo, true);
     if (peekCheck.clear) {
@@ -228,7 +255,7 @@ export function checkLineOfSight3D(
 
 /**
  * Určí světovou stranu (N, E, S, W), ze které přilétá výstřel na cílovou dlaždici,
- * a vrátí úroveň krytu cíle v tomto směru.
+ * a vrátí úroveň krytu cíle v tomto směru se započtením výškového rozdílu (ADR-0010).
  */
 export function resolveTargetCoverAgainstShot(
   grid: GridSystem,
@@ -278,6 +305,28 @@ export function resolveTargetCoverAgainstShot(
     const level = targetTile.cover[dir];
     if (rank[level] > rank[best]) {
       best = level;
+    }
+  }
+
+  // Vertikální úprava krytí podle ADR-0010:
+  // 1. Střelba shora dolů (attackerPos.y > targetPos.y):
+  //    Výšková převaha překonává nízké překážky. Nízký kryt (half) je shora zcela eliminován (none),
+  //    vysoký kryt (full) je redukován na poloviční (half).
+  if (attackerPos.y > targetPos.y) {
+    if (best === "half") {
+      best = "none";
+    } else if (best === "full") {
+      best = "half";
+    }
+  }
+  // 2. Střelba zespodu nahoru (attackerPos.y < targetPos.y):
+  //    Cíl na vyvýšeném patře chráněný balustrádou, parapetem nebo okrajem podlahy
+  //    má proti střelbě zespodu garantován plný kryt (full -40 %).
+  else if (attackerPos.y < targetPos.y) {
+    if (best === "half" || best === "full" || targetTile.obstacle === "low_wall") {
+      best = "full";
+    } else {
+      best = "half";
     }
   }
 
@@ -440,24 +489,38 @@ export class CombatCalculator {
       });
     }
 
-    // E) Kouř z černého prachu (Black Powder Smoke: -20 %)
+    // E) Kouř z černého prachu (Smoke Horizon Piercing ADR-0010)
     const shooterInSmoke = (shooterTile?.smokeTurns ?? 0) > 0;
     const targetInSmoke = (targetTile?.smokeTurns ?? 0) > 0;
-    const smokeModifier = shooterInSmoke || targetInSmoke ? -20 : 0;
-    if (smokeModifier !== 0) {
-      hitModifiers.push({
-        id: "black-powder-smoke",
-        label: "Kouř z černého prachu (Black Powder Smoke)",
-        detail:
-          shooterInSmoke && targetInSmoke
-            ? "Střelec i cíl stojí v dýmu z předchozích salv"
-            : shooterInSmoke
-              ? "Střelec stojí v hustém dýmu ze střelného prachu"
-              : "Cíl je zahalen dýmem z předchozích salv",
-        value: smokeModifier,
-        unit: "%",
-        kind: "penalty",
-      });
+    let smokeModifier = 0;
+    if (shooterInSmoke || targetInSmoke) {
+      if (fromPos.y > target.pos.y && !shooterInSmoke && targetInSmoke) {
+        // Střelec z vyvýšeného patra nahlíží přes nízký přízemní dým: -10 % místo -20 %
+        smokeModifier = -10;
+        hitModifiers.push({
+          id: "smoke-horizon-piercing",
+          label: "Průhled z výšky přes dým (Smoke Piercing)",
+          detail: "Střelba shora přes přízemní kouř z černého prachu (-10 %)",
+          value: smokeModifier,
+          unit: "%",
+          kind: "penalty",
+        });
+      } else {
+        smokeModifier = -20;
+        hitModifiers.push({
+          id: "black-powder-smoke",
+          label: "Kouř z černého prachu (Black Powder Smoke)",
+          detail:
+            shooterInSmoke && targetInSmoke
+              ? "Střelec i cíl stojí v dýmu z předchozích salv"
+              : shooterInSmoke
+                ? "Střelec stojí v hustém dýmu ze střelného prachu"
+                : "Cíl je zahalen dýmem z předchozích salv",
+          value: smokeModifier,
+          unit: "%",
+          kind: "penalty",
+        });
+      }
     }
 
     // F) Počasí (Déšť / Mlha): Penalizace k viditelnosti

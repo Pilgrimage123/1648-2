@@ -331,6 +331,7 @@ export function previewReconFromTile(
   sightableEnemies: number;
   newlyRevealedEnemies: number;
   newlyRevealedCount: number;
+  newlyRevealedTilesCount: number;
   spottedEnemyIds: string[];
 } {
   const radius = computeUnitSightRadius(grid, mover, weather, candidateCoord);
@@ -359,10 +360,27 @@ export function previewReconFromTile(
     }
   }
 
+  // Výpočet orientačního počtu nově spatřených polí při postupu na schodiště / jiné patro (ADR-0010)
+  let newlyRevealedTilesCount = 0;
+  if (candidateCoord.y !== mover.pos.y || Boolean(grid.getTile(candidateCoord)?.isLadder)) {
+    const floorTiles = grid
+      .getAllTiles()
+      .filter((t) => t.hasFloor && t.coord.y === candidateCoord.y);
+    for (const t of floorTiles) {
+      if (
+        gridDistance3D(candidateCoord, t.coord) <= radius &&
+        checkFogLineOfSight3D(grid, candidateCoord, t.coord, ignoreSmoke)
+      ) {
+        newlyRevealedTilesCount++;
+      }
+    }
+  }
+
   return {
     sightableEnemies,
     newlyRevealedEnemies,
     newlyRevealedCount: newlyRevealedEnemies,
+    newlyRevealedTilesCount,
     spottedEnemyIds,
   };
 }

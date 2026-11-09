@@ -5,8 +5,9 @@
  * s barokní ikonou krytu s číslem (−20 / −40), HP/Armor segmenty a blikajícím náhledem poškození.
  */
 
+import { Line } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { Cloud, Eye, Flame, Footprints } from "lucide-react";
+import { Cloud, Eye, Flame, Footprints, Target } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { bestTileCover } from "../../core/GridSystem";
@@ -16,7 +17,7 @@ import { BaroqueCoverBadge } from "../ui/BaroqueCoverBadge";
 import { UnitVisual2D } from "./UnitVisual2D";
 import { UnitVisual3D } from "./UnitVisual3D";
 import { WorldHtml } from "./WorldHtml";
-import { gridToWorld } from "./worldCoords";
+import { FLOOR_HEIGHT, gridToWorld } from "./worldCoords";
 
 interface UnitActorProps {
   unit: UnitData;
@@ -39,6 +40,7 @@ export function UnitActor({ unit }: UnitActorProps) {
   const activeMovement = useGameStore((s) => s.activeMovement);
   const activeProjectile = useGameStore((s) => s.activeProjectile);
   const isCapturingAnim = useGameStore((s) => s.isCapturingAnim);
+  const hoveredSpottedEnemyIds = useGameStore((s) => s.hoveredSpottedEnemyIds);
   const unitFx = useGameStore((s) => s.unitFx[unit.id]);
   const fogOfWarEnabled = useGameStore((s) => s.fogOfWarEnabled);
   const fogSnapshot = useGameStore((s) => s.fogSnapshot);
@@ -53,6 +55,11 @@ export function UnitActor({ unit }: UnitActorProps) {
     unit.faction === "enemy" &&
     fogOfWarEnabled &&
     !fogSnapshot.visibleEnemyIds.has(unit.id);
+
+  const isPreMoveTarget =
+    unit.faction === "enemy" &&
+    unit.alive &&
+    hoveredSpottedEnemyIds.includes(unit.id);
 
   const soundContact = useMemo(
     () =>
@@ -134,6 +141,12 @@ export function UnitActor({ unit }: UnitActorProps) {
         group.position.lerpVectors(p0, p1, segFrac);
 
         const isVerticalStep = c0.y !== c1.y;
+        if (isVerticalStep && segFrac >= 0.5) {
+          const curFloor = useGameStore.getState().activeFloor;
+          if (curFloor !== c1.y) {
+            useGameStore.getState().setActiveFloor(c1.y);
+          }
+        }
         const stairTile = isVerticalStep
           ? (grid.getTile(c0) ?? grid.getTile(c1))
           : undefined;
@@ -231,15 +244,13 @@ export function UnitActor({ unit }: UnitActorProps) {
   const isShootingView = actionMode === "shoot" || activeProjectile !== null;
   const isMovingThisUnit = activeMovement?.unitId === unit.id;
   
-  // Postavy nesmí být vidět skrze patra:
-  // Postava se vykreslí pouze tehdy, pokud stojí na právě aktivním patře (activeFloor),
-  // nebo pokud je přímo cílem střelby v shooting view, nebo pokud se zrovna pohybuje.
   const isOnActiveFloor = unit.pos.y === activeFloor;
-  if (!isOnActiveFloor && !isTargeted && !isMovingThisUnit) {
-    return null;
-  }
+  const isHigherFloor = unit.pos.y > activeFloor;
+  const isLowerFloor = unit.pos.y < activeFloor;
 
-  const visualOpacity = 1;
+  // Třístupňová vertikální hierarchie (ADR-0010 Ticket 04):
+  // Vyšší patro: poloprůhledný duch (0.32), nižší patro: ztmavené do hloubky šerosvitu (0.72)
+  const visualOpacity = isHigherFloor ? 0.32 : isLowerFloor ? 0.72 : 1.0;
 
   // Pokud je nepřítel ukryt v barokním šerosvitu (Fog of War), vykreslíme pouze diegetický Zvukový / Doutnákový kontakt (1648)
   if (isHiddenInFog) {
@@ -381,16 +392,49 @@ export function UnitActor({ unit }: UnitActorProps) {
     <group
       ref={groupRef}
       position={gridToWorld(unit.pos)}
+      raycast={isHigherFloor && actionMode === "move" ? () => null : undefined}
       onPointerOver={(e) => {
+        if (isHigherFloor && actionMode === "move") return;
         e.stopPropagation();
         setIsHovered(true);
       }}
       onPointerOut={() => setIsHovered(false)}
       onClick={(e) => {
+        if (isHigherFloor && actionMode === "move") return;
         e.stopPropagation();
         handleUnitClick(unit.id);
       }}
     >
+      {/* Ground Anchor Disc & Contact Shadow under feet (ADR-0010) */}
+      <mesh position={[0, 0.025, 0]} rotation={[-Math.PI * 0.5, 0, 0]}>
+        <ringGeometry args={[0.22, 0.44, 24]} />
+        <meshBasicMaterial
+          color={isHigherFloor ? "#94a3b8" : isPlayer ? "#d4a73f" : "#dc2626"}
+          transparent
+          opacity={isHigherFloor ? 0.35 : 0.65}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+        />
+      </mesh>
+
+      {/* Svislá kotva kurzoru / postavy (Drop Line) z vyššího patra k zemi */}
+      {isHigherFloor && (
+        <Line
+          points={[
+            [0, 0, 0],
+            [0, -(unit.pos.y - activeFloor) * FLOOR_HEIGHT, 0],
+          ]}
+          color="#94a3b8"
+          dashed
+          dashScale={6}
+          dashSize={0.3}
+          gapSize={0.2}
+          lineWidth={1.6}
+          transparent
+          opacity={0.45}
+        />
+      )}
+
       {/* Taktický kruh pod postavou */}
       <mesh
         position={[0, 0.03, 0]}
@@ -508,6 +552,14 @@ export function UnitActor({ unit }: UnitActorProps) {
             </div>
           )}
 
+          {/* Prediktivní zaměřovač cílů před pohybem (Pre-Move LoS Crosshair ADR-0010) */}
+          {isPreMoveTarget && !isDetainedMarshal && (
+            <div className="flex items-center gap-1 text-[10px] font-cinzel font-black px-2 py-0.5 rounded-full bg-red-600 text-white uppercase tracking-wider animate-pulse border border-amber-300 shadow-[0_0_12px_rgba(239,68,68,0.9)] whitespace-nowrap">
+              <Target className="w-3.5 h-3.5 text-amber-300 animate-spin" />
+              <span>V muškách po přesunu</span>
+            </div>
+          )}
+
           {/* Plovoucí bojový banner */}
           {unitFx?.floatingBanner && (
             <div
@@ -550,9 +602,17 @@ export function UnitActor({ unit }: UnitActorProps) {
               {unit.name}
             </span>
 
-            {unit.pos.y > 0 && (
-              <span className="text-[9px] font-cinzel font-bold px-1 rounded bg-amber-500/30 text-amber-300 border border-amber-400/60">
-                P{unit.pos.y}
+            {unit.pos.y !== activeFloor && (
+              <span
+                title={`Relativní výška vůči aktivnímu patru: ${unit.pos.y > activeFloor ? `+${unit.pos.y - activeFloor}` : `-${activeFloor - unit.pos.y}`} patro`}
+                className={`flex items-center gap-0.5 text-[9px] font-cinzel font-black px-1 rounded border tabular-nums ${
+                  unit.pos.y > activeFloor
+                    ? "bg-amber-500/30 text-amber-300 border-amber-400/80 shadow-[0_0_8px_rgba(251,191,36,0.4)]"
+                    : "bg-slate-800/90 text-slate-300 border-slate-600/60"
+                }`}
+              >
+                <span>{unit.pos.y > activeFloor ? "▲" : "▼"}</span>
+                <span>{unit.pos.y > activeFloor ? `+${unit.pos.y - activeFloor}` : `-${activeFloor - unit.pos.y}`}</span>
               </span>
             )}
 

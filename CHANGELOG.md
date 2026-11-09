@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - 2026-11-09
 
 ### Added
+- **Multi-Floor Vertical Combat & Fog of War System (ADR-0010)**:
+  - **Edge Peeking & 3D Vertical Line of Sight**: 3D Bresenham LoS in `CombatSystem.ts` now supports automatic 0.35m Edge Peeking over balustrades and floor perimeters, enabling steep downward sightlines into courtyards without floor slab obstruction.
+  - **High Ground Advantage (+15%)**: Firing downward from an elevated floor (`attacker.y > target.y`) grants a +15% marksmanship bonus and degrades target half-cover to none (flanked from above).
+  - **Upward Fire Defense**: Elevated defenders behind balustrades/low walls receive guaranteed full cover (-40%) against incoming fire from lower floors.
+  - **Pre-Move LoS Target Crosshairs**: Hovering candidate movement tiles in `actionMode === "move"` evaluates line of sight in real time via `previewReconFromTile` and displays animated `🎯 V muškách po přesunu` crosshairs over targetable enemies in 3D and highlights matching cards in the Target Ribbon.
+  - **Stairway Recon Preview**: Hovering staircases or ladders to unvisited floors communicates anticipated newly revealable tiles and enemy threat alerts in `TileHoverIndicator`.
+  - **Floor Cutaway Fog Blackout**: Unvisited upper floors in camera cutaway remain in pitch-black Terra Incognita, preventing camera-based scouting through solid ceilings.
+  - **Smoke Horizon Piercing**: Elevated snipers peering down through low-lying black-powder ground smoke suffer only a -10% accuracy penalty instead of complete LoS blockage.
+  - **Three-Tier Visual Hierarchy & Unit Ghosting**: Spotted units on higher floors render as semi-transparent ghosts (30% opacity) with ground anchor discs, while unrevealed enemies in Fog of War remain completely hidden (only sound/matchcord contacts). Lower floor units render with 40% desaturation for Chiaroscuro depth.
+  - **3D Cursor Drop Line & Ground Anchoring**: Eliminated isometric parallax error using persistent foot pedestals and vertical dashed drop lines projecting elevated units and cursors down to the ground plane.
+  - **Raycast Movement Pass-Through**: Pointer raycasts for movement pass through ghosted upper-floor units (`pointerEvents: none`), preventing accidental clicks, while allowing direct targeting in `actionMode === "shoot"`.
+  - **Smart Wall Culling & 0.35m Wall Stubs**: Front-facing walls obstructing the view into palace interiors automatically drop to 0.35m Wall Stubs with weathered sandstone coping via `InstancedMesh` matrix transforms, keeping rear and side walls at full 2.4m height without runtime garbage collection.
+  - **Auto Camera Floor Tracking**: Moving units across floor boundaries or cycling units via `Tab` smoothly adapts the camera's `activeFloor`.
+
+
+### Added
 - **XCOM 2 Cinematic Action Cam & Tracking System (ADR-0009)**:
   - **Dynamic Movement Tracking Cam**: Camera smoothly locks onto moving units during their movement interpolation (`activeMovement`), lowers viewing distance by ~28% and adopts an action pitch (45°) matching XCOM 2 action cam.
   - **Multi-Floor Staircase Transition Tracking**: Smoothly ascends and descends along straight and spiral stairs with vertical height compensation (`y * FLOOR_HEIGHT`).

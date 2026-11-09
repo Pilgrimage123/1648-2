@@ -81,6 +81,7 @@ export function TacticalActionRibbon() {
   const isBusy = useGameStore((s) => s.isBusy);
   const actionMode = useGameStore((s) => s.actionMode);
   const visibleTargets = useGameStore((s) => s.visibleTargets);
+  const hoveredSpottedEnemyIds = useGameStore((s) => s.hoveredSpottedEnemyIds);
   const breakdownOpen = useGameStore((s) => s.breakdownOpen);
   const tutorialStep = useGameStore((s) => s.tutorialStep);
   const tutorialDismissed = useGameStore((s) => s.tutorialDismissed);
@@ -603,10 +604,13 @@ export function TacticalActionRibbon() {
                         const enemy = units.find((u) => u.id === ev.targetId);
                         if (!enemy) return null;
                         const isSelectedTarget = ev.targetId === calc?.targetId;
+                        const isPreMoveTarget = hoveredSpottedEnemyIds.includes(ev.targetId);
                         const cat = ev.calculation.ribbonCategory;
 
                         const badgePalette =
-                          cat === "flanked"
+                          isPreMoveTarget
+                            ? "bg-red-950/95 border-amber-400 text-amber-100 ring-2 ring-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.6)]"
+                            : cat === "flanked"
                             ? isSelectedTarget
                               ? "bg-amber-600/40 border-amber-300 text-amber-100 ring-2 ring-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.5)]"
                               : "bg-amber-950/80 border-amber-500/70 text-amber-200 hover:border-amber-300"

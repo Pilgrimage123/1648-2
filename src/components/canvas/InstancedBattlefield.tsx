@@ -1082,6 +1082,7 @@ export function InstancedBattlefield() {
   const gridVersion = useGameStore((s) => s.gridVersion);
   const smokeVersion = useGameStore((s) => s.smokeVersion);
   const activeFloor = useGameStore((s) => s.activeFloor);
+  const cameraStep = useGameStore((s) => s.cameraStep);
   const reachableTiles = useGameStore((s) => s.reachableTiles);
   const hoveredTile = useGameStore((s) => s.hoveredTile);
   const hoveredPath = useGameStore((s) => s.hoveredPath);
@@ -1346,8 +1347,13 @@ export function InstancedBattlefield() {
       _color.lerp(_shroudTint, 0.34);
       _color.multiplyScalar(0.5);
     } else if (fogVis === "unexplored") {
-      _color.lerp(_unexploredTint, 0.58);
-      _color.multiplyScalar(0.26);
+      if (tile.coord.y > 0) {
+        // Floor Cutaway Fog Blackout (ADR-0010): Neprozkoumaná horní patra jsou černočerná Terra Incognita
+        _color.setHex(0x020305);
+      } else {
+        _color.lerp(_unexploredTint, 0.58);
+        _color.multiplyScalar(0.26);
+      }
     }
   };
 
@@ -1459,8 +1465,79 @@ export function InstancedBattlefield() {
           _color.lerp(_shroudTint, 0.32);
           _color.multiplyScalar(0.5);
         } else if (fogVis === "unexplored") {
-          _color.lerp(_unexploredTint, 0.55);
-          _color.multiplyScalar(0.24);
+          if (tile.coord.y > 0) {
+            _color.setHex(0x020305);
+          } else {
+            _color.lerp(_unexploredTint, 0.55);
+            _color.multiplyScalar(0.24);
+          }
+        }
+        mesh.setColorAt(i, _color);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      if (list.length > 0) mesh.computeBoundingSphere();
+    };
+
+    // Smart Wall Culling & Wall Stubs (ADR-0010 Ticket 06)
+    const angle = Math.PI * 0.25 + cameraStep * (Math.PI * 0.5);
+    const camDirX = Math.sin(angle);
+    const camDirZ = Math.cos(angle);
+    const focusCoord = selectedUnit?.pos ?? hoveredTile ?? { x: 10, y: 0, z: 18 };
+
+    const isFrontWall = (c: GridCoord): boolean => {
+      if (c.y !== effectiveViewFloor) return false;
+      const dx = c.x - focusCoord.x;
+      const dz = c.z - focusCoord.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 9.5) return false;
+      const dot = camDirX * dx + camDirZ * dz;
+      return dot < -0.38;
+    };
+
+    const populateHighWalls = (
+      mesh: THREE.InstancedMesh | null,
+      list: TileData[],
+    ) => {
+      if (!mesh) return;
+      mesh.count = list.length;
+      list.forEach((tile, i) => {
+        const [wx, wy, wz] = gridToWorld(tile.coord);
+        const front = isFrontWall(tile.coord);
+        if (front) {
+          // Wall Stub (0.35m výška s pískovcovou římsou)
+          _dummy.position.set(wx, wy + 0.175, wz);
+          _dummy.rotation.set(0, 0, 0);
+          _dummy.scale.set(1, 0.35 / FLOOR_HEIGHT, 1);
+        } else {
+          // Zadní / boční zeď v plné výšce
+          _dummy.position.set(wx, wy + FLOOR_HEIGHT * 0.5, wz);
+          _dummy.rotation.set(0, 0, 0);
+          _dummy.scale.set(1, 1, 1);
+        }
+        _dummy.updateMatrix();
+        mesh.setMatrixAt(i, _dummy.matrix);
+
+        const dmg = hasNeighborBlast(tile.coord);
+        if (front) {
+          _color.setHex(dmg >= 2 ? 0x2b231f : 0x8c7b6b);
+        } else {
+          if (dmg >= 2) _color.setHex(0x2b231f);
+          else if (tile.coord.z >= 15) _color.setHex(dmg === 1 ? 0x5e554d : 0x7d7267);
+          else _color.setHex(dmg === 1 ? 0x3d3833 : 0x4e4841);
+        }
+
+        const fogVis = getTileVisibility(tile.coord, fogSnapshot, fogOfWarEnabled);
+        if (fogVis === "shrouded") {
+          _color.lerp(_shroudTint, 0.32);
+          _color.multiplyScalar(0.5);
+        } else if (fogVis === "unexplored") {
+          if (tile.coord.y > 0) {
+            _color.setHex(0x020305);
+          } else {
+            _color.lerp(_unexploredTint, 0.55);
+            _color.multiplyScalar(0.24);
+          }
         }
         mesh.setColorAt(i, _color);
       });
@@ -1480,16 +1557,7 @@ export function InstancedBattlefield() {
       return dmg === 1 ? 0x6b6259 : 0x857b70;
     });
 
-    populateWithColor(
-      high0MeshRef.current,
-      obstacles.high0,
-      FLOOR_HEIGHT * 0.5,
-      (t, dmg) => {
-        if (dmg >= 2) return 0x2b231f;
-        if (t.coord.z >= 15) return dmg === 1 ? 0x5e554d : 0x7d7267;
-        return dmg === 1 ? 0x3d3833 : 0x4e4841;
-      },
-    );
+    populateHighWalls(high0MeshRef.current, obstacles.high0);
 
     populateWithColor(
       pillar0MeshRef.current,
@@ -1525,7 +1593,17 @@ export function InstancedBattlefield() {
     populateWithColor(pillar2MeshRef.current, obstacles.pillar2, 1.0, (_, dmg) =>
       dmg >= 2 ? 0x362c26 : 0x8c7b6b,
     );
-  }, [obstacles, grid, gridVersion, fogSnapshot, fogOfWarEnabled]);
+  }, [
+    obstacles,
+    grid,
+    gridVersion,
+    fogSnapshot,
+    fogOfWarEnabled,
+    cameraStep,
+    selectedUnit?.pos,
+    hoveredTile,
+    effectiveViewFloor,
+  ]);
 
   // Populate Nocturnal Fog of War Shroud Veil & Chiaroscuro Torchlight Frontier Rim
   useEffect(() => {
@@ -1750,14 +1828,26 @@ export function InstancedBattlefield() {
     }
   };
 
-  // A* Path Preview Points
+  // A* Path Preview Points se zalomením podél schodišť (ADR-0010 Ticket 05)
   const pathPoints = useMemo(() => {
     if (!selectedUnit || hoveredPath.length === 0) return null;
     const coords: GridCoord[] = [selectedUnit.pos, ...hoveredPath];
-    return coords.map((c) => {
+    const pts: [number, number, number][] = [];
+
+    for (let i = 0; i < coords.length; i++) {
+      const c = coords[i]!;
       const [wx, wy, wz] = gridToWorld(c);
-      return [wx, wy + 0.14, wz] as [number, number, number];
-    });
+      if (i > 0) {
+        const prev = coords[i - 1]!;
+        if (prev.y !== c.y) {
+          const [pwx, pwy, pwz] = gridToWorld(prev);
+          // Přidáme mezilehlé zalomení podél tělesa schodiště
+          pts.push([(pwx + wx) * 0.5, (pwy + wy) * 0.5 + 0.14, (pwz + wz) * 0.5]);
+        }
+      }
+      pts.push([wx, wy + 0.14, wz]);
+    }
+    return pts;
   }, [selectedUnit, hoveredPath]);
 
   const hoveredTileCover = useMemo(() => {
@@ -2287,6 +2377,38 @@ export function InstancedBattlefield() {
       {/* 10. Hovered Tile Cursor & 3x3 Grenade AoE Preview & Dynamic Tile Cover Preview */}
       {hoveredTile && (
         <group position={gridToWorld(hoveredTile)}>
+          {/* Svislá kotva kurzoru (Cursor Drop Line) k zemi (ADR-0010 Ticket 05) */}
+          {hoveredTile.y > 0 && (
+            <>
+              <Line
+                points={[
+                  [0, 0, 0],
+                  [0, -(hoveredTile.y * FLOOR_HEIGHT), 0],
+                ]}
+                color="#facc15"
+                dashed
+                dashScale={8}
+                dashSize={0.25}
+                gapSize={0.15}
+                lineWidth={2.2}
+                transparent
+                opacity={0.7}
+              />
+              <mesh
+                position={[0, -(hoveredTile.y * FLOOR_HEIGHT) + 0.02, 0]}
+                rotation={[-Math.PI * 0.5, 0, 0]}
+              >
+                <ringGeometry args={[TILE_SIZE * 0.22, TILE_SIZE * 0.28, 16]} />
+                <meshBasicMaterial
+                  color="#facc15"
+                  transparent
+                  opacity={0.65}
+                  side={THREE.DoubleSide}
+                />
+              </mesh>
+            </>
+          )}
+
           <mesh position={[0, 0.04, 0]} rotation={[-Math.PI * 0.5, 0, 0]}>
             <ringGeometry args={[TILE_SIZE * 0.38, TILE_SIZE * 0.48, 4]} />
             <meshBasicMaterial
@@ -2346,10 +2468,17 @@ export function InstancedBattlefield() {
                     </span>
                   )}
 
+                {fogOfWarEnabled &&
+                  hoveredReconPreview &&
+                  hoveredReconPreview.newlyRevealedTilesCount > 0 && (
+                    <span className="px-1.5 py-0.2 rounded bg-amber-500/30 border border-amber-300 text-[10px] font-cinzel font-black text-amber-200 shadow-[0_0_8px_rgba(251,191,36,0.4)]">
+                      🪜 +{hoveredReconPreview.newlyRevealedTilesCount} polí patra
+                    </span>
+                  )}
+
                 {hoveredReconPreview &&
-                  hoveredReconPreview.newlyRevealedCount === 0 &&
                   hoveredReconPreview.spottedEnemyIds.length > 0 && (
-                    <span className="px-1.5 py-0.2 rounded bg-red-950/85 border border-red-500/70 text-[10px] font-cinzel font-black text-red-200">
+                    <span className="px-1.5 py-0.2 rounded bg-red-950/85 border border-red-500/70 text-[10px] font-cinzel font-black text-red-200 shadow-[0_0_8px_rgba(239,68,68,0.5)]">
                       🎯 {hoveredReconPreview.spottedEnemyIds.length} v muškách
                     </span>
                   )}
