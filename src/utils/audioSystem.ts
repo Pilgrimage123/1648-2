@@ -27,14 +27,21 @@ function getAudioContext(): AudioContext | null {
   return audioCtx;
 }
 
-/** Helper to create white noise buffer */
-function createNoiseBuffer(ctx: AudioContext, durationSec: number): AudioBuffer {
+let cachedNoiseBuffer: AudioBuffer | null = null;
+
+/** Helper to get or create a shared reusable white noise buffer (prevents audio thread allocations & GC churn) */
+function getSharedNoiseBuffer(ctx: AudioContext): AudioBuffer {
+  if (cachedNoiseBuffer && cachedNoiseBuffer.sampleRate === ctx.sampleRate) {
+    return cachedNoiseBuffer;
+  }
+  const durationSec = 2.0; // 2 seconds of high quality white noise
   const bufferSize = Math.floor(ctx.sampleRate * durationSec);
   const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
   const data = buffer.getChannelData(0);
   for (let i = 0; i < bufferSize; i++) {
     data[i] = Math.random() * 2 - 1;
   }
+  cachedNoiseBuffer = buffer;
   return buffer;
 }
 
@@ -60,7 +67,7 @@ export function playGunshotSound(isWheellock = false) {
 
   // 2. Black powder explosion noise body
   const noise = ctx.createBufferSource();
-  noise.buffer = createNoiseBuffer(ctx, 0.45);
+  noise.buffer = getSharedNoiseBuffer(ctx);
   const filter = ctx.createBiquadFilter();
   filter.type = "lowpass";
   filter.frequency.setValueAtTime(3200, now);
@@ -112,7 +119,7 @@ export function playExplosionSound() {
 
   // 2. Heavy distorted roar / debris noise
   const noise = ctx.createBufferSource();
-  noise.buffer = createNoiseBuffer(ctx, 0.85);
+  noise.buffer = getSharedNoiseBuffer(ctx);
   const filter = ctx.createBiquadFilter();
   filter.type = "lowpass";
   filter.frequency.setValueAtTime(1400, now);
@@ -151,7 +158,7 @@ export function playMisfireSound() {
 
   // Wet steam/powder fizz
   const noise = ctx.createBufferSource();
-  noise.buffer = createNoiseBuffer(ctx, 0.3);
+  noise.buffer = getSharedNoiseBuffer(ctx);
   const filter = ctx.createBiquadFilter();
   filter.type = "bandpass";
   filter.frequency.setValueAtTime(2200, now);
@@ -279,7 +286,7 @@ export function playSpecialAbilitySound(
   if (abilityId === "maltese_shrapnel") {
     // Bratr Bartoloměj: Sizzling fuse into double explosion boom + shrapnel ring
     const noise = ctx.createBufferSource();
-    noise.buffer = createNoiseBuffer(ctx, 0.2);
+    noise.buffer = getSharedNoiseBuffer(ctx);
     const filter = ctx.createBiquadFilter();
     filter.type = "highpass";
     filter.frequency.setValueAtTime(2800, now);

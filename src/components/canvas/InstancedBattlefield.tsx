@@ -36,7 +36,7 @@ import type {
 import { useGameStore } from "../../store/useGameStore";
 import { BaroqueCoverBadge } from "../ui/BaroqueCoverBadge";
 import { WorldHtml } from "./WorldHtml";
-import { FLOOR_HEIGHT, gridToWorld, TILE_SIZE } from "./worldCoords";
+import { continuousGridToWorld, FLOOR_HEIGHT, gridToWorld, TILE_SIZE } from "./worldCoords";
 
 const _dummy = new THREE.Object3D();
 const _color = new THREE.Color();
@@ -327,7 +327,7 @@ function BaroqueStraightStaircase({
         const sz = 0.52 - frac * 1.04;
         return (
           <group key={`step-${i}`} position={[0, sy, sz]}>
-            <mesh castShadow={!isTransparent} receiveShadow>
+            <mesh castShadow={!isTransparent} receiveShadow raycast={() => null}>
               <boxGeometry args={[0.82, 0.14, 0.18]} />
               <meshStandardMaterial
                 color={stoneColor}
@@ -338,7 +338,7 @@ function BaroqueStraightStaircase({
             </mesh>
             {span.inPalace && (
               <>
-                <mesh position={[0, 0.075, 0]}>
+                <mesh position={[0, 0.075, 0]} raycast={() => null}>
                   <boxGeometry args={[0.48, 0.02, 0.185]} />
                   <meshStandardMaterial
                     color="#6b1d24"
@@ -350,6 +350,7 @@ function BaroqueStraightStaircase({
                 <mesh
                   position={[0, 0.082, 0.07]}
                   rotation={[0, 0, Math.PI * 0.5]}
+                  raycast={() => null}
                 >
                   <cylinderGeometry args={[0.012, 0.012, 0.52, 6]} />
                   <meshStandardMaterial
@@ -450,6 +451,7 @@ function BaroqueSpiralStaircase({
               rotation={[0, -angle, 0]}
               castShadow={!isTransparent}
               receiveShadow
+              raycast={() => null}
             >
               <boxGeometry args={[0.52, 0.11, 0.26]} />
               <meshStandardMaterial
@@ -462,6 +464,7 @@ function BaroqueSpiralStaircase({
             <mesh
               position={[outerX, sy + 0.28, outerZ]}
               castShadow={!isTransparent}
+              raycast={() => null}
             >
               <cylinderGeometry args={[0.022, 0.022, 0.54, 6]} />
               <meshStandardMaterial
@@ -472,7 +475,7 @@ function BaroqueSpiralStaircase({
                 opacity={opacity}
               />
             </mesh>
-            <mesh position={[outerX, sy + 0.56, outerZ]}>
+            <mesh position={[outerX, sy + 0.56, outerZ]} raycast={() => null}>
               <sphereGeometry args={[0.036, 8, 8]} />
               <meshStandardMaterial
                 color={goldColor}
@@ -903,11 +906,7 @@ function BaroqueLivingDecor({
       })}
 
       {mistPatches.map((patch, i) => {
-        const [wx, wy, wz] = gridToWorld({
-          x: patch.x as any,
-          y: patch.y as any,
-          z: patch.z as any,
-        });
+        const [wx, wy, wz] = continuousGridToWorld(patch.x, patch.y, patch.z);
         return (
           <group
             key={`mist-${i}-${patch.x}-${patch.z}`}
@@ -2207,9 +2206,12 @@ export function InstancedBattlefield() {
         );
       })}
 
-      {/* 8b. 3D Rybářská pramice (Fisherman's Skiff at Čertovka - Distant Objective at x: 1.45, z: 2.0) */}
+      {/* 8b. 3D Rybářská pramice (Fisherman's Skiff at Čertovka - bound to escape zone tile) */}
       {(() => {
-        const [bx, by, bz] = gridToWorld({ x: 1.45 as any, y: 0, z: 2.0 as any });
+        const escapeTile = groundFloorTiles.find((t) => t.isEscapeZone);
+        const boatX = escapeTile ? escapeTile.coord.x - 0.55 : 1.45;
+        const boatZ = escapeTile ? escapeTile.coord.z : 2.0;
+        const [bx, by, bz] = continuousGridToWorld(boatX, 0, boatZ);
         return (
           <group position={[bx, by - 0.05, bz]} rotation={[0, 0.25, 0]}>
             <mesh position={[0, 0.12, 0]} castShadow receiveShadow>

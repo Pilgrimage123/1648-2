@@ -147,6 +147,11 @@ interface GameStoreState {
   activateSpecialAbility: (unitId?: string) => void;
 
   // Akce UI Controlleru a herní smyčky
+  // Kinematická akční kamera (XCOM Action Cam)
+  actionCamEnabled: boolean;
+  toggleActionCam: () => void;
+  setActionCamEnabled: (enabled: boolean) => void;
+
   selectUnit: (unitId: string) => void;
   setActiveFloor: (floor: FloorLevel) => void;
   toggleFloor: () => void;
@@ -1033,6 +1038,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     renderMode: "2D_SPRITE",
     cameraStep: 0,
     isFullscreen: false,
+    actionCamEnabled: true,
 
     actionMode: "move",
     breakdownOpen: false,
@@ -1136,6 +1142,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           ),
         ],
       }));
+    },
+
+    toggleActionCam: () => {
+      set((s) => ({ actionCamEnabled: !s.actionCamEnabled }));
+    },
+    setActionCamEnabled: (enabled: boolean) => {
+      set({ actionCamEnabled: enabled });
     },
 
     selectUnit: (unitId: string) => {
@@ -3282,6 +3295,24 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             get().units,
             get().weather,
           );
+
+          // Pokud stojí u zavřených dveří, otevře je (Free action 0 AP)
+          if (plan.doorToOpen) {
+            get().grid.setDoorState(plan.doorToOpen, "open");
+            set((s) => ({
+              gridVersion: s.gridVersion + 1,
+              combatLog: [
+                ...s.combatLog,
+                makeLog(
+                  s.round,
+                  "enemy",
+                  `${enemy.name} rozrazil křídlo dveří!`,
+                  "overwatch",
+                ),
+              ],
+            }));
+            await delay(180);
+          }
 
           if (plan.movePath.length > 0) {
             await animateUnitAlongPath(enemy.id, plan.movePath);

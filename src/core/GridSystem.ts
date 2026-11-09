@@ -229,6 +229,7 @@ export class GridSystem {
     if (obstacle === "low_wall" && c.z < 15 && c.y === 0) {
       tile.surface = "rubble";
     }
+    this.bakeCoverFromObstacles();
   }
 
   /**
@@ -244,6 +245,12 @@ export class GridSystem {
     tile.damageLevel = next;
     if (next === 2 && tile.surface !== "wood_dock") {
       tile.surface = "scorched_ruin";
+      // Pokud byla na dlaždici nízká překážka (zídka, gabion), výbuch ji rozmetá
+      if (tile.obstacle === "low_wall") {
+        tile.obstacle = "none";
+        tile.walkable = true;
+        this.bakeCoverFromObstacles();
+      }
     } else if (
       next === 1 &&
       (tile.surface === "cobble" ||

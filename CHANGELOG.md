@@ -2,7 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] - 2026-11-08
+## [Unreleased] - 2026-11-09
+
+### Added
+- **XCOM 2 Cinematic Action Cam & Tracking System (ADR-0009)**:
+  - **Dynamic Movement Tracking Cam**: Camera smoothly locks onto moving units during their movement interpolation (`activeMovement`), lowers viewing distance by ~28% and adopts an action pitch (45°) matching XCOM 2 action cam.
+  - **Multi-Floor Staircase Transition Tracking**: Smoothly ascends and descends along straight and spiral stairs with vertical height compensation (`y * FLOOR_HEIGHT`).
+  - **Overwatch Reaction Cut-In Cam**: Automatically cuts behind reacting overwatch shooters with camera shake during reaction volleys.
+  - **Player Toggle**: Added `actionCamEnabled` state toggleable via key `[C]` and top-right HUD island button (`TacticalUtilitiesCapsule`).
+- **Interactive Door Handling for AI**:
+  - Swedish AI (`computeEnemyAiDecision`) now detects closed doors along its path and opens them as a free 0 AP action, preventing broken pathfinding when players close palace doors.
+- **Dynamic Escape Zone Binding**:
+  - 3D fisherman's skiff and tutorial waypoint beacon at Čertovka are now dynamically bound to `tile.isEscapeZone` rather than hardcoded coordinates.
+
+### Changed & Fixed
+- **Performance Optimization & Memory Lifecycle (ADR-0008)**:
+  - **Audio Garbage Churn Elimination**: Replaced dynamic allocations of `Float32Array` in Web Audio with a shared 2-second pre-computed `getSharedNoiseBuffer` in `audioSystem.ts`.
+  - **Raycast Overhead Fix**: Added `raycast={() => null}` to hundreds of static decorative 3D elements (stair steps, balusters, trim, pictures) in `InstancedBattlefield.tsx` to eliminate raycasting stutter at 60/120 Hz.
+  - **Keybind Consistency**: Canonicalized `[V]` / `[PageUp]` / `[PageDown]` for floor cutaways and `[F]` for Fullscreen across `GLOSSARY.md`, `TacticalUtilitiesCapsule.tsx`, and `App.tsx`.
+  - **HUD Dragging Robustness**: Added `pointercancel` and window `blur` handlers to `useDraggableHud.ts` to prevent dragging lockups when the cursor exits the window.
+  - **Type-Safe Sub-Grid Coordinates**: Added `continuousGridToWorld` in `worldCoords.ts` and removed all `as any` coordinate casts.
+  - **Automated Cover Re-Baking**: `damageTile` and `setObstacle` in `GridSystem.ts` now automatically invoke `bakeCoverFromObstacles()`, preventing phantom cover bonuses after wall destruction.
 
 ### Added
 - **Paradoxical Martyrdom & Induction into the Clementinum Iron Vigil (ADR-0006)**:

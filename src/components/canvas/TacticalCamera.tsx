@@ -23,6 +23,8 @@ export function TacticalCamera() {
   const units = useGameStore((s) => s.units);
 
   const activeProjectile = useGameStore((s) => s.activeProjectile);
+  const activeMovement = useGameStore((s) => s.activeMovement);
+  const actionCamEnabled = useGameStore((s) => s.actionCamEnabled);
   const turn = useGameStore((s) => s.turn);
 
   const orbitCenterRef = useRef(new THREE.Vector3(0, 0, 4.2));
@@ -161,19 +163,13 @@ export function TacticalCamera() {
 
     const isShootingCamera =
       (actionMode === "shoot" && !!shooter && !!target) ||
-      (turn === "player" &&
+      (actionCamEnabled &&
         !!activeProjectile &&
         activeProjectile.kind !== "grenade");
 
     if (isShootingCamera) {
-      const fromCoord =
-        activeProjectile && turn === "player"
-          ? activeProjectile.from
-          : shooter!.pos;
-      const toCoord =
-        activeProjectile && turn === "player"
-          ? activeProjectile.to
-          : target!.pos;
+      const fromCoord = activeProjectile ? activeProjectile.from : shooter!.pos;
+      const toCoord = activeProjectile ? activeProjectile.to : target!.pos;
 
       const [sx, sy, sz] = gridToWorld(fromCoord);
       const [tx, ty, tz] = gridToWorld(toCoord);
@@ -257,7 +253,90 @@ export function TacticalCamera() {
       return;
     }
 
-    // 3. Standardní taktický izometrický/perspektivní pohled (mimo Režim střelby)
+    // 3. Kinematická akční kamera při pohybu vojáka (XCOM Action Tracking Cam)
+    if (activeMovement && actionCamEnabled) {
+      const movingUnit = units.find((u) => u.id === activeMovement.unitId);
+      // Cílová dlaždice, ke které voják právě míří
+      const targetCoord =
+        activeMovement.path[activeMovement.path.length - 1] ??
+        activeMovement.from;
+      const [tx, ty, tz] = gridToWorld(targetCoord);
+
+      // Plynule uzamkneme střed otáčení kamery na pohybující se postavu a její patro
+      orbitCenterRef.current.x = THREE.MathUtils.damp(
+        orbitCenterRef.current.x,
+        tx,
+        7.5,
+        dt,
+      );
+      orbitCenterRef.current.y = THREE.MathUtils.damp(
+        orbitCenterRef.current.y,
+        ty + 0.4,
+        7.5,
+        dt,
+      );
+      orbitCenterRef.current.z = THREE.MathUtils.damp(
+        orbitCenterRef.current.z,
+        tz,
+        7.5,
+        dt,
+      );
+
+      // Akční přiblížení kamery (o ~28 % blíže než standardní taktický odstup)
+      const actionDistance = Math.max(12, distanceRef.current * 0.72);
+      const pitch = Math.PI * 0.25; // Lehce plošší filmový úhel
+      const horizDist = Math.cos(pitch) * actionDistance;
+      const vertDist = Math.sin(pitch) * actionDistance;
+
+      const desiredCamX =
+        orbitCenterRef.current.x + Math.sin(currentAngleRef.current) * horizDist;
+      const desiredCamY = orbitCenterRef.current.y + vertDist;
+      const desiredCamZ =
+        orbitCenterRef.current.z + Math.cos(currentAngleRef.current) * horizDist;
+
+      camera.position.x = THREE.MathUtils.damp(
+        camera.position.x,
+        desiredCamX,
+        8.0,
+        dt,
+      );
+      camera.position.y = THREE.MathUtils.damp(
+        camera.position.y,
+        desiredCamY,
+        8.0,
+        dt,
+      );
+      camera.position.z = THREE.MathUtils.damp(
+        camera.position.z,
+        desiredCamZ,
+        8.0,
+        dt,
+      );
+
+      currentLookAtRef.current.x = THREE.MathUtils.damp(
+        currentLookAtRef.current.x,
+        orbitCenterRef.current.x,
+        9.0,
+        dt,
+      );
+      currentLookAtRef.current.y = THREE.MathUtils.damp(
+        currentLookAtRef.current.y,
+        orbitCenterRef.current.y + 0.6,
+        9.0,
+        dt,
+      );
+      currentLookAtRef.current.z = THREE.MathUtils.damp(
+        currentLookAtRef.current.z,
+        orbitCenterRef.current.z,
+        9.0,
+        dt,
+      );
+
+      camera.lookAt(currentLookAtRef.current);
+      return;
+    }
+
+    // 4. Standardní taktický izometrický/perspektivní pohled (mimo Režim střelby a akční sledování)
     const desiredY = activeFloor * FLOOR_HEIGHT * 0.65;
     orbitCenterRef.current.y = THREE.MathUtils.damp(
       orbitCenterRef.current.y,

@@ -975,6 +975,7 @@ export interface EnemyAiDecision {
   movePath: GridCoord[];
   moveApCost: number;
   targetId: string | null;
+  doorToOpen?: GridCoord | null;
 }
 
 /**
@@ -1145,9 +1146,31 @@ export function computeEnemyAiDecision(
     ? []
     : findPathAStar(grid, enemy.pos, chosen.coord, allUnits, enemy.id);
 
+  // Pokud je nepřítel v bezprostředním sousedství zavřených dveří a cíl/hráč je za nimi,
+  // otevře je jako volnou akci (0 AP) pro obnovení přímé viditelnosti a průchodu
+  let doorToOpen: GridCoord | null = null;
+  const adjacentDoorOffsets = [
+    { dx: 1, dz: 0 },
+    { dx: -1, dz: 0 },
+    { dx: 0, dz: 1 },
+    { dx: 0, dz: -1 },
+  ];
+  for (const off of adjacentDoorOffsets) {
+    const dc: GridCoord = {
+      x: enemy.pos.x + off.dx,
+      y: enemy.pos.y,
+      z: enemy.pos.z + off.dz,
+    };
+    if (grid.isDoorClosedAt(dc)) {
+      doorToOpen = dc;
+      break;
+    }
+  }
+
   return {
     movePath,
     moveApCost: chosen.apCost,
     targetId: chosen.bestTargetId,
+    doorToOpen,
   };
 }

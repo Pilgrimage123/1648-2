@@ -48,16 +48,20 @@ export function useDraggableHud() {
       });
     };
 
-    const onPointerUp = () => {
+    const onPointerEnd = () => {
       dragStartRef.current = null;
       setIsDragging(false);
     };
 
     window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointerup", onPointerEnd);
+    window.addEventListener("pointercancel", onPointerEnd);
+    window.addEventListener("blur", onPointerEnd);
     return () => {
       window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointerup", onPointerEnd);
+      window.removeEventListener("pointercancel", onPointerEnd);
+      window.removeEventListener("blur", onPointerEnd);
     };
   }, [isDragging]);
 

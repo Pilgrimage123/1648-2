@@ -10,8 +10,20 @@ export const TILE_SIZE = 1.6;
 export const FLOOR_HEIGHT = 2.4;
 
 export function gridToWorld(coord: GridCoord): [number, number, number] {
-  const wx = (coord.x - (GRID_WIDTH - 1) * 0.5) * TILE_SIZE;
-  const wy = coord.y * FLOOR_HEIGHT;
-  const wz = (coord.z - (GRID_DEPTH - 1) * 0.5) * TILE_SIZE;
+  return continuousGridToWorld(coord.x, coord.y, coord.z);
+}
+
+/**
+ * Continuous / floating-point coordinate conversion to 3D world space.
+ * Prevents `as any` type assertions for fractional sub-grid entities (e.g. boats, mist patches).
+ */
+export function continuousGridToWorld(
+  x: number,
+  y: number,
+  z: number,
+): [number, number, number] {
+  const wx = (x - (GRID_WIDTH - 1) * 0.5) * TILE_SIZE;
+  const wy = y * FLOOR_HEIGHT;
+  const wz = (z - (GRID_DEPTH - 1) * 0.5) * TILE_SIZE;
   return [wx, wy, wz];
 }

@@ -11,11 +11,13 @@
 import {
   ArrowUpDown,
   Box,
+  Camera,
   ChevronDown,
   ChevronUp,
   Crosshair,
   Eye,
   EyeOff,
+  Film,
   Flame,
   GraduationCap,
   Image as ImageIcon,
@@ -69,6 +71,7 @@ export function TacticalUtilitiesCapsule() {
   const activeProjectile = useGameStore((s) => s.activeProjectile);
   const fogOfWarEnabled = useGameStore((s) => s.fogOfWarEnabled);
   const fogSnapshot = useGameStore((s) => s.fogSnapshot);
+  const actionCamEnabled = useGameStore((s) => s.actionCamEnabled);
 
   const setActiveFloor = useGameStore((s) => s.setActiveFloor);
   const toggleFloor = useGameStore((s) => s.toggleFloor);
@@ -76,6 +79,7 @@ export function TacticalUtilitiesCapsule() {
   const handleUnitClick = useGameStore((s) => s.handleUnitClick);
   const toggleRenderMode = useGameStore((s) => s.toggleRenderMode);
   const toggleFogOfWar = useGameStore((s) => s.toggleFogOfWar);
+  const toggleActionCam = useGameStore((s) => s.toggleActionCam);
   const toggleFullscreen = useGameStore((s) => s.toggleFullscreen);
   const toggleTutorial = useGameStore((s) => s.toggleTutorial);
   const rotateCamera = useGameStore((s) => s.rotateCamera);
@@ -174,6 +178,28 @@ export function TacticalUtilitiesCapsule() {
           <span className="hidden sm:inline">Šerosvit</span>
           <span className="text-[9px] px-1 py-0.2 rounded bg-slate-900 text-amber-300 font-cinzel font-black border border-amber-900/80">
             G
+          </span>
+        </button>
+
+        {/* Akční filmová kamera / XCOM Action Cam (klávesa C) */}
+        <button
+          type="button"
+          onClick={toggleActionCam}
+          title={
+            actionCamEnabled
+              ? "Akční kinematická kamera aktivní (klávesa C) — kliknutím vypnout pro stabilní nadhled"
+              : "Akční kinematická kamera vypnuta — kliknutím zapnout sledování pohybu vojáka (klávesa C)"
+          }
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-cinzel font-black transition-all cursor-pointer ${
+            actionCamEnabled
+              ? "bg-amber-600/40 border-amber-400 text-amber-100 shadow-[0_0_10px_rgba(245,158,11,0.4)]"
+              : "baroque-bronze-btn text-amber-200/60 hover:text-amber-100"
+          }`}
+        >
+          <Film className="w-3.5 h-3.5 text-amber-300" />
+          <span className="hidden sm:inline">Kamera</span>
+          <span className="text-[9px] px-1 py-0.2 rounded bg-slate-900 text-amber-300 font-cinzel font-black border border-amber-900/80">
+            C
           </span>
         </button>
 

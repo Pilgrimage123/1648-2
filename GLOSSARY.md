@@ -19,8 +19,12 @@ The compact floating top-left HUD chip indicating current round, active faction 
 _Avoid_: TopBar, header
 
 **Tactical Utilities Capsule** (*Kapsle taktických nástrojů*):
-The floating top-right HUD island with discrete icon shortcuts and keybind indicators for camera rotation (`Q/E`), floor cutaway (`F`), and visual render mode (`M`).
+The floating top-right HUD island with discrete icon shortcuts and keybind indicators for camera rotation (`Q/E`), floor cutaway (`V` / `PageUp` / `PageDown`), visual render mode (`M`), cinematic action cam toggle (`C`), and fullscreen (`F`).
 _Avoid_: Camera controls bar, settings bar
+
+**Cinematic Action Cam** (*Kinematická akční kamera*):
+The dynamic third-person tracking and over-the-shoulder camera system inspired by XCOM 2 that follows moving soldiers along their path, closes in during multi-floor staircase climbs, and cuts into dramatic reaction shots during Overwatch ambushes.
+_Avoid_: Follow cam, chase cam
 
 **Turn Splash Banner** (*Filmový banner tahu*):
 The brief (~1s) center-screen floating banner announcing initiative transitions ("Tah obránců Prahy", "Tah švédské hlídky") before gracefully dissolving into the Mission Status Chip.
@@ -49,7 +53,7 @@ A single cell in the 3D `GridSystem` storing `walkable: boolean`, `isLadder: boo
 _Avoid_: Node, cell
 
 **Floor Cutaway** (*Přepínání pater*):
-The visual and interactive filter controlled by `activeFloor` (`0 | 1`): when viewing ground floor (`y = 0`), upper floor geometry (`y > 0`) becomes ghosted/hidden and non-intercepting so it does not occlude the interior.
+The visual and interactive filter controlled by `activeFloor` (`0 | 1 | 2`) via `V` or `PageUp/PageDown`: when viewing ground floor (`y = 0`), upper floor geometry (`y > 0`) becomes ghosted/hidden and non-intercepting so it does not occlude the interior.
 _Avoid_: Roof toggle, camera clip
 
 **Unit Actor** (`UnitActor`):

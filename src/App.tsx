@@ -104,6 +104,13 @@ export default function App() {
         return;
       }
 
+      // C: Přepínání Akční kinematické kamery (XCOM Action Cam)
+      if (e.key === "c" || e.key === "C") {
+        e.preventDefault();
+        state.toggleActionCam();
+        return;
+      }
+
       // M: Přepínání 2D / 3D vizuálního módu
       if (e.key === "m" || e.key === "M") {
         e.preventDefault();
