@@ -1,17 +1,30 @@
 /**
- * Taktická kamera (/src/components/canvas/TacticalCamera.tsx).
- * Podporuje:
- * 1. Izometrický / perspektivní pohled s plynulým posunem (WASD / pravé tlačítko myši),
- *    zoomem (kolečko) a otáčením po 90° krocích (klávesy Q a E).
- * 2. Plynulý přelet kamery za rameno střelce (Over-the-Shoulder Aiming Camera) při přepnutí
- *    do Režimu míření (`actionMode === "shoot"`) a při přepínání cílů přes `Tab` / Target Ribbon.
+ * Taktická a filmová kamera ve stylu XCOM 2 (/src/components/canvas/TacticalCamera.tsx).
+ * Implementuje 4-stavový kamerový automat (Camera State Machine):
+ * 1. TACTICAL_ISO: Ptačí izometrický pohled sledující 1 AP pohyb po mřížce v reálném čase
+ *    (s dynamickým zprůhledněním střech dobových budov, pokud je jednotka uvnitř).
+ * 2. ACTION_OTS_FOLLOW: Filmový průlet nízko za ramenem vojáka (Over-the-Shoulder Chase Cam)
+ *    při 2 AP sprintu, vyražení dřevěných dveří, přeskoku nízkého krytu (vault) a běhu po schodišti,
+ *    doplněný o krokový třes kamery (camera shake) a chytré vyhýbání se zdem/pilířům.
+ * 3. EVENT INTERRUPTS:
+ *    - INTERRUPT_POD_REVEAL: Rychlý přelet a přiblížení (Pan & Zoom) na nově odhalenou skupinu
+ *      mušketýrů/pikenýrů během jejich "Scramble" animace do krytu a následný návrat.
+ *    - INTERRUPT_OVERWATCH_SLOWMO: Zpomalený záběr na střelce v oblaku střelného prachu při
+ *      reakčním výstřelu z hlídky a následné blízké sledování běžícího vojáka.
+ * 4. COVER_SETTLE_RESET: Podržení záběru při zakleknutí vojáka do krytu a C2-hladký návrat
+ *    zpět do taktického izometrického pohledu.
+ * + AIM_OTS / PROJECTILE_TRACK: 3-fázová kamera při ručním míření a střelbě.
  */
 
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
+import {
+  liveMovementTelemetry,
+  resolveActiveCameraState,
+} from "../../core/CameraDirector";
 import { GRID_DEPTH, GRID_WIDTH, type GridSystem } from "../../core/GridSystem";
-import type { FloorLevel } from "../../core/types";
+import type { CardinalDir, FloorLevel } from "../../core/types";
 import { useGameStore } from "../../store/useGameStore";
 import { FLOOR_HEIGHT, gridToWorld, TILE_SIZE } from "./worldCoords";
 
@@ -34,9 +47,22 @@ function isWorldPointBlockedByWall(
   return tile.obstacle === "high_wall" || tile.obstacle === "pillar";
 }
 
+function cardinalToUnitVec(dir: CardinalDir): [number, number] {
+  switch (dir) {
+    case "N":
+      return [0, -1];
+    case "S":
+      return [0, 1];
+    case "E":
+      return [1, 0];
+    case "W":
+      return [-1, 0];
+  }
+}
+
 /**
- * Vybere nejčistší boční odstup a rameno kamery tak, aby výhled na střelce,
- * letící projektil i zasažený cíl nebyl blokován vysokou zdí ani pilířem.
+ * Vybere nejčistší boční odstup a rameno kamery pro střelbu (AIM_OTS / PROJECTILE_TRACK)
+ * tak, aby výhled na střelce, letící projektil i cíl nebyl blokován vysokou zdí ani pilířem.
  */
 function chooseSmartActionCamRig(
   grid: GridSystem,
@@ -101,12 +127,78 @@ function chooseSmartActionCamRig(
       penalty += 45;
     }
 
-    // Preferujeme stranu bližší aktuální pozici kamery pro sametový nájezd bez překlápění o 180°
     const distToCurrent = Math.hypot(
       currentCamPos.x - tCamX,
       currentCamPos.z - tCamZ,
     );
     const score = -penalty - distToCurrent * 0.35;
+    if (score > bestScore) {
+      bestScore = score;
+      best = cand;
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Vybere optimální nízký Over-the-Shoulder úhel za ramenem běžícího hrdiny (ACTION_OTS_FOLLOW),
+ * který neprochází vysokou zdí ani pilířem a minimalizuje skok při zatáčení.
+ */
+function chooseSmartSprintCamRig(
+  grid: GridSystem,
+  ux: number,
+  uz: number,
+  floor: FloorLevel,
+  tanX: number,
+  tanZ: number,
+  currentCamPos: THREE.Vector3,
+  preferredSide: 1 | -1,
+): { sideSign: 1 | -1; backDist: number; sideDist: number } {
+  const rightX = -tanZ;
+  const rightZ = tanX;
+
+  const candidates: Array<{
+    sideSign: 1 | -1;
+    backDist: number;
+    sideDist: number;
+  }> = [
+    { sideSign: preferredSide, backDist: 2.95, sideDist: 0.92 },
+    { sideSign: (preferredSide * -1) as 1 | -1, backDist: 2.95, sideDist: 0.92 },
+    { sideSign: preferredSide, backDist: 2.25, sideDist: 1.35 },
+    { sideSign: (preferredSide * -1) as 1 | -1, backDist: 2.25, sideDist: 1.35 },
+    { sideSign: preferredSide, backDist: 1.75, sideDist: 0.62 },
+    { sideSign: (preferredSide * -1) as 1 | -1, backDist: 1.75, sideDist: 0.62 },
+  ];
+
+  let best = candidates[0]!;
+  let bestScore = -Infinity;
+
+  for (const cand of candidates) {
+    const camX =
+      ux - tanX * cand.backDist + rightX * cand.sideSign * cand.sideDist;
+    const camZ =
+      uz - tanZ * cand.backDist + rightZ * cand.sideSign * cand.sideDist;
+
+    let penalty = 0;
+    if (isWorldPointBlockedByWall(grid, camX, camZ, floor)) penalty += 65;
+    if (
+      isWorldPointBlockedByWall(
+        grid,
+        (camX + ux) * 0.5,
+        (camZ + uz) * 0.5,
+        floor,
+      )
+    ) {
+      penalty += 45;
+    }
+
+    const sameSideBonus = cand.sideSign === preferredSide ? 4.0 : 0;
+    const distToCam = Math.hypot(
+      currentCamPos.x - camX,
+      currentCamPos.z - camZ,
+    );
+    const score = sameSideBonus - penalty - distToCam * 0.25;
     if (score > bestScore) {
       bestScore = score;
       best = cand;
@@ -129,6 +221,7 @@ export function TacticalCamera() {
   const activeProjectile = useGameStore((s) => s.activeProjectile);
   const activeMovement = useGameStore((s) => s.activeMovement);
   const actionCamEnabled = useGameStore((s) => s.actionCamEnabled);
+  const cameraDirector = useGameStore((s) => s.cameraDirector);
 
   const orbitCenterRef = useRef(new THREE.Vector3(0, 0, 4.2));
   const currentLookAtRef = useRef(new THREE.Vector3(0, 0, 4.2));
@@ -143,6 +236,11 @@ export function TacticalCamera() {
     backDist: number;
     sideDist: number;
   } | null>(null);
+
+  // Vyhlazená tečna pohybu a preferované rameno pro Over-the-Shoulder Sprint Cam (State 2)
+  const smoothedMoveDirRef = useRef(new THREE.Vector2(0, -1));
+  const preferredShoulderRef = useRef<1 | -1>(1);
+  const lastTrackedMoveUnitRef = useRef<string | null>(null);
 
   useEffect(() => {
     const dom = gl.domElement;
@@ -241,17 +339,19 @@ export function TacticalCamera() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       dom.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
+      dom.removeEventListener("pointermove", onPointerMove);
+      dom.removeEventListener("pointerup", onPointerUp);
       dom.removeEventListener("wheel", onWheel);
       dom.removeEventListener("contextmenu", onContextMenu);
     };
   }, [gl]);
 
-  useFrame((_, rawDelta) => {
+  useFrame((state, rawDelta) => {
     const dt = Math.min(0.05, rawDelta);
+    const now = performance.now();
+    const elapsedClock = state.clock.elapsedTime;
 
-    // 1. Plynulá interpolace úhlu kamery po 90° krocích (Q / E)
+    // 1. Plynulá interpolace základního izometrického úhlu kamery po 90° krocích (Q / E)
     const desiredAngle = Math.PI * 0.25 + cameraStep * (Math.PI * 0.5);
     currentAngleRef.current = THREE.MathUtils.damp(
       currentAngleRef.current,
@@ -260,7 +360,6 @@ export function TacticalCamera() {
       dt,
     );
 
-    // 2. Kontrola, zda jsme v Režimu míření nebo právě letí projektil (Inteligentní 3-fázová Akční kamera)
     const shooter =
       actionMode === "shoot"
         ? units.find((u) => u.id === selectedUnitId && u.alive)
@@ -270,8 +369,217 @@ export function TacticalCamera() {
         ? units.find((u) => u.id === selectedTargetId && u.alive)
         : undefined;
 
+    // Vyhodnocení aktivního stavu kamerového automatu (State Machine)
+    const activeState = resolveActiveCameraState({
+      director: cameraDirector,
+      actionCamEnabled,
+      actionMode,
+      hasValidAimTarget: !!shooter && !!target,
+      hasActiveProjectile: !!activeProjectile,
+      activeMovement,
+    });
+
+    // =========================================================================
+    // STATE 3b: INTERRUPT_OVERWATCH_SLOWMO (Zpomalený přepad ze zálohy)
+    // - Fáze A (SHOOTER_FOCUS): Kamera zabere střelce v oblaku střelného prachu
+    // - Fáze B (RUNNER_TRACK): Pokud ještě neletí projektil, kamera zblízka zabere
+    //   běžícího vojáka; jakmile vyletí projektil, plynule naváže sledování střely!
+    // =========================================================================
+    if (
+      activeState === "INTERRUPT_OVERWATCH_SLOWMO" &&
+      cameraDirector.overwatchSlowMo &&
+      !activeProjectile
+    ) {
+      const ow = cameraDirector.overwatchSlowMo;
+      const [wx, wy, wz] = gridToWorld(ow.watcherCoord);
+      const [ax, ay, az] = gridToWorld(ow.ambushCoord);
+
+      const dirX = ax - wx;
+      const dirZ = az - wz;
+      const horizLen = Math.max(0.001, Math.hypot(dirX, dirZ));
+      const normX = dirX / horizLen;
+      const normZ = dirZ / horizLen;
+      const rightX = -normZ;
+      const rightZ = normX;
+
+      const rig = chooseSmartActionCamRig(
+        grid,
+        wx,
+        wz,
+        ow.watcherCoord.y,
+        ax,
+        az,
+        ow.ambushCoord.y,
+        normX,
+        normZ,
+        rightX,
+        rightZ,
+        camera.position,
+      );
+
+      // Jemným kmitáním podtrhneme napětí zpomaleného času (Slow-Mo)
+      const slowPulse = Math.sin(elapsedClock * 3.2) * 0.08;
+
+      if (ow.subPhase === "SHOOTER_FOCUS") {
+        // Nízký dramatický záběr na mušketýra v oblaku černého prachu mířícího na běžící cíl
+        const camX =
+          wx - normX * 2.45 + rightX * rig.sideSign * (1.45 + slowPulse);
+        const camY = wy + 1.72;
+        const camZ =
+          wz - normZ * 2.45 + rightZ * rig.sideSign * (1.45 + slowPulse);
+
+        const lookX = wx * 0.62 + ax * 0.38;
+        const lookY = wy * 0.65 + ay * 0.35 + 1.08;
+        const lookZ = wz * 0.62 + az * 0.38;
+
+        camera.position.x = THREE.MathUtils.damp(camera.position.x, camX, 9.5, dt);
+        camera.position.y = THREE.MathUtils.damp(camera.position.y, camY, 9.5, dt);
+        camera.position.z = THREE.MathUtils.damp(camera.position.z, camZ, 9.5, dt);
+
+        currentLookAtRef.current.x = THREE.MathUtils.damp(
+          currentLookAtRef.current.x,
+          lookX,
+          11.0,
+          dt,
+        );
+        currentLookAtRef.current.y = THREE.MathUtils.damp(
+          currentLookAtRef.current.y,
+          lookY,
+          11.0,
+          dt,
+        );
+        currentLookAtRef.current.z = THREE.MathUtils.damp(
+          currentLookAtRef.current.z,
+          lookZ,
+          11.0,
+          dt,
+        );
+
+        orbitCenterRef.current.x = THREE.MathUtils.damp(
+          orbitCenterRef.current.x,
+          ax,
+          5.0,
+          dt,
+        );
+        orbitCenterRef.current.z = THREE.MathUtils.damp(
+          orbitCenterRef.current.z,
+          az,
+          5.0,
+          dt,
+        );
+
+        camera.lookAt(currentLookAtRef.current);
+        return;
+      }
+    }
+
+    // =========================================================================
+    // STATE 3a: INTERRUPT_POD_REVEAL (Rychlý přelet a zoom na odhalenou hlídku + Scramble)
+    // =========================================================================
+    if (activeState === "INTERRUPT_POD_REVEAL" && cameraDirector.podReveal) {
+      const reveal = cameraDirector.podReveal;
+      const [fx, fy, fz] = gridToWorld(reveal.focusCoord);
+      const [sx, , sz] = gridToWorld(reveal.spotterCoord);
+
+      // Vektor od hráče (spottera) k odhalené skupině mušketýrů/pikenýrů
+      const dirX = fx - sx;
+      const dirZ = fz - sz;
+      const len = Math.max(0.001, Math.hypot(dirX, dirZ));
+      const normX = dirX / len;
+      const normZ = dirZ / len;
+      const rightX = -normZ;
+      const rightZ = normX;
+
+      const revealElapsed = Math.max(0, (now - reveal.startedAt) / 1000);
+      const zoomInPush = THREE.MathUtils.smootherstep(
+        Math.min(1, revealElapsed / 0.55),
+        0,
+        1,
+      );
+
+      // Kamera přeletí do dramatičtějšího polodetailu před odhalenou hlídku, aby hráč viděl jejich Scramble do krytu
+      const backOffset = 7.2 - zoomInPush * 1.45;
+      const desiredCamX = fx - normX * backOffset + rightX * 2.8;
+      const desiredCamY = fy + 5.2 - zoomInPush * 0.7;
+      const desiredCamZ = fz - normZ * backOffset + rightZ * 2.8;
+
+      // Jemný otřes při šokovém odhalení hlídky v prvních 220 ms
+      const alertShake =
+        revealElapsed < 0.24
+          ? Math.pow(1 - revealElapsed / 0.24, 1.8) * 0.1
+          : 0;
+      const shakeX = Math.sin(revealElapsed * 85) * alertShake;
+      const shakeY = Math.cos(revealElapsed * 95) * alertShake;
+
+      camera.position.x = THREE.MathUtils.damp(
+        camera.position.x,
+        desiredCamX + shakeX,
+        9.2,
+        dt,
+      );
+      camera.position.y = THREE.MathUtils.damp(
+        camera.position.y,
+        desiredCamY + shakeY,
+        9.2,
+        dt,
+      );
+      camera.position.z = THREE.MathUtils.damp(
+        camera.position.z,
+        desiredCamZ,
+        9.2,
+        dt,
+      );
+
+      currentLookAtRef.current.x = THREE.MathUtils.damp(
+        currentLookAtRef.current.x,
+        fx + shakeX * 0.5,
+        11.5,
+        dt,
+      );
+      currentLookAtRef.current.y = THREE.MathUtils.damp(
+        currentLookAtRef.current.y,
+        fy + 0.95 + shakeY * 0.5,
+        11.5,
+        dt,
+      );
+      currentLookAtRef.current.z = THREE.MathUtils.damp(
+        currentLookAtRef.current.z,
+        fz,
+        11.5,
+        dt,
+      );
+
+      // Plynule vracíme orbitCenter k odhalujícímu vojákovi pro hladký návrat kamery
+      orbitCenterRef.current.x = THREE.MathUtils.damp(
+        orbitCenterRef.current.x,
+        sx,
+        5.5,
+        dt,
+      );
+      orbitCenterRef.current.y = THREE.MathUtils.damp(
+        orbitCenterRef.current.y,
+        fy,
+        5.5,
+        dt,
+      );
+      orbitCenterRef.current.z = THREE.MathUtils.damp(
+        orbitCenterRef.current.z,
+        sz,
+        5.5,
+        dt,
+      );
+
+      camera.lookAt(currentLookAtRef.current);
+      return;
+    }
+
+    // =========================================================================
+    // STATE AIM_OTS & PROJECTILE_TRACK (Ruční míření a 3-fázové sledování střely / Overwatch výstřelu)
+    // =========================================================================
     const isShootingCamera =
-      (actionMode === "shoot" && !!shooter && !!target) || !!activeProjectile;
+      activeState === "AIM_OTS" ||
+      activeState === "PROJECTILE_TRACK" ||
+      (activeState === "INTERRUPT_OVERWATCH_SLOWMO" && !!activeProjectile);
 
     if (isShootingCamera) {
       const fromCoord = activeProjectile ? activeProjectile.from : shooter!.pos;
@@ -298,7 +606,6 @@ export function TacticalCamera() {
       const rightX = -normZ;
       const rightZ = normX;
 
-      // Uzamkneme optimální nezakrytou stranu kamery pro daný výstřel
       let rig: { sideSign: 1 | -1; backDist: number; sideDist: number };
       if (activeProjectile) {
         if (
@@ -345,13 +652,11 @@ export function TacticalCamera() {
       const latX = rightX * rig.sideSign * rig.sideDist;
       const latZ = rightZ * rig.sideSign * rig.sideDist;
 
-      // Výchozí pozice kamery u ramene střelce (Fáze A: Míření a výstřel)
       const shooterCamX = sx - normX * rig.backDist + latX;
       const shooterCamY = Math.max(sy, ty * 0.45) + 2.85;
       const shooterCamZ = sz - normZ * rig.backDist + latZ;
 
       if (!activeProjectile) {
-        // Režim míření (před výstřelem): klidný filmový záběr přes rameno střelce na cíl
         const desiredLookX = sx * 0.26 + tx * 0.74;
         const desiredLookY = sy * 0.26 + ty * 0.74 + 1.05;
         const desiredLookZ = sz * 0.26 + tz * 0.74;
@@ -411,24 +716,26 @@ export function TacticalCamera() {
         return;
       }
 
-      // 3-fázová Kinematická kamera sledující let projektilu a detail zásahu / minutí (+90 % delší, C2-hladká)
       const totalDurationSec = Math.max(
         0.8,
         (activeProjectile.durationMs ?? 1780) / 1000,
       );
       const elapsedSec = Math.max(
         0,
-        (performance.now() - activeProjectile.createdAt) / 1000,
+        (now - activeProjectile.createdAt) / 1000,
       );
-      const progress = THREE.MathUtils.clamp(elapsedSec / totalDurationSec, 0, 1);
+      const progress = THREE.MathUtils.clamp(
+        elapsedSec / totalDurationSec,
+        0,
+        1,
+      );
 
-      // Let projektilu trvá prvních 41 % sekvence (~730 ms), zbytek (~1050 ms) je detail zásahu, ztrát cíle a částic
       const rawFlightT = THREE.MathUtils.clamp(progress / 0.41, 0, 1);
       const flightT =
-        THREE.MathUtils.smootherstep(rawFlightT, 0, 1) * 0.32 + rawFlightT * 0.68;
+        THREE.MathUtils.smootherstep(rawFlightT, 0, 1) * 0.32 +
+        rawFlightT * 0.68;
       const impactT = THREE.MathUtils.clamp((progress - 0.39) / 0.61, 0, 1);
 
-      // Aktuální 3D pozice letící střely / petardy
       const muzzleX = sx + normX * 0.58 + rightX * 0.14;
       const muzzleY = sy + 1.06;
       const muzzleZ = sz + normZ * 0.58 + rightZ * 0.14;
@@ -454,20 +761,22 @@ export function TacticalCamera() {
       const bulletY = THREE.MathUtils.lerp(muzzleY, endY, flightT) + arcLift;
       const bulletZ = THREE.MathUtils.lerp(muzzleZ, endZ, flightT);
 
-      // Pomalý filmový příjezd (push-in) během Fáze C (detail zásahu a odečtu ztrát cíle)
+      const isOverwatchSlowMo = !!cameraDirector.overwatchSlowMo;
+      // Při Overwatch Slow-Mo zabere kamera běžícího vojáka ještě blíže
+      const baseImpactBack = isOverwatchSlowMo ? 1.65 : 1.95;
       const impactPushIn =
         THREE.MathUtils.smootherstep(progress, 0.42, 0.96) * 0.46;
       const impactBack = Math.max(
-        1.95,
+        baseImpactBack,
         Math.min(3.35, Math.max(2.3, horizLen * 0.42)) - impactPushIn,
       );
       const impactCamX = endX - normX * impactBack + latX * 1.12;
-      const impactCamY = Math.max(endY + 1.38, sy * 0.22 + endY * 0.78 + 1.52);
+      const impactCamY = Math.max(
+        endY + (isOverwatchSlowMo ? 1.18 : 1.38),
+        sy * 0.22 + endY * 0.78 + 1.52,
+      );
       const impactCamZ = endZ - normZ * impactBack + latZ * 1.12;
 
-      // Dvoustupňový fyzikální otřes kamery s plynulým exponenciálním dozníváním:
-      // 1) Zpětný ráz při výstřelu z hlavně (progress < 0.14)
-      // 2) Otřes při dopadu kulky do těla / zbroje / zdiva (impactT ∈ [0, 0.34])
       let shakeX = 0;
       let shakeY = 0;
       if (progress < 0.14) {
@@ -494,7 +803,6 @@ export function TacticalCamera() {
       }
 
       if (activeProjectile.misfired) {
-        // Při selhání doutnáku v dešti kamera zůstane u střelce
         camera.position.x = THREE.MathUtils.damp(
           camera.position.x,
           shooterCamX + shakeX,
@@ -535,7 +843,6 @@ export function TacticalCamera() {
         return;
       }
 
-      // C2-hladký přelet kamery podél dráhy letící střely k cíli (Quintic Smootherstep Bullet-Tracking Rail)
       const trackAlpha = THREE.MathUtils.smootherstep(progress, 0.02, 0.46);
       const midFlightArc = Math.sin(flightT * Math.PI) * 0.62;
 
@@ -551,10 +858,9 @@ export function TacticalCamera() {
         THREE.MathUtils.lerp(shooterCamZ, impactCamZ, trackAlpha) +
         rightZ * rig.sideSign * midFlightArc;
 
-      // Bod pohledu (LookAt): během letu plynule sleduje samotnou letící kulku a v cíli mírně zvedne pohled (+0.32m),
-      // aby byl přímo v rámu jak zasažený nepřítel, tak panel toho, co nepřítel ztrácí!
       const lookFocusAlpha = THREE.MathUtils.smootherstep(progress, 0.22, 0.44);
-      const lossPanelLift = THREE.MathUtils.smootherstep(progress, 0.39, 0.62) * 0.34;
+      const lossPanelLift =
+        THREE.MathUtils.smootherstep(progress, 0.39, 0.62) * 0.34;
       const desiredLookX =
         THREE.MathUtils.lerp(bulletX, endX, lookFocusAlpha) + shakeX * 0.4;
       const desiredLookY =
@@ -600,7 +906,6 @@ export function TacticalCamera() {
         dt,
       );
 
-      // Plynulá synchronizace orbitCenterRef, aby po skončení výstřelu kamera plynule navázala
       const anchorX = activeProjectile.from.y === activeFloor ? sx : tx;
       const anchorZ = activeProjectile.from.y === activeFloor ? sz : tz;
       orbitCenterRef.current.x = THREE.MathUtils.damp(
@@ -620,40 +925,218 @@ export function TacticalCamera() {
       return;
     }
 
-    // 3. Kinematická akční kamera při pohybu vojáka (XCOM Action Tracking Cam)
-    if (activeMovement && actionCamEnabled) {
+    // =========================================================================
+    // STATE 2: ACTION_OTS_FOLLOW (Filmový let kamery nízko za ramenem hrdiny)
+    // Aktivuje se při 2 AP sprintu (Yellow Zone), vyražení dveří, přeskoku (vault) a schodišti.
+    // =========================================================================
+    if (activeState === "ACTION_OTS_FOLLOW" && activeMovement) {
       const movingUnit = units.find((u) => u.id === activeMovement.unitId);
-      // Cílová dlaždice, ke které voják právě míří
-      const targetCoord =
-        activeMovement.path[activeMovement.path.length - 1] ??
-        activeMovement.from;
-      const [tx, ty, tz] = gridToWorld(targetCoord);
+      const hasLiveTelemetry =
+        liveMovementTelemetry.unitId === activeMovement.unitId;
 
-      // Plynule uzamkneme střed otáčení kamery na pohybující se postavu a její patro
+      // Aktuální interpolovaná 3D pozice běžícího hrdiny v reálném čase
+      const fallbackCoord =
+        activeMovement.path[0] ?? activeMovement.from;
+      const [fx, fy, fz] = gridToWorld(fallbackCoord);
+      const ux = hasLiveTelemetry ? liveMovementTelemetry.worldPos[0] : fx;
+      const uy = hasLiveTelemetry ? liveMovementTelemetry.worldPos[1] : fy;
+      const uz = hasLiveTelemetry ? liveMovementTelemetry.worldPos[2] : fz;
+
+      // Směrová tečna pohybu po A* trase
+      const rawTanX = hasLiveTelemetry
+        ? liveMovementTelemetry.tangentXZ[0]
+        : movingUnit
+          ? cardinalToUnitVec(movingUnit.facing)[0]
+          : 0;
+      const rawTanZ = hasLiveTelemetry
+        ? liveMovementTelemetry.tangentXZ[1]
+        : movingUnit
+          ? cardinalToUnitVec(movingUnit.facing)[1]
+          : -1;
+
+      if (lastTrackedMoveUnitRef.current !== activeMovement.unitId) {
+        lastTrackedMoveUnitRef.current = activeMovement.unitId;
+        smoothedMoveDirRef.current.set(rawTanX, rawTanZ);
+      } else {
+        smoothedMoveDirRef.current.x = THREE.MathUtils.damp(
+          smoothedMoveDirRef.current.x,
+          rawTanX,
+          7.2,
+          dt,
+        );
+        smoothedMoveDirRef.current.y = THREE.MathUtils.damp(
+          smoothedMoveDirRef.current.y,
+          rawTanZ,
+          7.2,
+          dt,
+        );
+      }
+
+      const dirLen = Math.max(
+        0.001,
+        Math.hypot(smoothedMoveDirRef.current.x, smoothedMoveDirRef.current.y),
+      );
+      const tanX = smoothedMoveDirRef.current.x / dirLen;
+      const tanZ = smoothedMoveDirRef.current.y / dirLen;
+      const rightX = -tanZ;
+      const rightZ = tanX;
+
+      const curFloor = Math.round(
+        hasLiveTelemetry
+          ? liveMovementTelemetry.continuousCoord.y
+          : activeFloor,
+      ) as FloorLevel;
+
+      const sprintRig = chooseSmartSprintCamRig(
+        grid,
+        ux,
+        uz,
+        curFloor,
+        tanX,
+        tanZ,
+        camera.position,
+        preferredShoulderRef.current,
+      );
+      preferredShoulderRef.current = sprintRig.sideSign;
+
+      // Jemný krokový třes kamery (Sprint Camera Shake) + ráz při vyražení dveří či přeskoku
+      const stridePhase =
+        (hasLiveTelemetry
+          ? liveMovementTelemetry.segmentIndex +
+            liveMovementTelemetry.segmentFraction
+          : elapsedClock * 5.2) *
+        Math.PI *
+        2;
+      let shakeVert = Math.sin(stridePhase) * 0.042;
+      let shakeLat = Math.cos(stridePhase * 0.5) * 0.028;
+
+      const impulseAgeSec =
+        liveMovementTelemetry.interactionImpulseTs > 0
+          ? (now - liveMovementTelemetry.interactionImpulseTs) / 1000
+          : 999;
+      if (impulseAgeSec >= 0 && impulseAgeSec < 0.36) {
+        const impulseEnv = Math.pow(1 - impulseAgeSec / 0.36, 1.6) * 0.14;
+        shakeVert += Math.cos(impulseAgeSec * 90) * impulseEnv;
+        shakeLat += Math.sin(impulseAgeSec * 78) * impulseEnv;
+      }
+
+      const isStairClimb =
+        hasLiveTelemetry &&
+        liveMovementTelemetry.stepInteraction === "stairs";
+
+      // Pozice kamery nízko za ramenem běžícího hrdiny (Over-the-Shoulder Chase Cam)
+      const desiredCamX =
+        ux -
+        tanX * sprintRig.backDist +
+        rightX * (sprintRig.sideSign * sprintRig.sideDist + shakeLat);
+      const desiredCamY = uy + (isStairClimb ? 2.18 : 1.56) + shakeVert;
+      const desiredCamZ =
+        uz -
+        tanZ * sprintRig.backDist +
+        rightZ * (sprintRig.sideSign * sprintRig.sideDist + shakeLat);
+
+      // Bod pohledu (LookAt) míří před běžícího vojáka ve směru běhu, takže hrdina je v dolní třetině záběru
+      const lookAheadDist = isStairClimb ? 1.85 : 2.65;
+      const desiredLookX =
+        ux + tanX * lookAheadDist + rightX * sprintRig.sideSign * 0.18;
+      const desiredLookY = uy + 1.12 + shakeVert * 0.45;
+      const desiredLookZ =
+        uz + tanZ * lookAheadDist + rightZ * sprintRig.sideSign * 0.18;
+
+      camera.position.x = THREE.MathUtils.damp(
+        camera.position.x,
+        desiredCamX,
+        9.2,
+        dt,
+      );
+      camera.position.y = THREE.MathUtils.damp(
+        camera.position.y,
+        desiredCamY,
+        9.2,
+        dt,
+      );
+      camera.position.z = THREE.MathUtils.damp(
+        camera.position.z,
+        desiredCamZ,
+        9.2,
+        dt,
+      );
+
+      currentLookAtRef.current.x = THREE.MathUtils.damp(
+        currentLookAtRef.current.x,
+        desiredLookX,
+        12.5,
+        dt,
+      );
+      currentLookAtRef.current.y = THREE.MathUtils.damp(
+        currentLookAtRef.current.y,
+        desiredLookY,
+        12.5,
+        dt,
+      );
+      currentLookAtRef.current.z = THREE.MathUtils.damp(
+        currentLookAtRef.current.z,
+        desiredLookZ,
+        12.5,
+        dt,
+      );
+
+      // Udržujeme orbitCenterRef synchronizovaný s běžícím hrdinou pro plynulý Reset na konci trasy
       orbitCenterRef.current.x = THREE.MathUtils.damp(
         orbitCenterRef.current.x,
-        tx,
-        7.5,
+        ux,
+        8.5,
         dt,
       );
       orbitCenterRef.current.y = THREE.MathUtils.damp(
         orbitCenterRef.current.y,
-        ty + 0.4,
-        7.5,
+        uy,
+        8.5,
         dt,
       );
       orbitCenterRef.current.z = THREE.MathUtils.damp(
         orbitCenterRef.current.z,
-        tz,
-        7.5,
+        uz,
+        8.5,
         dt,
       );
 
-      // Akční přiblížení kamery (o ~28 % blíže než standardní taktický odstup)
-      const actionDistance = Math.max(12, distanceRef.current * 0.72);
-      const pitch = Math.PI * 0.25; // Lehce plošší filmový úhel
-      const horizDist = Math.cos(pitch) * actionDistance;
-      const vertDist = Math.sin(pitch) * actionDistance;
+      camera.lookAt(currentLookAtRef.current);
+      return;
+    }
+
+    lastTrackedMoveUnitRef.current = null;
+
+    // =========================================================================
+    // STATE 4: COVER_SETTLE_RESET (Zakleknutí do krytu a plynulý návrat do izometrického pohledu)
+    // =========================================================================
+    if (activeState === "COVER_SETTLE_RESET" && cameraDirector.coverSettle) {
+      const settle = cameraDirector.coverSettle;
+      const [cx, cy, cz] = gridToWorld(settle.coord);
+
+      orbitCenterRef.current.x = THREE.MathUtils.damp(
+        orbitCenterRef.current.x,
+        cx,
+        8.5,
+        dt,
+      );
+      orbitCenterRef.current.y = THREE.MathUtils.damp(
+        orbitCenterRef.current.y,
+        cy * 0.65,
+        8.5,
+        dt,
+      );
+      orbitCenterRef.current.z = THREE.MathUtils.damp(
+        orbitCenterRef.current.z,
+        cz,
+        8.5,
+        dt,
+      );
+
+      const pitch = Math.PI * 0.27;
+      const settleDist = distanceRef.current * 0.86;
+      const horizDist = Math.cos(pitch) * settleDist;
+      const vertDist = Math.sin(pitch) * settleDist;
 
       const desiredCamX =
         orbitCenterRef.current.x + Math.sin(currentAngleRef.current) * horizDist;
@@ -664,37 +1147,37 @@ export function TacticalCamera() {
       camera.position.x = THREE.MathUtils.damp(
         camera.position.x,
         desiredCamX,
-        8.0,
+        7.2,
         dt,
       );
       camera.position.y = THREE.MathUtils.damp(
         camera.position.y,
         desiredCamY,
-        8.0,
+        7.2,
         dt,
       );
       camera.position.z = THREE.MathUtils.damp(
         camera.position.z,
         desiredCamZ,
-        8.0,
+        7.2,
         dt,
       );
 
       currentLookAtRef.current.x = THREE.MathUtils.damp(
         currentLookAtRef.current.x,
-        orbitCenterRef.current.x,
+        cx,
         9.0,
         dt,
       );
       currentLookAtRef.current.y = THREE.MathUtils.damp(
         currentLookAtRef.current.y,
-        orbitCenterRef.current.y + 0.6,
+        cy + 0.45,
         9.0,
         dt,
       );
       currentLookAtRef.current.z = THREE.MathUtils.damp(
         currentLookAtRef.current.z,
-        orbitCenterRef.current.z,
+        cz,
         9.0,
         dt,
       );
@@ -703,52 +1186,90 @@ export function TacticalCamera() {
       return;
     }
 
-    // 4. Standardní taktický izometrický/perspektivní pohled (mimo Režim střelby a akční sledování)
-    const desiredY = activeFloor * FLOOR_HEIGHT * 0.65;
-    orbitCenterRef.current.y = THREE.MathUtils.damp(
-      orbitCenterRef.current.y,
-      desiredY,
-      6.5,
-      dt,
-    );
+    // =========================================================================
+    // STATE 1: TACTICAL_ISO (Ptačí perspektiva + plynulé sledování 1 AP pohybu v reálném čase)
+    // =========================================================================
+    if (activeMovement && actionCamEnabled) {
+      const hasLiveTelemetry =
+        liveMovementTelemetry.unitId === activeMovement.unitId;
+      const fallbackCoord =
+        activeMovement.path[activeMovement.path.length - 1] ??
+        activeMovement.from;
+      const [fx, fy, fz] = gridToWorld(fallbackCoord);
 
-    const keys = keysPressedRef.current;
-    let moveForward = 0;
-    let moveRight = 0;
-    if (keys.has("w") || keys.has("arrowup")) moveForward += 1;
-    if (keys.has("s") || keys.has("arrowdown")) moveForward -= 1;
-    if (keys.has("d") || keys.has("arrowright")) moveRight += 1;
-    if (keys.has("a") || keys.has("arrowleft")) moveRight -= 1;
+      const trackX = hasLiveTelemetry ? liveMovementTelemetry.worldPos[0] : fx;
+      const trackY = hasLiveTelemetry ? liveMovementTelemetry.worldPos[1] : fy;
+      const trackZ = hasLiveTelemetry ? liveMovementTelemetry.worldPos[2] : fz;
 
-    if (moveForward !== 0 || moveRight !== 0) {
-      const len = Math.hypot(moveForward, moveRight);
-      moveForward /= len;
-      moveRight /= len;
-
-      const panSpeed = 12 * dt;
-      const angle = currentAngleRef.current;
-      const forwardX = -Math.sin(angle);
-      const forwardZ = -Math.cos(angle);
-      const rightX = Math.cos(angle);
-      const rightZ = -Math.sin(angle);
-
-      orbitCenterRef.current.x = THREE.MathUtils.clamp(
-        orbitCenterRef.current.x +
-          (forwardX * moveForward + rightX * moveRight) * panSpeed,
-        -17,
-        17,
+      orbitCenterRef.current.x = THREE.MathUtils.damp(
+        orbitCenterRef.current.x,
+        trackX,
+        8.5,
+        dt,
       );
-      orbitCenterRef.current.z = THREE.MathUtils.clamp(
-        orbitCenterRef.current.z +
-          (forwardZ * moveForward + rightZ * moveRight) * panSpeed,
-        -20,
-        20,
+      orbitCenterRef.current.y = THREE.MathUtils.damp(
+        orbitCenterRef.current.y,
+        trackY * 0.65,
+        8.5,
+        dt,
       );
+      orbitCenterRef.current.z = THREE.MathUtils.damp(
+        orbitCenterRef.current.z,
+        trackZ,
+        8.5,
+        dt,
+      );
+    } else {
+      const desiredY = activeFloor * FLOOR_HEIGHT * 0.65;
+      orbitCenterRef.current.y = THREE.MathUtils.damp(
+        orbitCenterRef.current.y,
+        desiredY,
+        6.5,
+        dt,
+      );
+
+      const keys = keysPressedRef.current;
+      let moveForward = 0;
+      let moveRight = 0;
+      if (keys.has("w") || keys.has("arrowup")) moveForward += 1;
+      if (keys.has("s") || keys.has("arrowdown")) moveForward -= 1;
+      if (keys.has("d") || keys.has("arrowright")) moveRight += 1;
+      if (keys.has("a") || keys.has("arrowleft")) moveRight -= 1;
+
+      if (moveForward !== 0 || moveRight !== 0) {
+        const len = Math.hypot(moveForward, moveRight);
+        moveForward /= len;
+        moveRight /= len;
+
+        const panSpeed = 12 * dt;
+        const angle = currentAngleRef.current;
+        const forwardX = -Math.sin(angle);
+        const forwardZ = -Math.cos(angle);
+        const rightX = Math.cos(angle);
+        const rightZ = -Math.sin(angle);
+
+        orbitCenterRef.current.x = THREE.MathUtils.clamp(
+          orbitCenterRef.current.x +
+            (forwardX * moveForward + rightX * moveRight) * panSpeed,
+          -17,
+          17,
+        );
+        orbitCenterRef.current.z = THREE.MathUtils.clamp(
+          orbitCenterRef.current.z +
+            (forwardZ * moveForward + rightZ * moveRight) * panSpeed,
+          -20,
+          20,
+        );
+      }
     }
 
     const pitch = Math.PI * 0.29;
-    const horizDist = Math.cos(pitch) * distanceRef.current;
-    const vertDist = Math.sin(pitch) * distanceRef.current;
+    const isoDist =
+      activeMovement && actionCamEnabled
+        ? Math.max(14, distanceRef.current * 0.88)
+        : distanceRef.current;
+    const horizDist = Math.cos(pitch) * isoDist;
+    const vertDist = Math.sin(pitch) * isoDist;
 
     const desiredIsoCamX =
       orbitCenterRef.current.x + Math.sin(currentAngleRef.current) * horizDist;

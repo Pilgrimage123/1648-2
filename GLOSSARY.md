@@ -23,8 +23,24 @@ The floating top-right HUD island with discrete icon shortcuts and keybind indic
 _Avoid_: Camera controls bar, settings bar
 
 **Cinematic Action Cam** (*Kinematická akční kamera*):
-The dynamic third-person tracking and over-the-shoulder camera system inspired by XCOM 2 that follows moving soldiers along their path, closes in during multi-floor staircase climbs, and cuts into dramatic reaction shots during Overwatch ambushes.
-_Avoid_: Follow cam, chase cam
+The four-state dynamic camera director inspired by XCOM 2 that transitions seamlessly between bird's-eye Tactical Isometric View (for 1 AP moves and automatic roof cutaway), low Over-the-Shoulder Sprint Cam (for 2 AP dashes, door breaches, vaults, and staircase climbs), mid-movement Event Interrupts (Pod Reveal & Scramble, Overwatch Slow-Mo), and Cover Settle Reset.
+_Avoid_: Follow cam, static chase cam
+
+**Over-the-Shoulder Sprint Cam** (*Filmová kamera za ramenem při sprintu*):
+The low-angle third-person camera state triggered during 2 AP dashes and environmental interactions (breaching doors, vaulting low cover, climbing stairs) that flies directly behind the running soldier's shoulder with subtle footstep camera shake and obstacle avoidance.
+_Avoid_: Zoomed isometric cam, static shoulder cam
+
+**Pod Reveal & Scramble** (*Odhalení hlídky a rozprchnutí do krytu*):
+The mid-movement cinematic interrupt triggered when a moving soldier spots a previously unalerted group of Swedish musketeers or pikemen in the fog of war: the soldier pauses on the discovery tile while the camera pans and zooms to the revealed patrol as they scramble into nearby cover before returning to the soldier.
+_Avoid_: Passive fog reveal, instant enemy spawn
+
+**Overwatch Slow-Mo** (*Zpomalený přepad ze zálohy*):
+The mid-movement cinematic interrupt triggered when a moving unit crosses an enemy Overwatch sightline outside full cover: time slows down, the camera frames the ambushing musketeer firing in a cloud of black-powder smoke, and then closely tracks the running soldier as the shot arrives before resuming remaining movement.
+_Avoid_: Post-movement reaction shot, instant overwatch hit
+
+**Cover Settle & Reset** (*Zakleknutí do krytu a návrat kamery*):
+The concluding movement beat in which a soldier arriving at a cover tile performs a brief kneeling or bracing posture against the obstacle before the camera smoothly returns to Tactical Isometric View.
+_Avoid_: Instant camera snap, abrupt stop
 
 **Turn Splash Banner** (*Filmový banner tahu*):
 The brief (~1s) center-screen floating banner announcing initiative transitions ("Tah obránců Prahy", "Tah švédské hlídky") before gracefully dissolving into the Mission Status Chip.

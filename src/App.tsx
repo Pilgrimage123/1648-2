@@ -41,6 +41,7 @@ export default function App() {
   // - 3: Overwatch (hlídkování)
   // - 4: Hod granátem / petardou
   // - 5: Zvláštní schopnost hrdiny
+  // - Q / E: Rotace kamery o 90° (vlevo / vpravo)
   // - Tab / Shift+Tab: Cyklení cílů při střelbě NEBO cyklení vojáků čety při pohybu
   // - F1: Rozbalení / sbalení postranních křídel matematického rozpisu (Breakdown Wings)
   // - Space / Enter: Potvrzení výstřelu v Režimu míření / Ukončení tahu v běžném režimu
@@ -48,6 +49,9 @@ export default function App() {
   // - F: Přepínání celé obrazovky (Fullscreen)
   // - V / PageUp / PageDown: Snadné přepínání pater budovy (Přízemí P0 <-> 1. Patro P1)
   // - M: Přepínání 2D billboard spritů a 3D modelů
+  // - C: Akční kinematická kamera
+  // - G: Barokní šerosvit (Mlha války)
+  // - H: Taktický rádce (Tutoriál)
   useEffect(() => {
     const onFullscreenChange = () => {
       useGameStore

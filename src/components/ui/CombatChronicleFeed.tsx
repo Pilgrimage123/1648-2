@@ -46,14 +46,20 @@ export function CombatChronicleFeed() {
     switch (tone) {
       case "crit":
         return "text-amber-200 font-bold border border-amber-400/80 bg-amber-950/95 shadow-[inset_0_1px_0_rgba(253,230,138,0.3)]";
+      case "buff":
+        return "text-emerald-100 font-bold border border-emerald-500/80 bg-emerald-950/95 shadow-[inset_0_1px_0_rgba(167,243,208,0.3)]";
       case "misfire":
         return "text-orange-200 font-bold border border-orange-500/80 bg-orange-950/95";
       case "hit":
         return "text-rose-100 font-semibold border border-rose-500/80 bg-rose-950/95";
+      case "miss":
+        return "text-stone-300 border border-stone-600/70 bg-stone-950/95 opacity-80";
       case "overwatch":
         return "text-sky-100 font-semibold border border-sky-400/70 bg-slate-950/95";
       case "alert":
         return "text-red-100 font-black border border-red-500/90 bg-red-950/95";
+      case "story":
+        return "text-amber-200 italic font-semibold border border-amber-500/80 bg-slate-950/95";
       default:
         return "text-amber-100 border border-amber-600/60 bg-slate-950/95";
     }

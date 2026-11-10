@@ -41,6 +41,15 @@ import {
   syncColloredoMobility,
   useGameStore,
 } from "../src/store/useGameStore.ts";
+import {
+  computeScrambleDestination,
+  createInitialCameraDirectorState,
+  detectPathInteractions,
+  resolveActiveCameraState,
+  resolveDynamicRoofCutawayFloor,
+  resolvePrimaryCoverDirection,
+  shouldTriggerActionCamForMove,
+} from "../src/core/CameraDirector.ts";
 import type { FloorLevel, GridCoord } from "../src/core/types.ts";
 
 console.log("=== TEST MISSION 1: ESCAPE OF MARSHAL COLLOREDO (GRAND PRIORY PALACE) ===");
@@ -1733,6 +1742,224 @@ assert(
 
 console.log(
   "✓ Melee combat system, weapon archetypes, Colloredo single-shot pistol discharge & walnut butt strike validated.",
+);
+
+// 26. 4-State XCOM 2 Camera State Machine (CameraDirector, Action Cam, Interrupts & Cutaway)
+console.log("--- 26. 4-State XCOM 2 Camera State Machine (CameraDirector) ---");
+
+// 26a: Initial state & Tactical Iso default
+const camInit = createInitialCameraDirectorState();
+assert(
+  camInit.mode === "TACTICAL_ISO" && camInit.timeScale === 1.0,
+  "Initial CameraDirector state must be TACTICAL_ISO with timeScale 1.0",
+);
+
+// 26b: 1 AP Blue Zone move stays in TACTICAL_ISO; 2 AP Sprint / Door Breach / Vault triggers ACTION_OTS_FOLLOW
+const camGrid = createInitialGrid();
+const bartolomejCamTest = createInitialUnits().find((u) => u.id === "player-bartolomej")!;
+const shortOpenStart: GridCoord = { x: 9, y: 0, z: 18 };
+const shortOpenPath: GridCoord[] = [
+  { x: 9, y: 0, z: 17 },
+  { x: 9, y: 0, z: 16 },
+];
+const shortInteractions = detectPathInteractions(camGrid, shortOpenStart, shortOpenPath);
+assert(
+  shortInteractions.hasDoorBreach === false &&
+    shortInteractions.hasStairs === false,
+  "Open path in palace hall has no door breach or floor change",
+);
+assert(
+  shouldTriggerActionCamForMove({
+    actionCamEnabled: true,
+    unit: bartolomejCamTest,
+    path: shortOpenPath,
+    apCost: 1,
+    zone: "blue",
+    interactions: shortInteractions,
+  }) === false,
+  "1 AP Blue Zone move without obstacles must stay in TACTICAL_ISO (no Action Cam)",
+);
+assert(
+  shouldTriggerActionCamForMove({
+    actionCamEnabled: true,
+    unit: bartolomejCamTest,
+    path: shortOpenPath,
+    apCost: 2,
+    zone: "yellow",
+    interactions: shortInteractions,
+  }) === true,
+  "2 AP Yellow Zone Sprint (Dash) must trigger ACTION_OTS_FOLLOW Action Cam",
+);
+
+// Door breach path (crossing closed armory door at x:4, y:0, z:18)
+const doorBreachStart: GridCoord = { x: 5, y: 0, z: 18 };
+const doorBreachPath: GridCoord[] = [
+  { x: 4, y: 0, z: 18 },
+  { x: 3, y: 0, z: 18 },
+];
+const doorInteractions = detectPathInteractions(camGrid, doorBreachStart, doorBreachPath);
+assert(
+  doorInteractions.hasDoorBreach === true &&
+    doorInteractions.firstInteraction === "door_breach",
+  "Stepping onto a closed door tile must be detected as a door_breach interaction",
+);
+assert(
+  shouldTriggerActionCamForMove({
+    actionCamEnabled: true,
+    unit: bartolomejCamTest,
+    path: doorBreachPath,
+    apCost: 1,
+    zone: "blue",
+    interactions: doorInteractions,
+  }) === true,
+  "Even a 1 AP move that breaches a wooden door must trigger ACTION_OTS_FOLLOW",
+);
+
+// 26c: Priority resolution across all states
+const resolvedSprint = resolveActiveCameraState({
+  director: camInit,
+  actionCamEnabled: true,
+  actionMode: "move",
+  hasValidAimTarget: false,
+  hasActiveProjectile: false,
+  activeMovement: {
+    unitId: "player-bartolomej",
+    isActionCam: true,
+  },
+});
+assert(
+  resolvedSprint === "ACTION_OTS_FOLLOW",
+  "Active 2 AP sprint with actionCamEnabled must resolve to ACTION_OTS_FOLLOW",
+);
+
+const resolvedBlueMove = resolveActiveCameraState({
+  director: camInit,
+  actionCamEnabled: true,
+  actionMode: "move",
+  hasValidAimTarget: false,
+  hasActiveProjectile: false,
+  activeMovement: {
+    unitId: "player-bartolomej",
+    isActionCam: false,
+  },
+});
+assert(
+  resolvedBlueMove === "TACTICAL_ISO",
+  "Active 1 AP Blue Zone move without interactions must resolve to TACTICAL_ISO",
+);
+
+const resolvedPodReveal = resolveActiveCameraState({
+  director: {
+    ...camInit,
+    mode: "INTERRUPT_POD_REVEAL",
+    podReveal: {
+      spotterUnitId: "player-bartolomej",
+      spotterCoord: { x: 8, y: 0, z: 14 },
+      revealedEnemyIds: ["enemy-dragoon"],
+      focusCoord: { x: 8, y: 0, z: 8 },
+      startedAt: Date.now(),
+      durationMs: 1150,
+    },
+  },
+  actionCamEnabled: true,
+  actionMode: "move",
+  hasValidAimTarget: false,
+  hasActiveProjectile: false,
+  activeMovement: null,
+});
+assert(
+  resolvedPodReveal === "INTERRUPT_POD_REVEAL",
+  "Pod Reveal interrupt must override normal camera state",
+);
+
+const resolvedOverwatchSlowMo = resolveActiveCameraState({
+  director: {
+    ...camInit,
+    mode: "INTERRUPT_OVERWATCH_SLOWMO",
+    timeScale: 0.25,
+    overwatchSlowMo: {
+      watcherUnitId: "enemy-musketeer",
+      watcherCoord: { x: 8, y: 0, z: 10 },
+      targetUnitId: "player-bartolomej",
+      ambushCoord: { x: 8, y: 0, z: 14 },
+      subPhase: "SHOOTER_FOCUS",
+      startedAt: Date.now(),
+      durationMs: 1400,
+    },
+  },
+  actionCamEnabled: true,
+  actionMode: "move",
+  hasValidAimTarget: false,
+  hasActiveProjectile: false,
+  activeMovement: null,
+});
+assert(
+  resolvedOverwatchSlowMo === "INTERRUPT_OVERWATCH_SLOWMO",
+  "Overwatch Slow-Mo interrupt must take top priority in CameraDirector",
+);
+
+const resolvedCoverReset = resolveActiveCameraState({
+  director: {
+    ...camInit,
+    mode: "COVER_SETTLE_RESET",
+    coverSettle: {
+      unitId: "player-bartolomej",
+      coord: { x: 6, y: 0, z: 15 },
+      coverLevel: "half",
+      coverDir: "N",
+      startedAt: Date.now(),
+      durationMs: 420,
+    },
+  },
+  actionCamEnabled: true,
+  actionMode: "move",
+  hasValidAimTarget: false,
+  hasActiveProjectile: false,
+  activeMovement: null,
+});
+assert(
+  resolvedCoverReset === "COVER_SETTLE_RESET",
+  "Cover Settle Reset must resolve to COVER_SETTLE_RESET before returning to TACTICAL_ISO",
+);
+
+// 26d: Dynamic Roof Cutaway when inside enclosed building
+const indoorCoord: GridCoord = { x: 9, y: 0, z: 14 }; // Enclosed Grand Priory Palace interior on P0
+const outdoorCoord: GridCoord = { x: 8, y: 2, z: 13 }; // Watchtower on P2
+assert(
+  resolveDynamicRoofCutawayFloor(indoorCoord, 2) === 0,
+  "Unit inside enclosed ground-floor palace interior must dynamically cut away upper floors (2 -> 0)",
+);
+assert(
+  resolveDynamicRoofCutawayFloor(outdoorCoord, 2) === 2,
+  "Unit on floor P2 keeps active floor 2",
+);
+
+// 26e: Pod Reveal Scramble destination calculation & Cover Direction
+const scrambleEnemy = {
+  ...createInitialUnits().find((u) => u.id === "enemy-dragoon")!,
+  pos: { x: 8, y: 0 as const, z: 9 },
+};
+const scrambleDest = computeScrambleDestination(
+  camGrid,
+  scrambleEnemy,
+  [scrambleEnemy],
+  { x: 8, y: 0, z: 14 },
+);
+assert(
+  scrambleDest !== null &&
+    (scrambleDest.x !== 8 || scrambleDest.z !== 9) &&
+    Math.abs(scrambleDest.x - 8) + Math.abs(scrambleDest.z - 9) <= 2,
+  "Pod Reveal computeScrambleDestination must find a valid nearby cover tile within 1-2 steps",
+);
+
+const coverDirTest = resolvePrimaryCoverDirection(camGrid, { x: 6, y: 0, z: 15 });
+assert(
+  typeof coverDirTest.level === "string",
+  "resolvePrimaryCoverDirection must inspect adjacent cover walls cleanly",
+);
+
+console.log(
+  "✓ 4-State XCOM 2 Camera State Machine (TACTICAL_ISO, ACTION_OTS_FOLLOW, INTERRUPT_POD_REVEAL, INTERRUPT_OVERWATCH_SLOWMO, COVER_SETTLE_RESET) validated.",
 );
 
 console.log("=== ALL MISSION 1 TESTS PASSED SUCCESSFULLY! ===");

@@ -1,7 +1,8 @@
 /**
  * Pure TypeScript 3D A* Pathfinding and Dijkstra Movement Zone Calculator (/src/core/Pathfinding.ts).
  * Supports multi-floor navigation (P0 <-> P1 <-> P2) via straight and spiral staircases,
- * including anti-deadlock diagonal ramp transitions when a landing is occupied.
+ * including anti-deadlock diagonal ramp transitions when a landing is occupied,
+ * and running door-breach navigation when `movingUnitId` is specified.
  * Zero Three.js or React imports.
  */
 
@@ -32,7 +33,10 @@ function heuristic3D(a: GridCoord, b: GridCoord): number {
   return Math.abs(a.x - b.x) + Math.abs(a.z - b.z) + Math.abs(a.y - b.y);
 }
 
-function getConnectedStairFloors(tile: TileData, currentFloor: FloorLevel): FloorLevel[] {
+function getConnectedStairFloors(
+  tile: TileData,
+  currentFloor: FloorLevel,
+): FloorLevel[] {
   if (!tile.isLadder && (!tile.stairType || tile.stairType === "none")) {
     return [];
   }
@@ -45,9 +49,26 @@ function getConnectedStairFloors(tile: TileData, currentFloor: FloorLevel): Floo
   return [1];
 }
 
+function isTilePassableForUnit(
+  grid: GridSystem,
+  tile: TileData | undefined,
+  allowClosedDoors: boolean,
+): boolean {
+  if (!tile || !tile.hasFloor) return false;
+  if (tile.walkable) return true;
+  if (
+    allowClosedDoors &&
+    tile.obstacle === "none" &&
+    grid.isDoorClosedAt(tile.coord)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Returns valid neighboring walkable coordinates from `current`, including:
- * 1. Cardinal neighbors on the same floor (`stepCost: 1`)
+ * 1. Cardinal movement on the same floor (`stepCost: 1`)
  * 2. Direct vertical transitions on a staircase (`(x, y, z) <-> (x, targetFloor, z)`, `stepCost: 1`)
  * 3. Diagonal ramp step-off / step-on transitions (`stepCost: 2`) so units can smoothly walk past
  *    a staircase landing even if another unit is standing on one end of the stairs.
@@ -62,6 +83,7 @@ export function getNeighbors(
   const seenKeys = new Set<string>();
   const currentTile = grid.getTile(current);
   if (!currentTile) return results;
+  const allowClosedDoors = !!movingUnitId;
 
   const pushNeighbor = (coord: GridCoord, stepCost: number) => {
     const key = coordKey(coord);
@@ -79,7 +101,8 @@ export function getNeighbors(
       z: current.z + dz,
     };
     const nextTile = grid.getTile(nextCoord);
-    if (!nextTile || !nextTile.hasFloor || !nextTile.walkable) continue;
+    if (!isTilePassableForUnit(grid, nextTile, allowClosedDoors) || !nextTile)
+      continue;
 
     if (!grid.isBlockedByUnit(nextCoord, units, movingUnitId)) {
       pushNeighbor(nextCoord, 1);
@@ -95,9 +118,7 @@ export function getNeighbors(
         };
         const landingTile = grid.getTile(upperOrLowerLanding);
         if (
-          landingTile &&
-          landingTile.hasFloor &&
-          landingTile.walkable &&
+          isTilePassableForUnit(grid, landingTile, allowClosedDoors) &&
           !grid.isBlockedByUnit(upperOrLowerLanding, units, movingUnitId)
         ) {
           pushNeighbor(upperOrLowerLanding, 2);
@@ -115,7 +136,11 @@ export function getNeighbors(
       z: current.z,
     };
     const verticalTile = grid.getTile(verticalCoord);
-    if (!verticalTile || !verticalTile.hasFloor || !verticalTile.walkable) continue;
+    if (
+      !isTilePassableForUnit(grid, verticalTile, allowClosedDoors) ||
+      !verticalTile
+    )
+      continue;
 
     if (!grid.isBlockedByUnit(verticalCoord, units, movingUnitId)) {
       pushNeighbor(verticalCoord, 1);
@@ -131,9 +156,7 @@ export function getNeighbors(
         };
         const stepOffTile = grid.getTile(stepOffCoord);
         if (
-          stepOffTile &&
-          stepOffTile.hasFloor &&
-          stepOffTile.walkable &&
+          isTilePassableForUnit(grid, stepOffTile, allowClosedDoors) &&
           !grid.isBlockedByUnit(stepOffCoord, units, movingUnitId)
         ) {
           pushNeighbor(stepOffCoord, 2);
@@ -157,8 +180,9 @@ export function findPathAStar(
   movingUnitId?: string,
 ): GridCoord[] {
   if (sameCoord(start, goal)) return [];
+  const allowClosedDoors = !!movingUnitId;
   const goalTile = grid.getTile(goal);
-  if (!goalTile || !goalTile.hasFloor || !goalTile.walkable) return [];
+  if (!isTilePassableForUnit(grid, goalTile, allowClosedDoors)) return [];
   if (grid.isBlockedByUnit(goal, units, movingUnitId)) return [];
 
   const openMap = new Map<string, AStarNode>();

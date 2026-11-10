@@ -37,6 +37,17 @@ import {
 } from "../core/FogOfWar";
 import { computeReachableTiles, findPathAStar } from "../core/Pathfinding";
 import {
+  computeScrambleDestination,
+  createInitialCameraDirectorState,
+  detectPathInteractions,
+  resetLiveMovementTelemetry,
+  resolveDynamicRoofCutawayFloor,
+  resolvePrimaryCoverDirection,
+  shouldTriggerActionCamForMove,
+  type CameraDirectorState,
+  type StepInteractionKind,
+} from "../core/CameraDirector";
+import {
   playGunshotSound,
   playExplosionSound,
   playMisfireSound,
@@ -106,6 +117,8 @@ export interface UnitCombatLoss {
 export interface UnitVisualFX {
   lungeTimestamp: number;
   hitTimestamp: number;
+  coverSettleTimestamp?: number;
+  coverSettleDir?: CardinalDir | null;
   floatingBanner: {
     id: number;
     text: string;
@@ -189,10 +202,14 @@ interface GameStoreState {
   selectedTargetId: string | null;
 
   isBusy: boolean;
+  cameraDirector: CameraDirectorState;
+  revealedPodEnemyIds: Set<string>;
   activeMovement: {
     unitId: string;
     from: GridCoord;
     path: GridCoord[];
+    isActionCam?: boolean;
+    interactionKind?: StepInteractionKind;
   } | null;
   activeProjectile: ProjectileVisual | null;
   unitFx: Record<string, UnitVisualFX>;
@@ -1012,6 +1029,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     patch: Partial<{
       lunge: boolean;
       hit: boolean;
+      coverSettle: boolean;
+      coverSettleDir: CardinalDir | null;
       banner: {
         text: string;
         tone: "hit" | "crit" | "miss" | "misfire" | "overwatch" | "buff";
@@ -1024,6 +1043,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       const prev = state.unitFx[unitId] ?? {
         lungeTimestamp: 0,
         hitTimestamp: 0,
+        coverSettleTimestamp: 0,
+        coverSettleDir: null,
         floatingBanner: null,
         combatLoss: null,
       };
@@ -1033,6 +1054,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           [unitId]: {
             lungeTimestamp: patch.lunge ? now : prev.lungeTimestamp,
             hitTimestamp: patch.hit ? now : prev.hitTimestamp,
+            coverSettleTimestamp: patch.coverSettle
+              ? now
+              : prev.coverSettleTimestamp,
+            coverSettleDir:
+              patch.coverSettleDir !== undefined
+                ? patch.coverSettleDir
+                : prev.coverSettleDir,
             floatingBanner: patch.banner
               ? { id: fxSeq++, ...patch.banner }
               : prev.floatingBanner,
@@ -1047,24 +1075,189 @@ export const useGameStore = create<GameStoreState>((set, get) => {
   const animateUnitAlongPath = (
     unitId: string,
     path: GridCoord[],
+    opts?: {
+      isActionCam?: boolean;
+      interactionKind?: StepInteractionKind;
+    },
   ): Promise<void> => {
     if (path.length === 0) return Promise.resolve();
     const unit = get().units.find((u) => u.id === unitId);
     if (!unit) return Promise.resolve();
+
+    const interactions = detectPathInteractions(get().grid, unit.pos, path);
+    const isActionCam =
+      opts?.isActionCam ??
+      (get().actionCamEnabled &&
+        unit.faction === "player" &&
+        (path.length > unit.movePerAp ||
+          interactions.hasDoorBreach ||
+          interactions.hasVault ||
+          interactions.hasStairs));
+    const interactionKind =
+      opts?.interactionKind ?? interactions.firstInteraction;
+
     if (typeof window === "undefined") {
+      // V bezhlavém (headless) testovacím prostředí otevřeme vyražené dveře na trase okamžitě
+      if (interactions.hasDoorBreach) {
+        for (const dc of interactions.doorCoords) {
+          get().grid.setDoorState(dc, "open");
+        }
+      }
       return Promise.resolve();
     }
 
     return new Promise<void>((resolve) => {
       moveResolveCallback = resolve;
-      set({
+      set((s) => ({
         activeMovement: {
           unitId,
           from: { ...unit.pos },
           path,
+          isActionCam,
+          interactionKind,
         },
-      });
+        cameraDirector: {
+          ...s.cameraDirector,
+          mode: isActionCam ? "ACTION_OTS_FOLLOW" : "TACTICAL_ISO",
+        },
+      }));
     });
+  };
+
+  /**
+   * Event Interrupt 3a: Pod Reveal & Scramble.
+   * Zastaví pohyb, provede rychlý přelet kamery (Pan & Zoom) na nově odhalenou skupinu mušketýrů/pikenýrů,
+   * spustí jejich "Scramble" přesun o 1–2 dlaždice do nejbližšího krytu a vrátí kameru k vojákovi.
+   */
+  const performPodRevealAndScramble = async (
+    spotterUnitId: string,
+    spotterCoord: GridCoord,
+    newlySpottedEnemies: UnitData[],
+  ) => {
+    if (newlySpottedEnemies.length === 0) return;
+
+    // Najdeme celou skupinu (pod) v okolí odhalených nepřátel (do vzdálenosti 4 polí)
+    const state = get();
+    const podMembers = state.units.filter(
+      (u) =>
+        u.faction === "enemy" &&
+        u.alive &&
+        u.hp > 0 &&
+        (newlySpottedEnemies.some((s) => s.id === u.id) ||
+          newlySpottedEnemies.some(
+            (s) =>
+              s.pos.y === u.pos.y &&
+              Math.abs(s.pos.x - u.pos.x) <= 4 &&
+              Math.abs(s.pos.z - u.pos.z) <= 4 &&
+              !state.revealedPodEnemyIds.has(u.id),
+          )),
+    );
+
+    if (podMembers.length === 0) return;
+
+    // Spočítáme těžiště odhalené hlídky pro Pan & Zoom kamery
+    const avgX = Math.round(
+      podMembers.reduce((acc, u) => acc + u.pos.x, 0) / podMembers.length,
+    );
+    const avgZ = Math.round(
+      podMembers.reduce((acc, u) => acc + u.pos.z, 0) / podMembers.length,
+    );
+    const focusFloor = podMembers[0]!.pos.y;
+    const focusCoord: GridCoord = { x: avgX, y: focusFloor, z: avgZ };
+
+    const nowTs = performance.now();
+    const nextRevealed = new Set(state.revealedPodEnemyIds);
+    for (const m of podMembers) {
+      nextRevealed.add(m.id);
+    }
+
+    const names = podMembers.map((e) => e.name).join(", ");
+
+    set((s) => ({
+      activeFloor: focusFloor,
+      revealedPodEnemyIds: nextRevealed,
+      cameraDirector: {
+        ...s.cameraDirector,
+        mode: "INTERRUPT_POD_REVEAL",
+        podReveal: {
+          spotterUnitId,
+          spotterCoord,
+          revealedEnemyIds: podMembers.map((m) => m.id),
+          focusCoord,
+          startedAt: nowTs,
+          durationMs: 1150,
+        },
+      },
+      combatLog: [
+        ...s.combatLog,
+        makeLog(
+          s.round,
+          "enemy",
+          `ODHALENÍ HLÍDKY (POD REVEAL): Z šerosvitu vystoupila švédská patrola (${names}) a kvapně hledá kryt!`,
+          "alert",
+        ),
+      ],
+    }));
+
+    // Zobrazíme bojový poplach nad odhalenými nepřáteli a vypočítáme jejich Scramble přesun do krytu
+    let currentUnits = [...get().units];
+    for (const member of podMembers) {
+      triggerUnitFx(member.id, {
+        banner: { text: "POPLACH! DO KRYTU!", tone: "overwatch" },
+      });
+
+      const scrambleDest = computeScrambleDestination(
+        get().grid,
+        member,
+        currentUnits,
+        spotterCoord,
+      );
+      const targetPos = scrambleDest ?? member.pos;
+      const scrambleFacing = facingFromDelta(
+        targetPos,
+        spotterCoord,
+        member.facing,
+      );
+
+      currentUnits = currentUnits.map((u) =>
+        u.id === member.id
+          ? {
+              ...u,
+              pos: targetPos,
+              facing: scrambleFacing,
+            }
+          : u,
+      );
+    }
+
+    // Krátká pauza na přelet kamery (Pan & Zoom), následně nepřátelé zaskočí do krytu (Scramble)
+    await delay(350);
+
+    set((s) => {
+      const synced = syncColloredoMobility(currentUnits);
+      const nextFog = computeFogOfWar(
+        s.grid,
+        synced,
+        s.weather,
+        s.fogSnapshot.exploredCoords,
+        extractDynamicLights(s.blastZones),
+      );
+      return {
+        units: synced,
+        fogSnapshot: nextFog,
+      };
+    });
+
+    await delay(750);
+
+    set((s) => ({
+      activeFloor: spotterCoord.y,
+      cameraDirector: {
+        ...s.cameraDirector,
+        mode: "TACTICAL_ISO",
+        podReveal: null,
+      },
+    }));
   };
 
   const playCaptureFinalAnimationAndDefeat = async (
@@ -1236,10 +1429,25 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
       const ambushCoord = ambushStep.coord;
 
-      // 1. Upozornění a zaměření: Hlídkující spatřil pohybujícího se nekrytého nepřítele
-      // Natočíme hlídkujícího k cíli a zobrazíme indikátor napadení
+      // 1. Event Interrupt 3b: Overwatch Slow-Mo (Fáze A: SHOOTER_FOCUS)
+      // Zpomalíme čas (timeScale = 0.25), kamera zabere střelce v oblaku střelného prachu
+      const slowMoStartTs = performance.now();
       set((s) => ({
-        activeFloor: ambushCoord.y,
+        activeFloor: freshWatcher.pos.y,
+        cameraDirector: {
+          ...s.cameraDirector,
+          mode: "INTERRUPT_OVERWATCH_SLOWMO",
+          timeScale: 0.25,
+          overwatchSlowMo: {
+            watcherUnitId: freshWatcher.id,
+            watcherCoord: freshWatcher.pos,
+            targetUnitId: currentMoved.id,
+            ambushCoord,
+            subPhase: "SHOOTER_FOCUS",
+            startedAt: slowMoStartTs,
+            durationMs: 1750,
+          },
+        },
         units: s.units.map((u) =>
           u.id === freshWatcher.id
             ? {
@@ -1251,16 +1459,25 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       }));
 
       triggerUnitFx(freshWatcher.id, {
-        banner: { text: "SPATŘEN V POHYBU!", tone: "overwatch" },
+        banner: { text: "SPATŘEN V POHYBU! (SLOW-MO)", tone: "overwatch" },
       });
 
-      // 2. Přesně 1 sekunda (1000 ms) prodleva po splnění podmínek (pohybuje se + není v krytu + viditelný)
-      // Během této 1s hráč vidí zaměření, hlídkující sleduje nekrytý cíl a akční kamera se připraví na výstřel!
-      await delay(1000);
+      // 2. Záběr na střelce před výstřelem v zpomaleném čase
+      await delay(650);
 
       // Znovu ověříme stav před samotným výstřelem (zda mezitím hra neskončila)
       const targetUnitNow = get().units.find((u) => u.id === movedUnitId);
-      if (!targetUnitNow || !targetUnitNow.alive || targetUnitNow.hp <= 0) break;
+      if (!targetUnitNow || !targetUnitNow.alive || targetUnitNow.hp <= 0) {
+        set((s) => ({
+          cameraDirector: {
+            ...s.cameraDirector,
+            mode: "TACTICAL_ISO",
+            timeScale: 1.0,
+            overwatchSlowMo: null,
+          },
+        }));
+        break;
+      }
 
       const calculation = calculateShot(
         get().grid,
@@ -1300,6 +1517,17 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         activeFloor: ambushCoord.y,
         smokeVersion: s.smokeVersion + 1,
         combatIntensity: s.combatIntensity + 1,
+        cameraDirector: {
+          ...s.cameraDirector,
+          mode: "INTERRUPT_OVERWATCH_SLOWMO",
+          timeScale: 0.35,
+          overwatchSlowMo: s.cameraDirector.overwatchSlowMo
+            ? {
+                ...s.cameraDirector.overwatchSlowMo,
+                subPhase: "RUNNER_TRACK",
+              }
+            : null,
+        },
         blastZones: [
           ...s.blastZones.slice(-18),
           {
@@ -1473,7 +1701,15 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       }
 
       await delay(1050);
-      set({ activeProjectile: null });
+      set((s) => ({
+        activeProjectile: null,
+        cameraDirector: {
+          ...s.cameraDirector,
+          mode: "TACTICAL_ISO",
+          timeScale: 1.0,
+          overwatchSlowMo: null,
+        },
+      }));
     }
   };
 
@@ -1514,6 +1750,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     selectedTargetId: derived.selectedTargetId,
 
     isBusy: false,
+    cameraDirector: createInitialCameraDirectorState(),
+    revealedPodEnemyIds: new Set(derived.fogSnapshot.visibleEnemyIds),
     activeMovement: null,
     activeProjectile: null,
     unitFx: {},
@@ -2446,18 +2684,207 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       if (path.length === 0) return;
 
       void (async () => {
-        set({
+        const interactions = detectPathInteractions(state.grid, unit.pos, path);
+        const isActionCam = shouldTriggerActionCamForMove({
+          actionCamEnabled: state.actionCamEnabled,
+          unit,
+          path,
+          apCost: reach.apCost,
+          zone: reach.zone,
+          interactions,
+        });
+
+        set((s) => ({
           isBusy: true,
           hoveredPath: [],
           reachableTiles: new Map(),
-        });
+          cameraDirector: {
+            ...s.cameraDirector,
+            mode: isActionCam ? "ACTION_OTS_FOLLOW" : "TACTICAL_ISO",
+            timeScale: 1.0,
+            podReveal: null,
+            overwatchSlowMo: null,
+            coverSettle: null,
+          },
+        }));
 
-        await animateUnitAlongPath(unit.id, path);
+        // Krokové vyhodnocení trasy s podporou přerušení uprostřed běhu (Pod Reveal & Overwatch Slow-Mo)
+        let remainingPath = [...path];
+        let actualFinalStep = path[path.length - 1]!;
+        let prevStepForFacing = unit.pos;
+        const startFloor = unit.pos.y;
 
-        const finalStep = path[path.length - 1]!;
-        const prevStep =
-          path.length >= 2 ? path[path.length - 2]! : unit.pos;
-        const newFacing = facingFromDelta(prevStep, finalStep, unit.facing);
+        while (remainingPath.length > 0) {
+          const currentState = get();
+          const currentUnit = currentState.units.find((u) => u.id === unit.id);
+          if (
+            !currentUnit ||
+            !currentUnit.alive ||
+            currentUnit.hp <= 0 ||
+            (currentUnit.detainedTurns ?? 0) > 0
+          ) {
+            break;
+          }
+
+          // Hledáme nejbližší dlaždici na zbývající trase, která spustí Overwatch nebo Pod Reveal
+          let cutIdx = remainingPath.length - 1;
+          let triggersOverwatchAtCut = false;
+          let newlyRevealedAtCut: UnitData[] = [];
+
+          const activeWatchers = currentState.units.filter(
+            (u) =>
+              u.alive &&
+              u.hp > 0 &&
+              u.faction !== currentUnit.faction &&
+              u.isOverwatch,
+          );
+
+          for (let i = 0; i < remainingPath.length; i++) {
+            const step = remainingPath[i]!;
+
+            // A) Kontrola Overwatch záchytu na dlaždici `step`
+            let stepTriggersOw = false;
+            for (const watcher of activeWatchers) {
+              const dist = gridDistance3D(watcher.pos, step);
+              if (dist > watcher.weapon.maxRange) continue;
+              if (!checkLineOfSight3D(currentState.grid, watcher.pos, step).clear)
+                continue;
+              if (
+                !checkFogLineOfSight3D(
+                  currentState.grid,
+                  watcher.pos,
+                  step,
+                  false,
+                )
+              )
+                continue;
+              const cov = resolveTargetCoverAgainstShot(
+                currentState.grid,
+                watcher.pos,
+                step,
+              );
+              if (cov.cover !== "full") {
+                stepTriggersOw = true;
+                break;
+              }
+            }
+
+            // B) Kontrola Pod Reveal (odhalení dosud neaktivované skupiny nepřátel v mlze války)
+            let stepRevealed: UnitData[] = [];
+            if (currentState.fogOfWarEnabled) {
+              const recon = previewReconFromTile(
+                currentState.grid,
+                currentUnit,
+                step,
+                currentState.units,
+                currentState.weather,
+                currentState.revealedPodEnemyIds,
+              );
+              if (recon.spottedEnemyIds.length > 0) {
+                stepRevealed = currentState.units.filter(
+                  (u) =>
+                    u.faction === "enemy" &&
+                    u.alive &&
+                    u.hp > 0 &&
+                    recon.spottedEnemyIds.includes(u.id) &&
+                    !currentState.revealedPodEnemyIds.has(u.id),
+                );
+              }
+            }
+
+            if (stepTriggersOw || stepRevealed.length > 0) {
+              cutIdx = i;
+              triggersOverwatchAtCut = stepTriggersOw;
+              newlyRevealedAtCut = stepRevealed;
+              break;
+            }
+          }
+
+          const segment = remainingPath.slice(0, cutIdx + 1);
+          const segEnd = segment[segment.length - 1]!;
+          const segPrev =
+            segment.length >= 2
+              ? segment[segment.length - 2]!
+              : currentUnit.pos;
+          const segFacing = facingFromDelta(
+            segPrev,
+            segEnd,
+            currentUnit.facing,
+          );
+
+          await animateUnitAlongPath(unit.id, segment, {
+            isActionCam,
+            interactionKind: interactions.firstInteraction,
+          });
+
+          // Otevřeme případné dveře, kterými tento segment prošel
+          let doorsOpenedInSeg = false;
+          for (const stepCoord of segment) {
+            if (get().grid.isDoorClosedAt(stepCoord)) {
+              get().grid.setDoorState(stepCoord, "open");
+              doorsOpenedInSeg = true;
+            }
+          }
+
+          actualFinalStep = segEnd;
+          prevStepForFacing = segPrev;
+
+          // Aktualizujeme pozici jednotky na konci segmentu a zprůhledníme střechu, pokud vstoupila do budovy
+          set((s) => {
+            const nextFloor = resolveDynamicRoofCutawayFloor(
+              segEnd,
+              s.activeFloor,
+            );
+            const movedUnits = s.units.map((u) =>
+              u.id === unit.id ? { ...u, pos: segEnd, facing: segFacing } : u,
+            );
+            const segFog = computeFogOfWar(
+              s.grid,
+              movedUnits,
+              s.weather,
+              s.fogSnapshot.exploredCoords,
+              extractDynamicLights(s.blastZones),
+            );
+            return {
+              activeFloor: nextFloor,
+              gridVersion: s.gridVersion + (doorsOpenedInSeg ? 1 : 0),
+              units: movedUnits,
+              fogSnapshot: segFog,
+            };
+          });
+
+          if (triggersOverwatchAtCut) {
+            await performOverwatchReactionsIfAny(unit.id, segEnd, [segEnd]);
+          }
+
+          // Zkontrolujeme, zda voják po přepadu ze zálohy stále žije a může pokračovat
+          const afterOwUnit = get().units.find((u) => u.id === unit.id);
+          if (
+            !afterOwUnit ||
+            !afterOwUnit.alive ||
+            afterOwUnit.hp <= 0 ||
+            (afterOwUnit.detainedTurns ?? 0) > 0
+          ) {
+            break;
+          }
+
+          if (newlyRevealedAtCut.length > 0) {
+            await performPodRevealAndScramble(
+              unit.id,
+              segEnd,
+              newlyRevealedAtCut,
+            );
+          }
+
+          remainingPath = remainingPath.slice(cutIdx + 1);
+        }
+
+        const finalStep = actualFinalStep;
+        const newFacing = facingFromDelta(
+          prevStepForFacing,
+          finalStep,
+          unit.facing,
+        );
 
         let moveRescuedColloredo = false;
         let moveDetainedColloredo = false;
@@ -2481,8 +2908,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           const syncedUnits = syncColloredoMobility(captureSync.units);
 
           const climbNote =
-            finalStep.y !== unit.pos.y
-              ? finalStep.y > unit.pos.y
+            finalStep.y !== startFloor
+              ? finalStep.y > startFloor
                 ? ` (vystoupal po schodišti do ${finalStep.y}. patra)`
                 : finalStep.y === 0
                   ? " (sestoupil po schodišti do přízemí)"
@@ -2500,6 +2927,16 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               : s.tutorialStep;
 
           const extraLogs: CombatLogEntry[] = [];
+          if (interactions.hasDoorBreach) {
+            extraLogs.push(
+              makeLog(
+                s.round,
+                "player",
+                `${unit.name} za běhu vyrazil dřevěné dveře!`,
+                "overwatch",
+              ),
+            );
+          }
           if (captureSync.rescued) {
             extraLogs.push(
               makeLog(
@@ -2522,7 +2959,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
           return {
             units: syncedUnits,
-            activeFloor: finalStep.y,
+            activeFloor: resolveDynamicRoofCutawayFloor(
+              finalStep,
+              finalStep.y,
+            ),
             tutorialStep: nextTutorialStep,
             combatLog: [
               ...s.combatLog,
@@ -2548,11 +2988,47 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           });
         }
 
-        await performOverwatchReactionsIfAny(unit.id, finalStep, path);
+        // State 4: Cover Settle & Camera Reset (animace zakleknutí do krytu a návrat do izometrického pohledu)
+        const movedSurvivor = get().units.find(
+          (u) => u.id === unit.id && u.alive && u.hp > 0,
+        );
+        if (movedSurvivor) {
+          const coverInfo = resolvePrimaryCoverDirection(get().grid, finalStep);
+          triggerUnitFx(unit.id, {
+            coverSettle: true,
+            coverSettleDir: coverInfo.dir,
+          });
+          if (get().actionCamEnabled && (isActionCam || coverInfo.level !== "none")) {
+            set((s) => ({
+              cameraDirector: {
+                ...s.cameraDirector,
+                mode: "COVER_SETTLE_RESET",
+                timeScale: 1.0,
+                coverSettle: {
+                  unitId: unit.id,
+                  coord: finalStep,
+                  coverLevel: coverInfo.level,
+                  coverDir: coverInfo.dir,
+                  startedAt: performance.now(),
+                  durationMs: 380,
+                },
+              },
+            }));
+            await delay(360);
+          }
+        }
 
         const afterState = get();
         const outcomeCheck = checkMissionOutcome(afterState.grid, afterState.units);
         if (outcomeCheck.outcome !== "ongoing") {
+          set((s) => ({
+            cameraDirector: {
+              ...s.cameraDirector,
+              mode: "TACTICAL_ISO",
+              timeScale: 1.0,
+              coverSettle: null,
+            },
+          }));
           // Pokud hráč dosáhl vítězství a dosud nebyla vyřešena Paradoxní oběť, otevřeme dilematické okno!
           if (outcomeCheck.outcome === "victory" && !afterState.sacrificedHeroId) {
             const aliveCompanions = afterState.units.filter(
@@ -2597,8 +3073,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           return;
         }
 
-        const prevVisibleEnemyIds = new Set(afterState.fogSnapshot.visibleEnemyIds);
-        const autoNextUnit = findNextAvailablePlayerUnit(afterState.units, afterState.selectedUnitId);
+        const autoNextUnit = findNextAvailablePlayerUnit(
+          afterState.units,
+          afterState.selectedUnitId,
+        );
         const autoNextId = autoNextUnit?.id ?? afterState.selectedUnitId;
         const nextDerived = deriveSelectionData(
           afterState.grid,
@@ -2611,34 +3089,16 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           afterState.fogOfWarEnabled,
         );
 
-        const newlySpottedEnemies = nextDerived.units.filter(
-          (u) =>
-            u.faction === "enemy" &&
-            u.alive &&
-            nextDerived.fogSnapshot.visibleEnemyIds.has(u.id) &&
-            !prevVisibleEnemyIds.has(u.id),
-        );
-
-        const reconLogs: CombatLogEntry[] = [];
-        if (afterState.fogOfWarEnabled && newlySpottedEnemies.length > 0) {
-          const names = newlySpottedEnemies.map((e) => e.name).join(", ");
-          reconLogs.push(
-            makeLog(
-              afterState.round,
-              "player",
-              `PRŮZKUM ŠEROSVITU: Z noční temnoty vystoupil nepřítel — ${names}!`,
-              "alert",
-            ),
-          );
-          for (const spotted of newlySpottedEnemies) {
-            triggerUnitFx(spotted.id, {
-              banner: { text: "ODHALEN V ŠEROSVITU!", tone: "overwatch" },
-            });
-          }
-        }
-
         set((s) => ({
           isBusy: false,
+          cameraDirector: {
+            ...s.cameraDirector,
+            mode: "TACTICAL_ISO",
+            timeScale: 1.0,
+            podReveal: null,
+            overwatchSlowMo: null,
+            coverSettle: null,
+          },
           selectedUnitId: autoNextId,
           activeFloor: autoNextUnit ? autoNextUnit.pos.y : s.activeFloor,
           units: nextDerived.units,
@@ -2647,10 +3107,6 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           visibleTargets: nextDerived.visibleTargets,
           visibleMeleeTargets: nextDerived.visibleMeleeTargets,
           selectedTargetId: nextDerived.selectedTargetId,
-          combatLog:
-            reconLogs.length > 0
-              ? [...s.combatLog, ...reconLogs]
-              : s.combatLog,
         }));
       })();
     },
@@ -2658,6 +3114,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     completeUnitMovement: () => {
       const cb = moveResolveCallback;
       moveResolveCallback = null;
+      resetLiveMovementTelemetry();
       set({ activeMovement: null });
       if (cb) cb();
     },
@@ -3557,7 +4014,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           makeLog(
             s.round,
             "player",
-            `${unit.name} přešel do režimu HLÍDKA (overwatch).`,
+            `${unit.name} přešel do režimu HLÍDKA (OVERWATCH).`,
             "overwatch",
           ),
         ],
@@ -3645,7 +4102,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             return {
               ...u,
               pos: newJanPos,
-              ap: nextAp,
+              ap: Math.min(u.maxAp + 1, nextAp + 1),
               isShaken: false,
               abilityBuffActive: true,
               ability: u.ability
@@ -3977,6 +4434,78 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             loss: shrapnelLoss,
             banner: { text: "ŠRAPNEL −3 HP · −2 ZBROJ · OMRÁČEN!", tone: "crit" },
           });
+        }
+        return;
+      }
+
+      if (ability.id === "marshal_command") {
+        playSpecialAbilitySound("marshal_command");
+        const updatedUnits = freshState.units.map((u) => {
+          if (u.id === unit.id) {
+            return {
+              ...u,
+              ap: nextAp,
+              isShaken: false,
+              abilityBuffActive: true,
+              ability: u.ability
+                ? { ...u.ability, currentCooldown: u.ability.cooldownTurns }
+                : undefined,
+            };
+          }
+          if (u.faction === "player" && u.alive && u.id !== unit.id) {
+            return {
+              ...u,
+              ap: Math.min(u.maxAp + 2, u.ap + 2),
+              isShaken: false,
+            };
+          }
+          return u;
+        });
+
+        const syncedUnits = syncColloredoMobility(updatedUnits);
+        const nextDerived = deriveSelectionData(
+          freshState.grid,
+          syncedUnits,
+          unit.id,
+          freshState.weather,
+          freshState.selectedTargetId,
+          freshState.fogSnapshot.exploredCoords,
+          freshState.blastZones,
+          freshState.fogOfWarEnabled,
+        );
+
+        set((s) => ({
+          units: nextDerived.units,
+          selectedUnitId: unit.id,
+          activeFloor: unit.pos.y,
+          fogSnapshot: nextDerived.fogSnapshot,
+          reachableTiles: nextDerived.reachableTiles,
+          visibleTargets: nextDerived.visibleTargets,
+          selectedTargetId: nextDerived.selectedTargetId,
+          demonstratedAbilities: {
+            ...s.demonstratedAbilities,
+            [unit.id]: true,
+          },
+          combatLog: [
+            ...s.combatLog,
+            makeLog(
+              s.round,
+              "player",
+              `[SCHOPNOST — ${ability.name}] Maršál Colloredo vydal autoritativní rozkaz k obraně a průlomu! Všichni spojenci získávají +2 AP a rozšířené zorné pole.`,
+              "buff",
+            ),
+          ],
+        }));
+
+        triggerUnitFx(unit.id, {
+          banner: { text: "ROZKAZ MARŠÁLA! [+2 AP SPOJENCŮM]", tone: "buff" },
+        });
+        for (const ally of syncedUnits) {
+          if (ally.faction === "player" && ally.alive && ally.id !== unit.id) {
+            triggerUnitFx(ally.id, {
+              banner: { text: "+2 AKČNÍ BODY!", tone: "buff" },
+            });
+          }
         }
         return;
       }
@@ -4849,6 +5378,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         currentFogEnabled,
       );
       moveResolveCallback = null;
+      resetLiveMovementTelemetry();
 
       set((s) => ({
         grid: nextGrid,
@@ -4882,6 +5412,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         visibleTargets: nextDerived.visibleTargets,
         selectedTargetId: nextDerived.selectedTargetId,
         isBusy: false,
+        cameraDirector: createInitialCameraDirectorState(),
+        revealedPodEnemyIds: new Set(nextDerived.fogSnapshot.visibleEnemyIds),
         activeMovement: null,
         activeProjectile: null,
         unitFx: {},

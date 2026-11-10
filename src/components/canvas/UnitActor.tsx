@@ -19,6 +19,10 @@ import {
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import {
+  liveMovementTelemetry,
+  resolveDynamicRoofCutawayFloor,
+} from "../../core/CameraDirector";
 import { bestTileCover, sameCoord } from "../../core/GridSystem";
 import type { UnitData } from "../../core/types";
 import { useGameStore } from "../../store/useGameStore";
@@ -130,7 +134,9 @@ export function UnitActor({ unit }: UnitActorProps) {
     }
 
     if (waypoints && waypoints.pts.length >= 2) {
-      const speedTilesPerSec = 5.2;
+      const timeScale = useGameStore.getState().cameraDirector.timeScale ?? 1.0;
+      const isSprintCam = !!activeMovement?.isActionCam;
+      const speedTilesPerSec = (isSprintCam ? 5.65 : 5.1) * timeScale;
       moveProgressRef.current += dt * speedTilesPerSec;
       const totalSegments = waypoints.pts.length - 1;
 
@@ -150,13 +156,62 @@ export function UnitActor({ unit }: UnitActorProps) {
         const c1 = waypoints.coords[segIdx + 1]!;
         group.position.lerpVectors(p0, p1, segFrac);
 
-        const isVerticalStep = c0.y !== c1.y;
-        if (isVerticalStep && segFrac >= 0.5) {
-          const curFloor = useGameStore.getState().activeFloor;
-          if (curFloor !== c1.y) {
-            useGameStore.getState().setActiveFloor(c1.y);
-          }
+        // Dynamické zprůhlednění střechy / přepnutí patra, pokud je voják uvnitř budovy nebo na schodišti
+        const activeStepCoord = segFrac >= 0.45 ? c1 : c0;
+        const curFloor = useGameStore.getState().activeFloor;
+        const desiredFloor = resolveDynamicRoofCutawayFloor(
+          activeStepCoord,
+          curFloor,
+        );
+        if (desiredFloor !== curFloor) {
+          useGameStore.getState().setActiveFloor(desiredFloor);
         }
+
+        // Automatické vyražení zavřených dřevěných dveří za běhu
+        const isDoorStep = !!grid.getDoor(c1);
+        if (grid.isDoorClosedAt(c1) && segFrac >= 0.16) {
+          grid.setDoorState(c1, "open");
+          liveMovementTelemetry.interactionImpulseTs = now;
+          useGameStore.setState((s) => ({ gridVersion: s.gridVersion + 1 }));
+        }
+
+        const isVerticalStep = c0.y !== c1.y;
+        const isVaultStep =
+          segIdx === 0 && activeMovement?.interactionKind === "vault";
+        if (isVaultStep && segFrac < 0.12 && now - liveMovementTelemetry.interactionImpulseTs > 300) {
+          liveMovementTelemetry.interactionImpulseTs = now;
+        }
+
+        // Publikace živé 3D telemetrie pro TacticalCamera (nulová alokace)
+        const dx = p1.x - p0.x;
+        const dz = p1.z - p0.z;
+        const horizLen = Math.hypot(dx, dz);
+        if (horizLen > 0.001) {
+          liveMovementTelemetry.tangentXZ = [dx / horizLen, dz / horizLen];
+        }
+        liveMovementTelemetry.unitId = unit.id;
+        liveMovementTelemetry.worldPos = [
+          group.position.x,
+          group.position.y,
+          group.position.z,
+        ];
+        liveMovementTelemetry.continuousCoord = {
+          x: THREE.MathUtils.lerp(c0.x, c1.x, segFrac),
+          y: THREE.MathUtils.lerp(c0.y, c1.y, segFrac),
+          z: THREE.MathUtils.lerp(c0.z, c1.z, segFrac),
+        };
+        liveMovementTelemetry.progress01 =
+          moveProgressRef.current / Math.max(1, totalSegments);
+        liveMovementTelemetry.segmentIndex = segIdx;
+        liveMovementTelemetry.segmentFraction = segFrac;
+        liveMovementTelemetry.stepInteraction = isVerticalStep
+          ? "stairs"
+          : isDoorStep
+            ? "door_breach"
+            : isVaultStep
+              ? "vault"
+              : "none";
+
         const stairTile = isVerticalStep
           ? (grid.getTile(c0) ?? grid.getTile(c1))
           : undefined;
@@ -181,13 +236,24 @@ export function UnitActor({ unit }: UnitActorProps) {
             Math.sin(moveProgressRef.current * Math.PI * 3) * 0.07;
           pivot.position.set(0, stepBob, 0);
           pivot.rotation.set(c1.y > c0.y ? 0.12 : -0.08, 0, waddleTilt);
+        } else if (isVaultStep) {
+          // Atletický přeskok nízkého krytu / šance (Vault)
+          const vaultArc = Math.sin(segFrac * Math.PI);
+          pivot.position.set(0, vaultArc * 0.46, 0);
+          pivot.rotation.set(0.24 * vaultArc, 0, Math.sin(segFrac * Math.PI * 2) * 0.16);
+        } else if (isDoorStep && segFrac < 0.45) {
+          // Prudké vyražení dřevěných dveří ramenem / nohou za běhu
+          const kickPulse = Math.sin((segFrac / 0.45) * Math.PI);
+          pivot.position.set(0, kickPulse * 0.18, 0);
+          pivot.rotation.set(0.28 * kickPulse, 0, -0.14 * kickPulse);
         } else {
           const hopPhase = segFrac * Math.PI;
-          const hopHeight = Math.sin(hopPhase) * 0.24;
+          const hopHeight = Math.sin(hopPhase) * (isSprintCam ? 0.28 : 0.22);
           const waddleTilt =
-            Math.sin(moveProgressRef.current * Math.PI * 2) * 0.11;
+            Math.sin(moveProgressRef.current * Math.PI * 2) *
+            (isSprintCam ? 0.13 : 0.09);
           pivot.position.set(0, hopHeight, 0);
-          pivot.rotation.set(0.08, 0, waddleTilt);
+          pivot.rotation.set(isSprintCam ? 0.15 : 0.08, 0, waddleTilt);
         }
       }
     } else {
@@ -203,10 +269,30 @@ export function UnitActor({ unit }: UnitActorProps) {
         pivot.position.set(struggleShake, -0.22, 0);
         pivot.rotation.set(0.38, 0, struggleShake * 1.4);
       } else {
-        const idleBob =
-          Math.sin(state.clock.elapsedTime * 2.4 + unit.pos.x) * 0.025;
-        pivot.position.set(0, idleBob, 0);
-        pivot.rotation.set(0, 0, 0);
+        // State 4: Animace zakleknutí do krytu (Cover Settle) a následný krytý postoj
+        const settleTs = unitFx?.coverSettleTimestamp ?? 0;
+        const settleElapsed = settleTs > 0 ? (now - settleTs) / 1000 : 999;
+        const inCoverNow = tileMeta.cover !== "none";
+
+        if (settleElapsed >= 0 && settleElapsed < 0.48) {
+          const normSettle = settleElapsed / 0.48;
+          const kneelCurve = Math.sin(normSettle * Math.PI);
+          const dir = unitFx?.coverSettleDir;
+          const leanX = dir === "E" ? 0.08 : dir === "W" ? -0.08 : 0;
+          const leanZ = dir === "S" ? 0.08 : dir === "N" ? -0.08 : 0;
+          pivot.position.set(
+            leanX * kneelCurve,
+            -0.16 * kneelCurve - (inCoverNow ? 0.05 : 0),
+            leanZ * kneelCurve,
+          );
+          pivot.rotation.set(0.18 * kneelCurve, 0, leanX * 0.6 * kneelCurve);
+        } else {
+          const idleBob =
+            Math.sin(state.clock.elapsedTime * 2.4 + unit.pos.x) * 0.022;
+          const coverCrouchY = inCoverNow ? -0.05 : 0;
+          pivot.position.set(0, idleBob + coverCrouchY, 0);
+          pivot.rotation.set(inCoverNow ? 0.06 : 0, 0, 0);
+        }
       }
     }
 

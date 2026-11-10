@@ -2,9 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] - 2026-11-09
+## [Unreleased] - 2026-11-10
 
 ### Added
+- **4-State XCOM 2 Camera State Machine & Mid-Movement Event Interrupts (ADR-0009, `CameraDirector.ts`)**:
+  - **Headless Camera State Machine (`CameraDirector.ts`)**: Pure TypeScript camera director managing prioritized transitions across `TACTICAL_ISO`, `ACTION_OTS_FOLLOW`, `INTERRUPT_POD_REVEAL`, `INTERRUPT_OVERWATCH_SLOWMO`, `COVER_SETTLE_RESET`, `AIM_OTS`, and `PROJECTILE_TRACK`, backed by zero-allocation 60–144 Hz `liveMovementTelemetry`.
+  - **Tactical Isometric View (`TACTICAL_ISO`) & Dynamic Indoor Cutaway**: Real-time camera tracking during 1 AP (`Blue Zone`) movement and automatic roof/upper-floor cutaway (`resolveDynamicRoofCutawayFloor`) whenever the tracked soldier steps into an enclosed building (`isEnclosedRoofedCoord`).
+  - **Over-the-Shoulder Sprint & Interaction Action Cam (`ACTION_OTS_FOLLOW`)**: Low chase camera behind the soldier's shoulder (`2.6m` behind, `1.65m` height, `FOV 44°`) triggered automatically on 2 AP sprints (`Yellow Zone` / Dash) or environmental interactions (`detectPathInteractions`: kicking open closed wooden doors mid-run, parabolic vaulting over low cover, and climbing stairs), featuring smart wall/pillar shoulder switching (`chooseSmartSprintCamRig`) and footstep/impact camera shake.
+  - **Mid-Movement Pod Reveal & Scramble Interrupt (`INTERRUPT_POD_REVEAL`)**: Stepping onto a tile that reveals unspotted Swedish musketeers/pikemen in the Fog of War pauses movement on that exact tile, pans & zooms onto the newly revealed group, triggers their **Scramble** animation (`computeScrambleDestination`) into nearby cover (1–2 tiles), and smoothly returns to the soldier.
+  - **Overwatch Slow-Mo Interrupt (`INTERRUPT_OVERWATCH_SLOWMO`)**: Triggering enemy Overwatch fire mid-movement slows down global animation time (`timeScale = 0.25`), frames the reacting shooter in a cloud of black-powder smoke (`SHOOTER_FOCUS`), and then tracks the running soldier in slow motion (`RUNNER_TRACK`) as the musket ball arrives.
+  - **Cover Settle & Reset (`COVER_SETTLE_RESET`)**: Upon reaching a destination tile with cover (`half` / `full`), the soldier kneels and braces into the primary cover direction (`resolvePrimaryCoverDirection`) before the camera smoothly resets to `TACTICAL_ISO`.
+- **Automatic Door Breaching on the Move (`Pathfinding.ts`)**:
+  - Units can now path directly through closed wooden doors during movement and kick them open mid-stride (`door_breach`) without requiring a separate manual click prior to moving.
+- **Marshal Colloredo Command Ability (`marshal_command`) & Smart Shooter Auto-Switch**:
+  - Added `Rozkaz maršála` (`1 AP`, 2-turn cooldown) granting allies `+2 AP` and expanded sight radius for the turn.
+  - Clicking `[2] Střelba` when the currently selected unit has an empty firearm or no targets in LoS automatically switches to a ready squadmate with a valid target in range.
+- **2 AP Period Firearm Reload & Melee Combat System**:
+  - Added 2 AP reload mechanic (`[R]`) for multi-shot period firearms (`ammo` / `maxAmmo`), single-shot wheellock pistol discharge for Marshal Colloredo, and close-quarters melee combat (`[B]`, `MELEE_CATALOG`).
+
+### Added (2026-11-09)
 - **Multi-Floor Vertical Combat & Fog of War System (ADR-0010)**:
   - **Edge Peeking & 3D Vertical Line of Sight**: 3D Bresenham LoS in `CombatSystem.ts` now supports automatic 0.35m Edge Peeking over balustrades and floor perimeters, enabling steep downward sightlines into courtyards without floor slab obstruction.
   - **High Ground Advantage (+15%)**: Firing downward from an elevated floor (`attacker.y > target.y`) grants a +15% marksmanship bonus and degrades target half-cover to none (flanked from above).

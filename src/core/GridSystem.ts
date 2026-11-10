@@ -1050,7 +1050,16 @@ export function createInitialUnits(): UnitData[] {
       detainedTurns: 0,
       captureReason: null,
       buffTitle: "Podepřen komorníkem (+2 pohyb)",
-      ability: undefined,
+      ability: {
+        id: "marshal_command",
+        name: "Rozkaz maršála",
+        subtitle: "Inspirace velitele (1 AP)",
+        description:
+          "Hrabě Colloredo vydá autoritativní rozkaz k průlomu: všichni spojenci získají +2 AP a rozšířené zorné pole pro toto kolo!",
+        apCost: 1,
+        cooldownTurns: 2,
+        currentCooldown: 0,
+      },
       abilityBuffActive: false,
       alive: true,
     },

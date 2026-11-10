@@ -167,7 +167,7 @@ export function TacticalActionRibbon() {
             e.alive &&
             (!fogOfWarEnabled || fogSnapshot.visibleEnemyIds.has(e.id)) &&
             Math.hypot(e.pos.x - u.pos.x, e.pos.z - u.pos.z) <=
-              u.weapon.maxRange + (weather ? 0 : 0),
+              u.weapon.maxRange,
         ),
     );
 
@@ -1008,21 +1008,27 @@ export function TacticalActionRibbon() {
 
                     <button
                       type="button"
-                      disabled={!canCommand || !anyUnitCanShoot || isColloredoDischarged || isFirearmEmpty}
+                      disabled={!canCommand || (!anyUnitCanShoot && (isColloredoDischarged || isFirearmEmpty || visibleTargets.length === 0))}
                       onClick={() =>
                         setActionMode(actionMode === "shoot" ? "move" : "shoot")
                       }
                       title={
                         isColloredoDischarged
-                          ? "Kolečková bambitka byla vystřelena a v boji ji nelze znovu nabít! Použijte úder pažbou [B]."
+                          ? anyUnitCanShoot
+                            ? "Maršál má vybitou bambitku — kliknutím přepnete na střelce v dosahu [2]."
+                            : "Kolečková bambitka byla vystřelena a v boji ji nelze znovu nabít! Použijte úder pažbou [B]."
                           : isFirearmEmpty
-                            ? "Zbraň je vybitá! Použijte tlačítko Přebít [R] (vyžaduje 2 AP)."
-                            : undefined
+                            ? anyUnitCanShoot
+                              ? "Tato zbraň je vybitá — kliknutím přepnete na připraveného střelce [2]."
+                              : "Zbraň je vybitá! Použijte tlačítko Přebít [R] (vyžaduje 2 AP)."
+                            : visibleTargets.length === 0 && anyUnitCanShoot
+                              ? "Kliknutím přepnete na střelce s cílem v dosahu [2]."
+                              : undefined
                       }
                       className={`flex flex-col items-center justify-center py-1.5 px-1 rounded border text-xs font-cinzel font-black transition-all cursor-pointer ${
                         actionMode === "shoot"
                           ? "bg-red-900/90 border-red-400 text-rose-100 shadow-[0_0_12px_rgba(239,68,68,0.5)]"
-                          : isColloredoDischarged || isFirearmEmpty
+                          : (isColloredoDischarged || isFirearmEmpty) && !anyUnitCanShoot
                             ? "bg-stone-900/80 border-stone-700 text-stone-500 cursor-not-allowed opacity-60"
                             : "baroque-bronze-btn text-amber-200/90 hover:text-rose-200 disabled:opacity-40"
                       } ${
@@ -1034,9 +1040,11 @@ export function TacticalActionRibbon() {
                       <Crosshair className="w-4 h-4 text-rose-400 mb-0.5" />
                       <div className="flex items-center gap-1">
                         <span className="truncate max-w-[85px]">
-                          {isColloredoDischarged || isFirearmEmpty
+                          {(isColloredoDischarged || isFirearmEmpty) && !anyUnitCanShoot
                             ? "Vybitá"
-                            : `Střelba (${visibleTargets.length > 0 ? visibleTargets.length : "✓"})`}
+                            : (isColloredoDischarged || isFirearmEmpty) && anyUnitCanShoot
+                              ? "Střelec [2]"
+                              : `Střelba (${visibleTargets.length > 0 ? visibleTargets.length : "✓"})`}
                         </span>
                         <span className="text-[9px] text-amber-300 font-bold">[2]</span>
                       </div>
@@ -1145,7 +1153,7 @@ export function TacticalActionRibbon() {
                       title={
                         ability
                           ? `${ability.name} (${ability.apCost} AP, obnova ${ability.cooldownTurns} kola): ${ability.description}`
-                          : "Zvláštní schopnost (Colloredo žádnou nemá)"
+                          : "Zvláštní schopnost není dostupná"
                       }
                       className={`flex flex-col items-center justify-center py-1.5 px-1 rounded border text-xs font-cinzel font-black transition-all cursor-pointer ${
                         selectedUnit?.abilityBuffActive
