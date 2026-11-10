@@ -1,6 +1,6 @@
 {
-  "summary":  "Plán opravy víceúrovňového pohybu a prioritizace aktivního patra (P0/P1/P2) při ovládání jednotek a interakci se schodišti.",
-  "updatedAt":  "2026-11-10T08:12:43.634217105Z",
+  "summary":  "Revision of player character special abilities and implementation of 2 AP firearm reload mechanics after firing.",
+  "updatedAt":  "2026-11-10T14:30:20.571935004Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

@@ -101,6 +101,7 @@ export function TacticalActionRibbon() {
   const cycleTarget = useGameStore((s) => s.cycleTarget);
   const toggleBreakdown = useGameStore((s) => s.toggleBreakdown);
   const executeShoot = useGameStore((s) => s.executeShoot);
+  const executeReload = useGameStore((s) => s.executeReload);
   const executeMelee = useGameStore((s) => s.executeMelee);
   const visibleMeleeTargets = useGameStore((s) => s.visibleMeleeTargets);
 
@@ -121,6 +122,13 @@ export function TacticalActionRibbon() {
   );
   const isColloredoDischarged =
     selectedUnit?.id === "player-colloredo" && selectedUnit?.pistolLoaded === false;
+  const isFirearmEmpty = selectedUnit?.firearmLoaded === false;
+  const canReload =
+    canCommand &&
+    !isSelectedDetained &&
+    isFirearmEmpty &&
+    selectedUnit?.id !== "player-colloredo" &&
+    (selectedUnit?.ap ?? 0) >= 2;
   const ability = selectedUnit?.ability;
   const canUseAbility =
     canCommand &&
@@ -974,9 +982,9 @@ export function TacticalActionRibbon() {
                   </div>
                 )
               ) : (
-                /* BĚŽNÝ REŽIM: ŘADA AKČNÍCH TLAČÍTEK ([1] - [5], [B] a [Space]) */
+                /* BĚŽNÝ REŽIM: ŘADA AKČNÍCH TLAČÍTEK ([1] - [5], [R], [B] a [Space]) */
                 <div className="flex items-center justify-between gap-1.5">
-                  <div className="flex-1 grid grid-cols-6 gap-1.5">
+                  <div className="flex-1 grid grid-cols-7 gap-1.5">
                     <button
                       type="button"
                       disabled={!canCommand}
@@ -1000,23 +1008,25 @@ export function TacticalActionRibbon() {
 
                     <button
                       type="button"
-                      disabled={!canCommand || !anyUnitCanShoot || isColloredoDischarged}
+                      disabled={!canCommand || !anyUnitCanShoot || isColloredoDischarged || isFirearmEmpty}
                       onClick={() =>
                         setActionMode(actionMode === "shoot" ? "move" : "shoot")
                       }
                       title={
                         isColloredoDischarged
                           ? "Kolečková bambitka byla vystřelena a v boji ji nelze znovu nabít! Použijte úder pažbou [B]."
-                          : undefined
+                          : isFirearmEmpty
+                            ? "Zbraň je vybitá! Použijte tlačítko Přebít [R] (vyžaduje 2 AP)."
+                            : undefined
                       }
                       className={`flex flex-col items-center justify-center py-1.5 px-1 rounded border text-xs font-cinzel font-black transition-all cursor-pointer ${
                         actionMode === "shoot"
                           ? "bg-red-900/90 border-red-400 text-rose-100 shadow-[0_0_12px_rgba(239,68,68,0.5)]"
-                          : isColloredoDischarged
+                          : isColloredoDischarged || isFirearmEmpty
                             ? "bg-stone-900/80 border-stone-700 text-stone-500 cursor-not-allowed opacity-60"
                             : "baroque-bronze-btn text-amber-200/90 hover:text-rose-200 disabled:opacity-40"
                       } ${
-                        isStep2Highlight && canCommand && anyUnitCanShoot && !isColloredoDischarged
+                        isStep2Highlight && canCommand && anyUnitCanShoot && !isColloredoDischarged && !isFirearmEmpty
                           ? "ring-2 ring-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.6)] animate-pulse"
                           : ""
                       }`}
@@ -1024,11 +1034,39 @@ export function TacticalActionRibbon() {
                       <Crosshair className="w-4 h-4 text-rose-400 mb-0.5" />
                       <div className="flex items-center gap-1">
                         <span className="truncate max-w-[85px]">
-                          {isColloredoDischarged
-                            ? "Vybitá (0/1)"
+                          {isColloredoDischarged || isFirearmEmpty
+                            ? "Vybitá"
                             : `Střelba (${visibleTargets.length > 0 ? visibleTargets.length : "✓"})`}
                         </span>
                         <span className="text-[9px] text-amber-300 font-bold">[2]</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={!canCommand || isSelectedDetained || isFirearmEmpty === false || selectedUnit?.id === "player-colloredo" || (selectedUnit?.ap ?? 0) < 2}
+                      onClick={executeReload}
+                      title={
+                        selectedUnit?.id === "player-colloredo"
+                          ? "Bambitku maršála Colloreda nelze v boji znovu nabít!"
+                          : isFirearmEmpty === false
+                            ? "Hlaveň je již nabitá a připravená k výstřelu."
+                            : (selectedUnit?.ap ?? 0) < 2
+                              ? "Přebití vyžaduje 2 akční body (2 AP)."
+                              : "Přebít palnou zbraň (2 AP): Ucpání kule a nasypání prachu na pánvičku."
+                      }
+                      className={`flex flex-col items-center justify-center py-1.5 px-1 rounded border text-xs font-cinzel font-black transition-all cursor-pointer ${
+                        canReload
+                          ? "bg-amber-600/40 border-amber-300 text-amber-100 ring-2 ring-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.5)] animate-pulse"
+                          : isFirearmEmpty === false
+                            ? "baroque-bronze-btn text-amber-200/50 opacity-60"
+                            : "baroque-bronze-btn text-amber-200/90 hover:text-amber-100 disabled:opacity-40"
+                      }`}
+                    >
+                      <RotateCcw className="w-4 h-4 text-amber-400 mb-0.5" />
+                      <div className="flex items-center gap-1">
+                        <span>Přebít (2 AP)</span>
+                        <span className="text-[9px] text-amber-300 font-bold">[R]</span>
                       </div>
                     </button>
 
@@ -1107,7 +1145,7 @@ export function TacticalActionRibbon() {
                       title={
                         ability
                           ? `${ability.name} (${ability.apCost} AP, obnova ${ability.cooldownTurns} kola): ${ability.description}`
-                          : "Zvláštní schopnost"
+                          : "Zvláštní schopnost (Colloredo žádnou nemá)"
                       }
                       className={`flex flex-col items-center justify-center py-1.5 px-1 rounded border text-xs font-cinzel font-black transition-all cursor-pointer ${
                         selectedUnit?.abilityBuffActive
@@ -1128,7 +1166,7 @@ export function TacticalActionRibbon() {
                             ? `Schopnost (CD ${ability.currentCooldown})`
                             : ability
                               ? `Schopnost (${ability.apCost} AP)`
-                              : "Schopnost"}
+                              : "Žádná"}
                         </span>
                         <span className="text-[9px] text-amber-300 font-bold">[5]</span>
                       </div>

@@ -1,94 +1,94 @@
-# Prioritizace pohybu ve vybraném patře (P0/P1/P2) a oprava ovládání v 1. patře
+# Revize zvláštních schopností a mechaniky 2 AP přebíjení zbraní
 
-Tento plán řeší problém, kdy hra při ovládání Václava z Michalovic (nebo jiné jednotky ve vyšším patře) nabízela sestup do přízemí (P0) místo plynulého pohybu po právě vybraném 1. patře (P1). Zahrnuje opravu 3D detekce kurzoru na patrech, uzamčení vizuálního řezu aktivního patra a zavedení přísné preference pohybu ve vybraném podlaží.
+Kompletní revize zvláštních schopností hráčových postav (maršál Colloredo, komorník Jan Matěj, písař Václav z Michalovic, zbrojmistr Bartoloměj) a zavedení dobové mechaniky vybíjení a přebíjení palných zbraní (2 AP akce Přebití).
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> Níže jsou zapracovány vaše potvrzené volby z dotazníku, které definují přesné chování kamery, pater a schodišť:
+> Na základě vašich odpovědí v dotazníku byly potvrzeny následující změny v mechanice a vlastnostech postav:
 
-- **Potvrzená volba 1 — Stabilita vizuálního řezu patra**: **Pevně držet vybrané patro, neměnit řez při přejetí myší**. Pokud má hráč v menu zvolené patro `P1`, přejetí kurzorem nad otevřený dvůr nebo zahradu v přízemí nikdy nezpůsobí samovolné skrytí 1. patra ani přepnutí mřížky do `P0`.
-- **Potvrzená volba 2 — Ovládání schodišť vs. podlahy**: **Podlaha pohne v aktivním patře, portál schodiště změní patro**. Kliknutí na dlaždici v aktivním patře (včetně horní podesty schodiště) přesune vojáka v rámci téhož patra; k sestupu nebo výstupu do jiného patra slouží interaktivní portálový štítek schodiště (`P1↔P0`, `P1↔P2`) nebo ruční přepnutí cílového patra.
-
----
-
-## 1. Přehled a hlavní koncept
-
-- **Příčina dosavadní chyby**:
-  1. **Zablokovaný 3D raycasting horních pater po startu hry**: Protože hra začíná s pohledem v přízemí (`P0`), 3D vrstvy podlah `P1` a `P2` měly při prvním vykreslení vypnutou detekci myši (`raycast = () => null`). Při následném přepnutí do `P1` však vykreslovací jádro neobnovilo původní metodu detekce paprsku, takže klikání i pohyb myši procházely skrz podlahu 1. patra rovnou do přízemí (`P0`).
-  2. **Automatické shazování řezu patra při přejetí myší**: Jakmile paprsek myši zachytil dlaždici v `P0` (kam mohl Václav seběhnout po blízkých schodech), hra okamžitě přepnula efektivní zobrazované patro (`effectiveViewFloor`) na `0`, čímž zprůhlednila celé 1. patro a skryla modré/žluté zóny pohybu v `P1`.
-  3. **Předčasný skok na schodiště v algoritmu hledání cesty**: Sousední dlaždice u schodiště nabízely přímý skok do jiného patra i tehdy, když podesta ve stejném patře byla volná.
-- **Cílový stav**:
-  - Hra vždy s nejvyšší prioritou vyhodnocuje a nabízí pohyb v **aktuálně vybraném patře (`activeFloor`: P0 / P1 / P2)**.
-  - Pohyb do jiného patra nabídne pouze tehdy, když na dané souřadnici `[X, Z]` vybrané patro vůbec neexistuje (např. jednopatrová část zahrady nebo otevřený dvůr) nebo když hráč výslovně použije portál schodiště (`P1↔P0`).
+- **Mechanika vybíjení a 2 AP přebíjení zbraní**: Po každém výstřelu z palné zbraně (mušketa, karabina, arkebuza) se hlaveň vybije (`isLoaded = false`). Pro další výstřel je nutné provést akci **Přebití (2 AP)**. U postav s maximálně 2 AP tak přebití spotřebuje celý tah. Maršál Colloredo má jednorázový výstřel z pistole bez možnosti přebití v boji.
+- **Odstranění zvláštní schopnosti maršála Colloreda**: Maršál Colloredo nemá v 1. misi žádnou zvláštní schopnost (`ability = undefined`), jelikož vyskočil z postele v noční košili, těžce kulhá po 7 zraněních z Lützenu a je příliš rozespalý na udílení velitelských rozkazů.
+- **Úprava schopnosti komorníka Jana Matěje ("Přísaha komorníka")**: Schopnost již nedává žádné osobní bonusy Janu Matějovi samotnému (původní +1 Zbroj a +1 AP pro Jana se ruší). Schopnost se plně soustředí na záchranu, přiskok, kouřovou clonu a ochranný plášť (+2 Zbroj, +3 HP, +1 AP) pro maršála Colloreda.
+- **Zachování schopností ostatních hrdinů**: Václav z Michalovic (Svatováclavské soustředění) a Bratr Bartoloměj (Maltézská pekelná salva) si ponechávají své taktické schopnosti přizpůsobené mechanice přebíjení.
 
 ---
 
-## 2. Uživatelský zážitek a vizuální design
+## 1. Overview & Core Concept
 
-### A. Pohyb a výběr cíle s prioritou aktivního patra (`P0 / P1 / P2`)
-- **Stoprocentní odezva podlahy v P1 a P2**: Po přepnutí do `P1` (nebo výběru Václava v 1. patře) celá plocha Piano Nobile, severní lodžie i zahradního belvederu okamžitě reaguje na kurzor myši a zobrazuje modré (1 AP) a žluté (2 AP) dlaždice pohybu v 1. patře.
-- **Inteligentní vyhodnocení souřadnice pod kurzorem**:
-  1. Pokud na souřadnici `[X, Z]` pod kurzorem existuje pochozí dlaždice ve **vybraném patře (`activeFloor`)**, kurzor se vždy přichytí k této dlaždici v `activeFloor`.
-  2. Teprve pokud ve vybraném patře na daném `[X, Z]` žádná podlaha není (např. jednopatrová zahrada mimo belveder nebo světlík nádvoří), nabídne se existující dlaždice v nižším patře.
-
-### B. Stabilní zobrazení patra bez blikání
-- **Pevný řez budovy (`effectiveViewFloor === activeFloor`)**: Vizuální řez paláce a viditelnost pohybových zón v aktivním patře zůstávají pevně ukotvené podle volby hráče (`P0`, `P1`, `P2`). Přejetí myší nad zahradu či dvůr už nikdy nezpůsobí zmizení podlahy 1. patra.
-- **Čitelné zóny pohybu**: Při vybraném patře `P1` vidí hráč jasně zvýrazněné všechny dosažitelné dlaždice přímo v `P1`, a v jednopatrových částech zahrady (kde `P1` neexistuje) vidí dosažitelné dlaždice v přízemí, aniž by se narušilo zobrazení 1. patra.
-
-### C. Jednoznačné ovládání schodišť
-- **Chůze po podestě v aktivním patře**: Najetí a kliknutí na samotnou dlaždici podlahy v aktivním patře (i v místě schodiště) udrží pohyb vojáka v aktivním patře.
-- **Změna patra přes portál schodiště**: Kliknutí na plovoucí štítek portálu schodiště (`P1↔P0` nebo `P1↔P2`) naplánuje cestu po schodech do sousedního patra a po dokončení přesunu plynule přepne aktivní patro na nové podlaží.
+- **Co úprava přináší**: Autentickou taktickou hloubku bojů 17. století. Hráč musí plánovat salvy, krytí a 2 AP přebíjení černoprchových zbraní v součinnosti s chladnými zbraněmi (sek šavlí / úder pažbou) a podpůrnými schopnostmi komorníka a zbrojmistra.
+- **Cílový zážitek**: XCOM taktický systém adaptovaný na pražské události roku 1648, kde výstřel z muškety znamená významný okamžik a vybitá hlaveň nutí k manévrování nebo souboji zblízka.
 
 ---
 
-## 3. Klíčová produktová rozhodnutí a kompromisy
+## 2. User Experience & Visual Design
 
-- **Rozhodnutí 1: Obnovení nativní 3D detekce paprsku (`InstancedMesh.prototype.raycast`) pro P1 a P2**
-  - *Zvolený přístup*: Explicitně předávat platnou referenci na metodu `THREE.InstancedMesh.prototype.raycast`, když je patro aktivní, místo hodnoty `undefined`.
-  - *Proč*: Zajišťuje, že po přepnutí z `P0` na `P1` nebo `P2` 3D engine okamžitě a spolehlivě detekuje podlahu vyššího patra.
-  - *Zvažované alternativy*: Výpočet průsečíku s matematickou rovinou v prostoru — zamítnuto, protože `InstancedMesh` raycasting přesně respektuje reálný tvar balkónů, arkád a výřezů nádvoří.
-- **Rozhodnutí 2: Striktní hierarchie výběru patra na souřadnici `[X, Z]`**
-  - *Zvolený přístup*: Při jakémkoliv zachycení kurzoru na `[X, Z]` nejprve ověřit existenci podlahy v `activeFloor`. Pouze pokud tam podlaha vůbec neexistuje, použít nižší patro.
-  - *Proč*: Zabraňuje nechtěnému propadnutí kurzoru mezerou mezi dlaždicemi nebo přes 3D modely zábradlí do přízemí, pokud nad místem existuje podlaha vybraného patra.
+- **Taktická lišta akcí (Tactical Action Ribbon)**:
+  - **Akce Přebití (2 AP) [Klávesa 4]**: Zobrazí se jako dostupná akce, pokud má vybraná jednotka vybitou palnou zbraň (`isLoaded === false`) a má dostatek AP ($\ge 2$). Pokud má vybraná jednotka jen 1 AP, tlačítko zobrazí varování "Vyžaduje 2 AP".
+  - **Indikátor stavu zbraně v HUD**: Pod názvem zbraně v taktickém rozhraní se zobrazí stav `[NABITO]` (zelená/zlatá) nebo `[VYBITO - 2 AP PŘEBITÍ]` (varovná červeno-oranžová).
+  - **Schopnost [Klávesa 5]**: U maršála Colloreda je slot pro schopnost skryt / neaktivní. U komorníka Jan Matěje text jasně vysvětluje pomoc maršálovi bez nepravdivých osobních bonusů.
+
+- **Audio-vizuální zpětná vazba**:
+  - **Zvuk přebíjení**: Při stisku akce Přebití zazní autentický zvuk nasypání prachu na pánvičku a nabíjení kule nabijákem.
+  - **Vizuální banner**: Zobrazení plovoucího textu `"PŘEBITO! [NABITA HLAVEŇ]"` nad jednotkou po dokončení přebíjení.
 
 ---
 
-## 4. Technická architektura a tok dat
+## 3. Key Product Decisions & Trade-Offs
 
-### Schéma vyhodnocení pohybu a prioritizace patra
+- **Rozhodnutí 1: 2 AP akce Přebití místo 1 AP**:
+  - *Zvolený přístup*: Přebití stojí 2 AP.
+  - *Proč*: Historická věrnost (nabíjení předovky trvalo dlouho) a taktická volba mezi výstřelem v prvním tahu, přebíjením ve druhém tahu nebo přechodem na boj zblízka.
+- **Rozhodnutí 2: Úplné odstranění schopnosti Colloreda**:
+  - *Zvolený přístup*: `ability = undefined`.
+  - *Proč*: Zvýrazňuje roli Colloreda jako zranitelného VIP, kterého musí družina bránit a eskortovat, místo aby sám rozdával plošné buffy.
+
+---
+
+## 4. Technical Architecture & Data Strategy
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                     Vstup hráče (Kurzor myši / Kliknutí)                 │
-└────────────────────────────────────┬─────────────────────────────────────┘
-                                     ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│           3D Raycasting vrstev podlah (P2 -> P1 -> P0)                   │
-│  • P2 aktivní při activeFloor >= 2 (jinak raycast vypnut)                │
-│  • P1 aktivní při activeFloor >= 1 (jinak raycast vypnut)                │
-│  • P0 vždy připraveno jako záchytná vrstva pro jednopatrovou zahradu     │
-└────────────────────────────────────┬─────────────────────────────────────┘
-                                     ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│        Prioritní filtr aktivního patra (resolvePreferredFloorCoord)      │
-│                                                                          │
-│   Existuje na souřadnici [X, Z] pochozí dlaždice v activeFloor?          │
-│     ├── ANO ──► Vyber cíl [X, activeFloor, Z] (Pohyb ve vybraném patře)  │
-│     └── NE  ──► Jednopatrové místo (zahrada / dvůr):                     │
-│                 Vyber dostupnou dlaždici [X, hitFloor, Z]                │
-│                 (Řez budovy zůstává pevně na activeFloor!)               │
-└────────────────────────────────────┬─────────────────────────────────────┘
-                                     ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                  3D A* Pathfinding & Zóny dosahu                         │
-│  • Preferuje kroky v rámci stejného patra                                │
-│  • Schodišťový "ramp step-on" do jiného patra se aktivuje jen tehdy,     │
-│    když je podesta ve vlastním patře obsazena jinou jednotkou            │
-└──────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Headless Tactical Core                          │
+│                                                                        │
+│  src/core/types.ts ──► UnitData { firearmLoaded: boolean, ... }       │
+│  src/core/CombatSystem.ts ──► rollRangedAttack / reloadFirearmAction    │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                          Zustand State Store                           │
+│                                                                        │
+│  src/store/useGameStore.ts                                             │
+│    ├── executeShoot() ──► sets firearmLoaded = false                   │
+│    ├── executeReload() ──► consumes 2 AP, sets firearmLoaded = true    │
+│    └── activateSpecialAbility() ──► updated logic for Jan / Vaclav     │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                           UI Layer (React)                             │
+│                                                                        │
+│  TacticalActionRibbon.tsx ──► [4] Přebít (2 AP) & Ability [5] updates  │
+│  Aiming HUD & Target Ribbon ──► Loaded / Discharged state badges       │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Mapování stavu a interakcí
-- **Správa `effectiveViewFloor`**: Hodnota `effectiveViewFloor` je pevně svázána s `activeFloor`, takže pohyb kurzoru nad nižším patrem nikdy nespustí nechtěný cutaway ořez aktivního patra.
-- **Vykreslení zón dosahu (`zoneMeshRef`)**: Zobrazuje plné modré/žluté zóny pro všechny dosažitelné dlaždice v `activeFloor` a současně zobrazuje dosažitelné dlaždice v nižších patrech pouze na těch souřadnicích `[X, Z]`, kde v `activeFloor` není žádná podlaha (např. otevřená zahrada).
-- **Interakce se schodištěm**: Samotné 3D stupně schodiště při pohybu v `activeFloor` směrují na podestu v `activeFloor` (pokud na ní jednotka ještě nestojí), zatímco kliknutí na portálový odznak `P1↔P0` cílí přímo na opačné podlaží schodiště.
+### Datový model & Stavové změny
+1. **Types (`src/core/types.ts`)**:
+   - Přidání příznaku `firearmLoaded?: boolean` do rozhraní `UnitData` pro sledování stavu palné zbraně (muškety, karabiny, arkebuzy).
+   - Aktualizace `SpecialAbilityId` bez `marshal_command`.
+2. **Game Store (`src/store/useGameStore.ts`)**:
+   - Rozšíření `ActionMode` o `"reload"`.
+   - Přidání metody `executeReload: () => void`, která u vybrané jednotky odečte 2 AP, nastaví `firearmLoaded = true`, přehraje zvuk nabíjení a zapíše událost do bojového deníku.
+   - Úprava `executeShoot`: Po výstřelu z jakékoliv palné zbraně nastaví `firearmLoaded = false`.
+   - Úprava `activateSpecialAbility`: Zrušení logiky pro `marshal_command`, odstranění osobních bonusů Jana Matěje (+1 AP, +1 Zbroj) v `protector_oath`.
+3. **UI komponenty (`TacticalActionRibbon.tsx`, HUD)**:
+   - Přidání dedikovaného tlačítka Přebít [4] s ikonou náboje/prachovnice a cenou 2 AP.
+   - Dynamické zakázání střelby [2], pokud je `firearmLoaded === false`.
+
+---
+
+## Plan Verification & Next Steps
+
+Po schválení plánu proběhne implementace změn v kódové základně, kontrola překladu pomocí `compile_applet` a `lint_applet` a ověření funkčnosti hry.

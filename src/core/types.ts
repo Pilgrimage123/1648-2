@@ -203,6 +203,8 @@ export interface UnitData {
   captureReason?: CaptureReason | null;
   /** Popisek aktivního taktického posílení (např. "Podepřen komorníkem") */
   buffTitle?: string;
+  /** Zda je palná zbraň (mušketa/karabina/arkebuza) nabitá a připravená k výstřelu */
+  firearmLoaded?: boolean;
   /** Unikátní aktivovaná schopnost postavy [Klávesa 5] */
   ability?: SpecialAbilityDef;
   /** Zda má postava v tomto kole aktivní posílení ze své zvláštní schopnosti */

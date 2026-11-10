@@ -132,7 +132,7 @@ export default function App() {
         return;
       }
 
-      // Klávesové zkratky akcí (1 = Pohyb, 2 = Střelba, B/6 = Zblízka, 3 = Overwatch, 4 = Granát, 5 = Zvláštní schopnost)
+      // Klávesové zkratky akcí (1 = Pohyb, 2 = Střelba, R = Přebít, B/6 = Zblízka, 3 = Overwatch, 4 = Granát, 5 = Zvláštní schopnost)
       if (state.turn === "player" && !state.isBusy) {
         if (e.key === "1") {
           e.preventDefault();
@@ -142,6 +142,11 @@ export default function App() {
         if (e.key === "2") {
           e.preventDefault();
           state.setActionMode(state.actionMode === "shoot" ? "move" : "shoot");
+          return;
+        }
+        if (e.key === "r" || e.key === "R") {
+          e.preventDefault();
+          state.executeReload();
           return;
         }
         if (e.key === "b" || e.key === "B" || e.key === "6") {

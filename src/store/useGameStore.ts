@@ -64,7 +64,7 @@ import type {
   WeatherType,
 } from "../core/types";
 
-export type ActionMode = "move" | "shoot" | "grenade" | "melee";
+export type ActionMode = "move" | "shoot" | "grenade" | "melee" | "reload";
 
 export type ImpactObstacleKind =
   | "high_wall"
@@ -242,6 +242,7 @@ interface GameStoreState {
   handleUnitClick: (unitId: string) => void;
   completeUnitMovement: () => void;
   executeShoot: (targetId?: string) => void;
+  executeReload: () => void;
   executeMelee: (targetId?: string) => void;
   activateOverwatch: () => void;
   executeGrenade: (targetCoord: GridCoord) => void;
@@ -2694,6 +2695,24 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         return;
       }
 
+      if (attacker.firearmLoaded === false) {
+        set((s) => ({
+          combatLog: [
+            ...s.combatLog,
+            makeLog(
+              s.round,
+              "player",
+              `Zbraň postavy ${attacker.name} (${attacker.weapon.name}) je vybitá! Pro další výstřel je nutné provést akci Přebití (2 AP).`,
+              "alert",
+            ),
+          ],
+        }));
+        triggerUnitFx(attacker.id, {
+          banner: { text: "HLAVEŇ VYBITÁ! (2 AP PŘEBITÍ)", tone: "misfire" },
+        });
+        return;
+      }
+
       const chosenId = targetIdArg ?? state.selectedTargetId;
       const targetEval = state.visibleTargets.find(
         (t) => t.targetId === chosenId,
@@ -2799,6 +2818,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                   abilityBuffActive: false,
                   pistolLoaded:
                     attacker.id === "player-colloredo" ? false : u.pistolLoaded,
+                  firearmLoaded: false,
                 }
               : u,
           ),
@@ -3087,6 +3107,123 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           );
         }
       })();
+    },
+
+    executeReload: () => {
+      const state = get();
+      if (state.isBusy || state.turn !== "player" || state.outcome !== "ongoing")
+        return;
+
+      const unit = state.units.find((u) => u.id === state.selectedUnitId);
+      if (
+        !unit ||
+        !unit.alive ||
+        unit.hp <= 0 ||
+        (unit.detainedTurns ?? 0) > 0
+      )
+        return;
+
+      if (unit.id === "player-colloredo") {
+        set((s) => ({
+          combatLog: [
+            ...s.combatLog,
+            makeLog(
+              s.round,
+              "player",
+              "Jednorannou bambitku maršála Colloreda nelze v boji znovu nabít! Zbývá pouze úder těžkou pažbou zblízka [B].",
+              "alert",
+            ),
+          ],
+        }));
+        triggerUnitFx(unit.id, {
+          banner: { text: "BAMBITKA NELZE NABÍT!", tone: "misfire" },
+        });
+        return;
+      }
+
+      if (unit.firearmLoaded !== false) {
+        set((s) => ({
+          combatLog: [
+            ...s.combatLog,
+            makeLog(
+              s.round,
+              "player",
+              `Zbraň postavy ${unit.name} (${unit.weapon.name}) je již nabitá a připravená k výstřelu!`,
+              "info",
+            ),
+          ],
+        }));
+        triggerUnitFx(unit.id, {
+          banner: { text: "HLAVEŇ JIŽ NABITA!", tone: "buff" },
+        });
+        return;
+      }
+
+      if (unit.ap < 2) {
+        set((s) => ({
+          combatLog: [
+            ...s.combatLog,
+            makeLog(
+              s.round,
+              "player",
+              `Nedostatek akčních bodů! Přebití zbraně (${unit.weapon.name}) vyžaduje 2 AP.`,
+              "alert",
+            ),
+          ],
+        }));
+        triggerUnitFx(unit.id, {
+          banner: { text: "NEDOSTATEK AP! (VYŽADUJE 2 AP)", tone: "misfire" },
+        });
+        return;
+      }
+
+      playSpecialAbilitySound("klementinum_verdict");
+
+      const updatedUnits = state.units.map((u) =>
+        u.id === unit.id
+          ? {
+              ...u,
+              ap: Math.max(0, u.ap - 2),
+              firearmLoaded: true,
+            }
+          : u,
+      );
+
+      const sel = deriveSelectionData(
+        state.grid,
+        updatedUnits,
+        unit.id,
+        state.weather,
+        state.selectedTargetId,
+        state.fogSnapshot.exploredCoords,
+        state.blastZones,
+        state.fogOfWarEnabled,
+      );
+
+      set((s) => ({
+        units: sel.units,
+        selectedUnitId: unit.id,
+        activeFloor: unit.pos.y,
+        actionMode: "move",
+        fogSnapshot: sel.fogSnapshot,
+        reachableTiles: sel.reachableTiles,
+        visibleTargets: sel.visibleTargets,
+        visibleMeleeTargets: sel.visibleMeleeTargets,
+        selectedTargetId: sel.selectedTargetId,
+        combatLog: [
+          ...s.combatLog,
+          makeLog(
+            s.round,
+            "player",
+            `PŘEBITÍ (2 AP): ${unit.name} nasypal střelný prach na pánvičku, ucpal olověnou kuli v hlavni zbraně ${unit.weapon.name} a hlaveň je opět nabitá!`,
+            "buff",
+          ),
+        ],
+      }));
+
+      triggerUnitFx(unit.id, {
+        banner: { text: "PŘEBITO! [HLAVEŇ NABITA]", tone: "buff" },
+      });
     },
 
     executeMelee: (targetIdArg?: string) => {
@@ -3505,13 +3642,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
         const updatedUnits = freshState.units.map((u) => {
           if (u.id === unit.id) {
-            const nextJanMaxArmor = Math.max(2, u.maxArmor + 1);
             return {
               ...u,
               pos: newJanPos,
-              ap: Math.min(u.maxAp + 1, nextAp + 1), // Jan Matěj získá +1 AP na akci / přesun!
-              armor: Math.min(nextJanMaxArmor, u.armor + 1),
-              maxArmor: nextJanMaxArmor,
+              ap: nextAp,
               isShaken: false,
               abilityBuffActive: true,
               ability: u.ability
@@ -3567,14 +3701,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             makeLog(
               s.round,
               "player",
-              `[SCHOPNOST — ${ability.name}] ${unit.name} přiskočil k maršálovi, přehodil přes něj těžký plášť (+2 Zbroj, +3 HP, +1 AP, kouřová clona 3×3${rescuedMarshal ? ", VYPROŠTĚN ZE ZADRŽENÍ" : ""}) a sám získal +1 Zbroj a +1 AP!`,
+              `[SCHOPNOST — ${ability.name}] ${unit.name} přiskočil k maršálovi, přehodil přes něj těžký plášť (+2 Zbroj, +3 HP, +1 AP, kouřová clona 3×3${rescuedMarshal ? ", VYPROŠTĚN ZE ZADRŽENÍ" : ""})!`,
               "buff",
             ),
           ],
         }));
 
         triggerUnitFx(unit.id, {
-          banner: { text: "PŘÍSAHA KOMORNÍKA! +1 AP · +1 ZBROJ", tone: "buff" },
+          banner: { text: "PŘÍSAHA KOMORNÍKA! [OCHRANA VELITELE]", tone: "buff" },
         });
         triggerUnitFx("player-colloredo", {
           banner: {
@@ -3845,154 +3979,6 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           });
         }
         return;
-      }
-
-      if (ability.id === "marshal_command") {
-        // 4. Hrabě Colloredo: Rozkaz polního maršála — Železná Praha! (1 AP, CD 3)
-        // Všichni spojenci získají +2 AP, +1 Zbroj, setřesou paniku a maršál vystřelí z pistole (3 HP) zdarma!
-        playSpecialAbilitySound("marshal_command");
-        let shotTarget: UnitData | null = null;
-        const livingEnemies = freshState.units.filter(
-          (u) => u.faction === "enemy" && u.alive && u.hp > 0,
-        );
-        if (livingEnemies.length > 0) {
-          shotTarget = livingEnemies.reduce((closest, e) => {
-            const d1 = gridDistance3D(unit.pos, closest.pos);
-            const d2 = gridDistance3D(unit.pos, e.pos);
-            return d2 < d1 ? e : closest;
-          }, livingEnemies[0]!);
-        }
-
-        const updatedUnits = freshState.units.map((u) => {
-          if (u.id === unit.id) {
-            return {
-              ...u,
-              ap: nextAp,
-              isShaken: false,
-              abilityBuffActive: true,
-              ability: u.ability
-                ? { ...u.ability, currentCooldown: u.ability.cooldownTurns }
-                : undefined,
-            };
-          }
-          if (u.faction === "player" && u.alive && u.hp > 0) {
-            const nextMaxArmor = Math.max(u.maxArmor, u.armor + 1);
-            return {
-              ...u,
-              ap: Math.min(u.maxAp + 2, u.ap + 2), // +2 AP pro celou družinu!
-              armor: Math.min(nextMaxArmor, u.armor + 1),
-              maxArmor: nextMaxArmor,
-              isShaken: false,
-            };
-          }
-          if (shotTarget && u.id === shotTarget.id) {
-            const nextHp = Math.max(0, u.hp - 3);
-            const nextArmor = Math.max(0, u.armor - 1);
-            return {
-              ...u,
-              hp: nextHp,
-              armor: nextArmor,
-              alive: nextHp > 0,
-              isShaken: nextHp > 0 ? true : false,
-            };
-          }
-          return u;
-        });
-
-        const autoNextUnit = findNextAvailablePlayerUnit(updatedUnits, unit.id);
-        const autoNextId = autoNextUnit?.id ?? unit.id;
-        const nextDerived = deriveSelectionData(
-          freshState.grid,
-          updatedUnits,
-          autoNextId,
-          freshState.weather,
-          freshState.selectedTargetId,
-          freshState.fogSnapshot.exploredCoords,
-          freshState.blastZones,
-          freshState.fogOfWarEnabled,
-        );
-
-        const cmdProjId = fxSeq++;
-        set((s) => ({
-          units: nextDerived.units,
-          selectedUnitId: autoNextId,
-          activeFloor: autoNextUnit ? autoNextUnit.pos.y : unit.pos.y,
-          activeProjectile: shotTarget
-            ? {
-                id: cmdProjId,
-                from: unit.pos,
-                to: shotTarget.pos,
-                targetId: shotTarget.id,
-                hitChance: 100,
-                kind: "bullet",
-                createdAt: performance.now(),
-                durationMs: 1600,
-                hit: true,
-                critical: true,
-                damage: 3,
-                bloodSeverity: 2,
-                armorShredded: 1,
-              }
-            : null,
-          fogSnapshot: nextDerived.fogSnapshot,
-          reachableTiles: nextDerived.reachableTiles,
-          visibleTargets: nextDerived.visibleTargets,
-          selectedTargetId: nextDerived.selectedTargetId,
-          demonstratedAbilities: {
-            ...s.demonstratedAbilities,
-            [unit.id]: true,
-          },
-          combatLog: [
-            ...s.combatLog,
-            makeLog(
-              s.round,
-              "player",
-              `[SCHOPNOST — ${ability.name}] Maršál Colloredo pozvedl kord: celá družina získala +2 AP, +1 Zbroj a ocelovou morálku! Maršál zároveň vypálil z pistole${shotTarget ? ` na ${shotTarget.name} (−3 HP)` : ""}!`,
-              "story",
-            ),
-          ],
-        }));
-
-        if (shotTarget) {
-          const cmdTimer = setTimeout(() => {
-            if (get().activeProjectile?.id === cmdProjId) {
-              set({ activeProjectile: null });
-            }
-          }, 1600);
-          (cmdTimer as unknown as { unref?: () => void }).unref?.();
-        }
-
-        triggerUnitFx(unit.id, {
-          lunge: true,
-          banner: { text: "BOJOVÝ POKŘIK: ŽELEZNÁ PRAHA!", tone: "buff" },
-        });
-
-        for (const u of freshState.units) {
-          if (u.faction === "player" && u.id !== unit.id && u.alive) {
-            triggerUnitFx(u.id, {
-              banner: { text: "+2 AP · +1 ZBROJ · MORÁLKA", tone: "buff" },
-            });
-          }
-        }
-
-        if (shotTarget) {
-          const afterShotTarget =
-            nextDerived.units.find((u) => u.id === shotTarget.id) ?? shotTarget;
-          const cmdLoss = buildUnitCombatLoss(shotTarget, afterShotTarget, {
-            attackerName: unit.name,
-            weaponName: unit.weapon.name,
-            hit: true,
-            critical: true,
-            misfired: false,
-            hitChance: 100,
-            durationMs: 1600,
-          });
-          triggerUnitFx(shotTarget.id, {
-            hit: true,
-            loss: cmdLoss,
-            banner: { text: "VELITELSKÁ KULKA −3 HP", tone: "crit" },
-          });
-        }
       }
     },
 
