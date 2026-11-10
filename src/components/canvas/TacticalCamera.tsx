@@ -10,11 +10,115 @@
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
+import { GRID_DEPTH, GRID_WIDTH, type GridSystem } from "../../core/GridSystem";
+import type { FloorLevel } from "../../core/types";
 import { useGameStore } from "../../store/useGameStore";
-import { FLOOR_HEIGHT, gridToWorld } from "./worldCoords";
+import { FLOOR_HEIGHT, gridToWorld, TILE_SIZE } from "./worldCoords";
+
+function worldToGridXZ(wx: number, wz: number): { x: number; z: number } {
+  return {
+    x: Math.round(wx / TILE_SIZE + (GRID_WIDTH - 1) * 0.5),
+    z: Math.round(wz / TILE_SIZE + (GRID_DEPTH - 1) * 0.5),
+  };
+}
+
+function isWorldPointBlockedByWall(
+  grid: GridSystem,
+  wx: number,
+  wz: number,
+  floor: FloorLevel,
+): boolean {
+  const { x, z } = worldToGridXZ(wx, wz);
+  const tile = grid.getTile({ x, y: floor, z });
+  if (!tile) return false;
+  return tile.obstacle === "high_wall" || tile.obstacle === "pillar";
+}
+
+/**
+ * Vybere nejčistší boční odstup a rameno kamery tak, aby výhled na střelce,
+ * letící projektil i zasažený cíl nebyl blokován vysokou zdí ani pilířem.
+ */
+function chooseSmartActionCamRig(
+  grid: GridSystem,
+  sx: number,
+  sz: number,
+  sFloor: FloorLevel,
+  tx: number,
+  tz: number,
+  tFloor: FloorLevel,
+  normX: number,
+  normZ: number,
+  rightX: number,
+  rightZ: number,
+  currentCamPos: THREE.Vector3,
+): { sideSign: 1 | -1; backDist: number; sideDist: number } {
+  const candidates: Array<{
+    sideSign: 1 | -1;
+    backDist: number;
+    sideDist: number;
+  }> = [
+    { sideSign: 1, backDist: 3.5, sideDist: 1.95 },
+    { sideSign: -1, backDist: 3.5, sideDist: 1.95 },
+    { sideSign: 1, backDist: 2.2, sideDist: 2.85 },
+    { sideSign: -1, backDist: 2.2, sideDist: 2.85 },
+    { sideSign: 1, backDist: 2.4, sideDist: 1.35 },
+    { sideSign: -1, backDist: 2.4, sideDist: 1.35 },
+  ];
+
+  let best = candidates[0]!;
+  let bestScore = -Infinity;
+
+  for (const cand of candidates) {
+    const latX = rightX * cand.sideSign * cand.sideDist;
+    const latZ = rightZ * cand.sideSign * cand.sideDist;
+
+    const sCamX = sx - normX * cand.backDist + latX;
+    const sCamZ = sz - normZ * cand.backDist + latZ;
+    const tCamX = tx - normX * (cand.backDist * 0.88) + latX * 1.12;
+    const tCamZ = tz - normZ * (cand.backDist * 0.88) + latZ * 1.12;
+
+    let penalty = 0;
+    if (isWorldPointBlockedByWall(grid, sCamX, sCamZ, sFloor)) penalty += 50;
+    if (
+      isWorldPointBlockedByWall(
+        grid,
+        (sCamX + sx) * 0.5,
+        (sCamZ + sz) * 0.5,
+        sFloor,
+      )
+    ) {
+      penalty += 35;
+    }
+    if (isWorldPointBlockedByWall(grid, tCamX, tCamZ, tFloor)) penalty += 60;
+    if (
+      isWorldPointBlockedByWall(
+        grid,
+        (tCamX + tx) * 0.5,
+        (tCamZ + tz) * 0.5,
+        tFloor,
+      )
+    ) {
+      penalty += 45;
+    }
+
+    // Preferujeme stranu bližší aktuální pozici kamery pro sametový nájezd bez překlápění o 180°
+    const distToCurrent = Math.hypot(
+      currentCamPos.x - tCamX,
+      currentCamPos.z - tCamZ,
+    );
+    const score = -penalty - distToCurrent * 0.35;
+    if (score > bestScore) {
+      bestScore = score;
+      best = cand;
+    }
+  }
+
+  return best;
+}
 
 export function TacticalCamera() {
   const { camera, gl } = useThree();
+  const grid = useGameStore((s) => s.grid);
   const cameraStep = useGameStore((s) => s.cameraStep);
   const activeFloor = useGameStore((s) => s.activeFloor);
   const actionMode = useGameStore((s) => s.actionMode);
@@ -25,7 +129,6 @@ export function TacticalCamera() {
   const activeProjectile = useGameStore((s) => s.activeProjectile);
   const activeMovement = useGameStore((s) => s.activeMovement);
   const actionCamEnabled = useGameStore((s) => s.actionCamEnabled);
-  const turn = useGameStore((s) => s.turn);
 
   const orbitCenterRef = useRef(new THREE.Vector3(0, 0, 4.2));
   const currentLookAtRef = useRef(new THREE.Vector3(0, 0, 4.2));
@@ -34,6 +137,12 @@ export function TacticalCamera() {
   const keysPressedRef = useRef<Set<string>>(new Set());
   const isRightDraggingRef = useRef(false);
   const lastPointerRef = useRef({ x: 0, y: 0 });
+  const lockedProjectileRigRef = useRef<{
+    id: number;
+    sideSign: 1 | -1;
+    backDist: number;
+    sideDist: number;
+  } | null>(null);
 
   useEffect(() => {
     const dom = gl.domElement;
@@ -151,7 +260,7 @@ export function TacticalCamera() {
       dt,
     );
 
-    // 2. Kontrola, zda jsme v Režimu míření nebo právě probíhá výstřel (Over-the-Shoulder XCOM 2 kamera)
+    // 2. Kontrola, zda jsme v Režimu míření nebo právě letí projektil (Inteligentní 3-fázová Akční kamera)
     const shooter =
       actionMode === "shoot"
         ? units.find((u) => u.id === selectedUnitId && u.alive)
@@ -162,17 +271,22 @@ export function TacticalCamera() {
         : undefined;
 
     const isShootingCamera =
-      (actionMode === "shoot" && !!shooter && !!target) ||
-      (actionCamEnabled &&
-        !!activeProjectile &&
-        activeProjectile.kind !== "grenade");
+      (actionMode === "shoot" && !!shooter && !!target) || !!activeProjectile;
 
     if (isShootingCamera) {
       const fromCoord = activeProjectile ? activeProjectile.from : shooter!.pos;
-      const toCoord = activeProjectile ? activeProjectile.to : target!.pos;
+      const toCoord = activeProjectile
+        ? activeProjectile.hit === false && activeProjectile.missImpactCoord
+          ? activeProjectile.missImpactCoord
+          : activeProjectile.to
+        : target!.pos;
+      const unitTargetCoord = activeProjectile
+        ? activeProjectile.to
+        : target!.pos;
 
       const [sx, sy, sz] = gridToWorld(fromCoord);
-      const [tx, ty, tz] = gridToWorld(toCoord);
+      const [tx, ty, tz] = gridToWorld(unitTargetCoord);
+      const [ix, iy, iz] = gridToWorld(toCoord);
 
       const dirX = tx - sx;
       const dirZ = tz - sz;
@@ -180,74 +294,327 @@ export function TacticalCamera() {
       const normX = dirX / horizLen;
       const normZ = dirZ / horizLen;
 
-      // Vektor doprava od střelce (pro pohled přes pravé rameno)
+      // Vektor kolmý na dráhu výstřelu
       const rightX = -normZ;
       const rightZ = normX;
 
-      // Jemný zpětný ráz kamery (camera shake) v okamžiku výstřelu
-      let shakeX = 0;
-      let shakeY = 0;
+      // Uzamkneme optimální nezakrytou stranu kamery pro daný výstřel
+      let rig: { sideSign: 1 | -1; backDist: number; sideDist: number };
       if (activeProjectile) {
-        const elapsed = (performance.now() - activeProjectile.createdAt) / 1000;
-        if (elapsed >= 0 && elapsed < 0.35) {
-          const intensity = (1 - elapsed / 0.35) * 0.16;
-          shakeX = Math.sin(elapsed * 95) * intensity;
-          shakeY = Math.cos(elapsed * 110) * intensity * 0.8;
+        if (
+          !lockedProjectileRigRef.current ||
+          lockedProjectileRigRef.current.id !== activeProjectile.id
+        ) {
+          const computed = chooseSmartActionCamRig(
+            grid,
+            sx,
+            sz,
+            fromCoord.y,
+            ix,
+            iz,
+            toCoord.y,
+            normX,
+            normZ,
+            rightX,
+            rightZ,
+            camera.position,
+          );
+          lockedProjectileRigRef.current = {
+            id: activeProjectile.id,
+            ...computed,
+          };
         }
+        rig = lockedProjectileRigRef.current;
+      } else {
+        rig = chooseSmartActionCamRig(
+          grid,
+          sx,
+          sz,
+          fromCoord.y,
+          tx,
+          tz,
+          unitTargetCoord.y,
+          normX,
+          normZ,
+          rightX,
+          rightZ,
+          camera.position,
+        );
       }
 
-      // Pozice kamery: za střelcem, lehce vpravo u ramene a vyvýšená, aby bylo vidět střelce, dráhu střely i cíl
-      const desiredCamX = sx - normX * 4.2 + rightX * 1.65 + shakeX;
-      const desiredCamY = Math.max(sy, ty * 0.55) + 3.15 + shakeY;
-      const desiredCamZ = sz - normZ * 4.2 + rightZ * 1.65;
+      const latX = rightX * rig.sideSign * rig.sideDist;
+      const latZ = rightZ * rig.sideSign * rig.sideDist;
 
-      // Bod pohledu: směrem k cíli (cca 72 % vzdálenosti od střelce k cíli ve výšce hrudi)
-      const desiredLookX = sx * 0.28 + tx * 0.72 + shakeX * 0.5;
-      const desiredLookY = sy * 0.28 + ty * 0.72 + 1.05 + shakeY * 0.5;
-      const desiredLookZ = sz * 0.28 + tz * 0.72;
+      // Výchozí pozice kamery u ramene střelce (Fáze A: Míření a výstřel)
+      const shooterCamX = sx - normX * rig.backDist + latX;
+      const shooterCamY = Math.max(sy, ty * 0.45) + 2.85;
+      const shooterCamZ = sz - normZ * rig.backDist + latZ;
+
+      if (!activeProjectile) {
+        // Režim míření (před výstřelem): klidný filmový záběr přes rameno střelce na cíl
+        const desiredLookX = sx * 0.26 + tx * 0.74;
+        const desiredLookY = sy * 0.26 + ty * 0.74 + 1.05;
+        const desiredLookZ = sz * 0.26 + tz * 0.74;
+
+        camera.position.x = THREE.MathUtils.damp(
+          camera.position.x,
+          shooterCamX,
+          9.5,
+          dt,
+        );
+        camera.position.y = THREE.MathUtils.damp(
+          camera.position.y,
+          shooterCamY,
+          9.5,
+          dt,
+        );
+        camera.position.z = THREE.MathUtils.damp(
+          camera.position.z,
+          shooterCamZ,
+          9.5,
+          dt,
+        );
+
+        currentLookAtRef.current.x = THREE.MathUtils.damp(
+          currentLookAtRef.current.x,
+          desiredLookX,
+          10.5,
+          dt,
+        );
+        currentLookAtRef.current.y = THREE.MathUtils.damp(
+          currentLookAtRef.current.y,
+          desiredLookY,
+          10.5,
+          dt,
+        );
+        currentLookAtRef.current.z = THREE.MathUtils.damp(
+          currentLookAtRef.current.z,
+          desiredLookZ,
+          10.5,
+          dt,
+        );
+
+        orbitCenterRef.current.x = THREE.MathUtils.damp(
+          orbitCenterRef.current.x,
+          sx,
+          4.5,
+          dt,
+        );
+        orbitCenterRef.current.z = THREE.MathUtils.damp(
+          orbitCenterRef.current.z,
+          sz,
+          4.5,
+          dt,
+        );
+
+        camera.lookAt(currentLookAtRef.current);
+        return;
+      }
+
+      // 3-fázová Kinematická kamera sledující let projektilu a detail zásahu / minutí (+90 % delší, C2-hladká)
+      const totalDurationSec = Math.max(
+        0.8,
+        (activeProjectile.durationMs ?? 1780) / 1000,
+      );
+      const elapsedSec = Math.max(
+        0,
+        (performance.now() - activeProjectile.createdAt) / 1000,
+      );
+      const progress = THREE.MathUtils.clamp(elapsedSec / totalDurationSec, 0, 1);
+
+      // Let projektilu trvá prvních 41 % sekvence (~730 ms), zbytek (~1050 ms) je detail zásahu, ztrát cíle a částic
+      const rawFlightT = THREE.MathUtils.clamp(progress / 0.41, 0, 1);
+      const flightT =
+        THREE.MathUtils.smootherstep(rawFlightT, 0, 1) * 0.32 + rawFlightT * 0.68;
+      const impactT = THREE.MathUtils.clamp((progress - 0.39) / 0.61, 0, 1);
+
+      // Aktuální 3D pozice letící střely / petardy
+      const muzzleX = sx + normX * 0.58 + rightX * 0.14;
+      const muzzleY = sy + 1.06;
+      const muzzleZ = sz + normZ * 0.58 + rightZ * 0.14;
+
+      const endX =
+        activeProjectile.hit === false && !activeProjectile.misfired
+          ? tx * 0.35 + ix * 0.65
+          : tx;
+      const endY =
+        activeProjectile.hit === false && !activeProjectile.misfired
+          ? iy + 0.88
+          : ty + (activeProjectile.kind === "grenade" ? 0.25 : 1.04);
+      const endZ =
+        activeProjectile.hit === false && !activeProjectile.misfired
+          ? tz * 0.35 + iz * 0.65
+          : tz;
+
+      const arcLift =
+        activeProjectile.kind === "grenade"
+          ? Math.sin(flightT * Math.PI) * 3.1
+          : 0;
+      const bulletX = THREE.MathUtils.lerp(muzzleX, endX, flightT);
+      const bulletY = THREE.MathUtils.lerp(muzzleY, endY, flightT) + arcLift;
+      const bulletZ = THREE.MathUtils.lerp(muzzleZ, endZ, flightT);
+
+      // Pomalý filmový příjezd (push-in) během Fáze C (detail zásahu a odečtu ztrát cíle)
+      const impactPushIn =
+        THREE.MathUtils.smootherstep(progress, 0.42, 0.96) * 0.46;
+      const impactBack = Math.max(
+        1.95,
+        Math.min(3.35, Math.max(2.3, horizLen * 0.42)) - impactPushIn,
+      );
+      const impactCamX = endX - normX * impactBack + latX * 1.12;
+      const impactCamY = Math.max(endY + 1.38, sy * 0.22 + endY * 0.78 + 1.52);
+      const impactCamZ = endZ - normZ * impactBack + latZ * 1.12;
+
+      // Dvoustupňový fyzikální otřes kamery s plynulým exponenciálním dozníváním:
+      // 1) Zpětný ráz při výstřelu z hlavně (progress < 0.14)
+      // 2) Otřes při dopadu kulky do těla / zbroje / zdiva (impactT ∈ [0, 0.34])
+      let shakeX = 0;
+      let shakeY = 0;
+      if (progress < 0.14) {
+        const muzzleShake = Math.pow(1 - progress / 0.14, 1.6) * 0.12;
+        shakeX += Math.sin(elapsedSec * 78) * muzzleShake;
+        shakeY += Math.cos(elapsedSec * 92) * muzzleShake * 0.8;
+      }
+      if (!activeProjectile.misfired && impactT > 0 && impactT < 0.34) {
+        const severity = activeProjectile.bloodSeverity ?? 1;
+        const baseImpactMag =
+          activeProjectile.kind === "grenade" ||
+          (activeProjectile.detonatedKegs?.length ?? 0) > 0
+            ? 0.32
+            : activeProjectile.hit
+              ? severity >= 3
+                ? 0.24
+                : severity === 2
+                  ? 0.17
+                  : 0.11
+              : 0.1;
+        const env = Math.pow(1 - impactT / 0.34, 1.7) * baseImpactMag;
+        shakeX += Math.sin(elapsedSec * 105) * env;
+        shakeY += Math.cos(elapsedSec * 118) * env * 0.9;
+      }
+
+      if (activeProjectile.misfired) {
+        // Při selhání doutnáku v dešti kamera zůstane u střelce
+        camera.position.x = THREE.MathUtils.damp(
+          camera.position.x,
+          shooterCamX + shakeX,
+          8.5,
+          dt,
+        );
+        camera.position.y = THREE.MathUtils.damp(
+          camera.position.y,
+          shooterCamY + shakeY,
+          8.5,
+          dt,
+        );
+        camera.position.z = THREE.MathUtils.damp(
+          camera.position.z,
+          shooterCamZ,
+          8.5,
+          dt,
+        );
+        currentLookAtRef.current.x = THREE.MathUtils.damp(
+          currentLookAtRef.current.x,
+          muzzleX,
+          10.5,
+          dt,
+        );
+        currentLookAtRef.current.y = THREE.MathUtils.damp(
+          currentLookAtRef.current.y,
+          muzzleY,
+          10.5,
+          dt,
+        );
+        currentLookAtRef.current.z = THREE.MathUtils.damp(
+          currentLookAtRef.current.z,
+          muzzleZ,
+          10.5,
+          dt,
+        );
+        camera.lookAt(currentLookAtRef.current);
+        return;
+      }
+
+      // C2-hladký přelet kamery podél dráhy letící střely k cíli (Quintic Smootherstep Bullet-Tracking Rail)
+      const trackAlpha = THREE.MathUtils.smootherstep(progress, 0.02, 0.46);
+      const midFlightArc = Math.sin(flightT * Math.PI) * 0.62;
+
+      const desiredCamX =
+        THREE.MathUtils.lerp(shooterCamX, impactCamX, trackAlpha) +
+        rightX * rig.sideSign * midFlightArc +
+        shakeX;
+      const desiredCamY =
+        THREE.MathUtils.lerp(shooterCamY, impactCamY, trackAlpha) +
+        arcLift * 0.35 +
+        shakeY;
+      const desiredCamZ =
+        THREE.MathUtils.lerp(shooterCamZ, impactCamZ, trackAlpha) +
+        rightZ * rig.sideSign * midFlightArc;
+
+      // Bod pohledu (LookAt): během letu plynule sleduje samotnou letící kulku a v cíli mírně zvedne pohled (+0.32m),
+      // aby byl přímo v rámu jak zasažený nepřítel, tak panel toho, co nepřítel ztrácí!
+      const lookFocusAlpha = THREE.MathUtils.smootherstep(progress, 0.22, 0.44);
+      const lossPanelLift = THREE.MathUtils.smootherstep(progress, 0.39, 0.62) * 0.34;
+      const desiredLookX =
+        THREE.MathUtils.lerp(bulletX, endX, lookFocusAlpha) + shakeX * 0.4;
+      const desiredLookY =
+        THREE.MathUtils.lerp(bulletY, endY + lossPanelLift, lookFocusAlpha) +
+        shakeY * 0.4;
+      const desiredLookZ = THREE.MathUtils.lerp(bulletZ, endZ, lookFocusAlpha);
 
       camera.position.x = THREE.MathUtils.damp(
         camera.position.x,
         desiredCamX,
-        9.5,
+        9.8,
         dt,
       );
       camera.position.y = THREE.MathUtils.damp(
         camera.position.y,
         desiredCamY,
-        9.5,
+        9.8,
         dt,
       );
       camera.position.z = THREE.MathUtils.damp(
         camera.position.z,
         desiredCamZ,
-        9.5,
+        9.8,
         dt,
       );
 
       currentLookAtRef.current.x = THREE.MathUtils.damp(
         currentLookAtRef.current.x,
         desiredLookX,
-        10.5,
+        14.5,
         dt,
       );
       currentLookAtRef.current.y = THREE.MathUtils.damp(
         currentLookAtRef.current.y,
         desiredLookY,
-        10.5,
+        14.5,
         dt,
       );
       currentLookAtRef.current.z = THREE.MathUtils.damp(
         currentLookAtRef.current.z,
         desiredLookZ,
-        10.5,
+        14.5,
         dt,
       );
 
-      // Plynule synchronizujeme orbitCenterRef se střelcem, aby při návratu z režimu míření (Esc)
-      // kamera plynule odcouvala k aktivnímu vojákovi a neskákala na staré souřadnice
-      orbitCenterRef.current.x = THREE.MathUtils.damp(orbitCenterRef.current.x, sx, 4.5, dt);
-      orbitCenterRef.current.z = THREE.MathUtils.damp(orbitCenterRef.current.z, sz, 4.5, dt);
+      // Plynulá synchronizace orbitCenterRef, aby po skončení výstřelu kamera plynule navázala
+      const anchorX = activeProjectile.from.y === activeFloor ? sx : tx;
+      const anchorZ = activeProjectile.from.y === activeFloor ? sz : tz;
+      orbitCenterRef.current.x = THREE.MathUtils.damp(
+        orbitCenterRef.current.x,
+        anchorX,
+        5.0,
+        dt,
+      );
+      orbitCenterRef.current.z = THREE.MathUtils.damp(
+        orbitCenterRef.current.z,
+        anchorZ,
+        5.0,
+        dt,
+      );
 
       camera.lookAt(currentLookAtRef.current);
       return;

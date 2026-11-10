@@ -1,108 +1,94 @@
-# Barokní výtvarná režie (Art Direction) & oprava pokrývek hlav jednotek
+# Prioritizace pohybu ve vybraném patře (P0/P1/P2) a oprava ovládání v 1. patře
 
-Tento plán řeší anatomicky věrné posazení klobouků a přileb na hlavách jednotek (v 2D spritech i 3D figurkách) a zavádí čtyři pilíře barokní výtvarné režie (Chiaroscuro šerosvit, pravidlo barev 60-30-10 s živými erbovními akcenty jednotek, okamžitě čitelné siluety všech 5 tříd a sekundární pohyb dýchajícího bojiště).
+Tento plán řeší problém, kdy hra při ovládání Václava z Michalovic (nebo jiné jednotky ve vyšším patře) nabízela sestup do přízemí (P0) místo plynulého pohybu po právě vybraném 1. patře (P1). Zahrnuje opravu 3D detekce kurzoru na patrech, uzamčení vizuálního řezu aktivního patra a zavedení přísné preference pohybu ve vybraném podlaží.
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> Níže jsou shrnuty vaše potvrzené volby z úvodního dotazníku, které přímo řídí výsledný vizuální styl:
+> Níže jsou zapracovány vaše potvrzené volby z dotazníku, které definují přesné chování kamery, pater a schodišť:
 
-- **Potvrzená volba 1 — Poměr šerosvitu a barevnosti**: **Bohaté erbovní barvy jednotek + barokní šerosvit mapy**. Podlaha a zdivo využijí klidné, nízko-kontrastní zemité tóny v šerosvitu (60 % a 30 %), takže na nich o to výrazněji zazáří syté erbovní barvy jednotek, šarlatové šerpy, královská zlatá, karolínská modř a teplá záře pochodní (10 %).
-- **Potvrzená volba 2 — Jazyk tvarů a siluety**: **Výrazně odlišit siluety všech stávajících 5 tříd jednotek**. Každá z 5 tříd (`ranger`, `sniper`, `commander`, `trooper`, `sectoid`) získá unikátní obrys čitelný z ptačí perspektivy (vysoké vertikální píky/halapartny, široké klobouky s vodorovnou hlavní, masivní kyrysy s nárameníky a asymetrické korouhve/relikvie).
-- **Potvrzená volba 3 — Živoucnost bojiště (Sekundární pohyb)**: **Kompletní trojice atmosférických efektů** — plazivý dým z černého prachu při zemi s poletujícím popelem a jiskrami, vlající pláště/chocholy/praporce jednotek ve větru a mihotající se barokní pochodně s oltářními svícemi a kužely světla.
+- **Potvrzená volba 1 — Stabilita vizuálního řezu patra**: **Pevně držet vybrané patro, neměnit řez při přejetí myší**. Pokud má hráč v menu zvolené patro `P1`, přejetí kurzorem nad otevřený dvůr nebo zahradu v přízemí nikdy nezpůsobí samovolné skrytí 1. patra ani přepnutí mřížky do `P0`.
+- **Potvrzená volba 2 — Ovládání schodišť vs. podlahy**: **Podlaha pohne v aktivním patře, portál schodiště změní patro**. Kliknutí na dlaždici v aktivním patře (včetně horní podesty schodiště) přesune vojáka v rámci téhož patra; k sestupu nebo výstupu do jiného patra slouží interaktivní portálový štítek schodiště (`P1↔P0`, `P1↔P2`) nebo ruční přepnutí cílového patra.
 
 ---
 
 ## 1. Přehled a hlavní koncept
 
-- **Co změna přináší**:
-  1. **Oprava klobouků a přileb**: V dosavadních 2D spritech byly klobouky a přilby vykresleny ve vrstvě *před* samotnou hlavou (takže kruh hlavy překrýval krempu klobouku) a umístěny příliš vysoko nad temenem. V 3D modelech seděly klobouky na samotné špičce koule hlavy. Nově budou všechny pokrývky hlavy vykresleny ve vrstvě **nad hlavou**, posazeny hluboko do čela (těsně nad obočí) s vrženým stínem pod krempou.
-  2. **Barokní šerosvit a živá barevnost (Chiaroscuro + 60-30-10)**: Klidná, texturově sjednocená dlažba a bláto nechají vyniknout taktickou mřížku, zatímco nasvícený střed bojiště (paprsky světla, mihotavé pochodně, oltářní svíce) a živé erbovní barvy postav dodají scéně vzhled oživeného barokního plátna.
-- **Cílový přínos pro hráče**: Okamžitá taktická čitelnost každé jednotky a krytu na první pohled při zachování bohaté, barevně živé a atmosférické estetiky třicetileté války.
+- **Příčina dosavadní chyby**:
+  1. **Zablokovaný 3D raycasting horních pater po startu hry**: Protože hra začíná s pohledem v přízemí (`P0`), 3D vrstvy podlah `P1` a `P2` měly při prvním vykreslení vypnutou detekci myši (`raycast = () => null`). Při následném přepnutí do `P1` však vykreslovací jádro neobnovilo původní metodu detekce paprsku, takže klikání i pohyb myši procházely skrz podlahu 1. patra rovnou do přízemí (`P0`).
+  2. **Automatické shazování řezu patra při přejetí myší**: Jakmile paprsek myši zachytil dlaždici v `P0` (kam mohl Václav seběhnout po blízkých schodech), hra okamžitě přepnula efektivní zobrazované patro (`effectiveViewFloor`) na `0`, čímž zprůhlednila celé 1. patro a skryla modré/žluté zóny pohybu v `P1`.
+  3. **Předčasný skok na schodiště v algoritmu hledání cesty**: Sousední dlaždice u schodiště nabízely přímý skok do jiného patra i tehdy, když podesta ve stejném patře byla volná.
+- **Cílový stav**:
+  - Hra vždy s nejvyšší prioritou vyhodnocuje a nabízí pohyb v **aktuálně vybraném patře (`activeFloor`: P0 / P1 / P2)**.
+  - Pohyb do jiného patra nabídne pouze tehdy, když na dané souřadnici `[X, Z]` vybrané patro vůbec neexistuje (např. jednopatrová část zahrady nebo otevřený dvůr) nebo když hráč výslovně použije portál schodiště (`P1↔P0`).
 
 ---
 
 ## 2. Uživatelský zážitek a vizuální design
 
-### A. Oprava pokrývek hlavy (2D Sprity & 3D Modely)
-- **Správné vrstvení (Z-Order)**: V procedurálních SVG spritech se pořadí vykreslování změní na: *Zadní cíp pláště / zádová korouhev → Tělo a zbroj → Hlava a obličej → Stín pod krempou na čele → Klobouk / Přilba naražená přes čelo → Bohatý chochol / peří a zlaté kování*.
-- **Anatomické posazení na hlavu**:
-  - Krempa kavalírských klobouků a okraj přileb se posunou níže (z `y=54..58` na `y=65..70` při středu hlavy `y=78..80`), takže zakryjí horní třetinu hlavy až k obočí a po stranách obepnou spánky.
-  - V 3D modelech se skupina klobouku/přilby sníží z `y=1.42` na `y=1.34`, dno koruny obepne lebku a krempa dostane mírné barokní prohnutí se stínem.
+### A. Pohyb a výběr cíle s prioritou aktivního patra (`P0 / P1 / P2`)
+- **Stoprocentní odezva podlahy v P1 a P2**: Po přepnutí do `P1` (nebo výběru Václava v 1. patře) celá plocha Piano Nobile, severní lodžie i zahradního belvederu okamžitě reaguje na kurzor myši a zobrazuje modré (1 AP) a žluté (2 AP) dlaždice pohybu v 1. patře.
+- **Inteligentní vyhodnocení souřadnice pod kurzorem**:
+  1. Pokud na souřadnici `[X, Z]` pod kurzorem existuje pochozí dlaždice ve **vybraném patře (`activeFloor`)**, kurzor se vždy přichytí k této dlaždici v `activeFloor`.
+  2. Teprve pokud ve vybraném patře na daném `[X, Z]` žádná podlaha není (např. jednopatrová zahrada mimo belveder nebo světlík nádvoří), nabídne se existující dlaždice v nižším patře.
 
-### B. Kompozice bojiště a pravidlo barev 60-30-10
-- **60 % — Klidné dominantní plochy (Podlaha a mlha)**:
-  - Rozdíl světlosti sousedních polí šachovnice podlahy bude jemný ($\Delta \le 6\%$), v odstínech vlhké břidlicové šedi (`#1e2631` / `#182029`), tmavého bláta a říčního kamene. Taktická mřížka, modré/žluté zóny pohybu a kužely střelby tak budou perfektně čitelné bez vizuálního šumu.
-- **30 % — Sekundární barokní struktury (Kryty a zdivo)**:
-  - Překážky (nízké zídky, vysoké pilíře, barokní balustrády) ponesou teplejší odstíny zvětralého pískovce (`#6b635b`, `#575049`), tmavého dubového dřeva krovů (`#4a3525`) a kovaného železa s architektonickými římsami a hlavicemi sloupů, které vizuálně oddělí kryt od ploché země.
-- **10 % — Akcentové a taktické erbovní barvy**:
-  - **Jednotky**: Císařská šarlatová červená (`#dc2626`), královská zlatá (`#facc15`), světlá jelenice (`#e0b878`), švédská karolínská modř (`#2563eb`) s jasně žlutým křížem a sněhobílá noční košile maršála s červeným Maltézským řádem.
-  - **Aktivní taktické prvky**: Prachové sudy s měděnými obručemi a žhnoucí zápalnicí, zlaté/tyrkysové štítky aktivního krytu a smaragdově/zlatě nasvícená úniková pramice s lucernou.
+### B. Stabilní zobrazení patra bez blikání
+- **Pevný řez budovy (`effectiveViewFloor === activeFloor`)**: Vizuální řez paláce a viditelnost pohybových zón v aktivním patře zůstávají pevně ukotvené podle volby hráče (`P0`, `P1`, `P2`). Přejetí myší nad zahradu či dvůr už nikdy nezpůsobí zmizení podlahy 1. patra.
+- **Čitelné zóny pohybu**: Při vybraném patře `P1` vidí hráč jasně zvýrazněné všechny dosažitelné dlaždice přímo v `P1`, a v jednopatrových částech zahrady (kde `P1` neexistuje) vidí dosažitelné dlaždice v přízemí, aniž by se narušilo zobrazení 1. patra.
 
-### C. Jazyk tvarů (Siluety 5 tříd jednotek z ptačí perspektivy)
-1. **Dragoun / Kyrysník (`ranger` — Těžká pěchota)**: **Masivní čtvercová a oblá silueta**. Široká ramena s kovanými plátovými nárameníky, zrcadlově lesklý ocelový kyrys se zlatým lemem, šarlatová šerpa, široký kavalírský klobouk kryjící čelo s mohutným červeným pštrosím chocholem a těžká kolečková karabina.
-2. **Ostrostřelec z Klementina (`sniper` — Mušketýr / Střelec)**: **Široká horizontální silueta**. Rozevlátý tmavomodrý učenecký plášť se zlatým šněrováním, široký klobouk stažený do čela s dlouhým zlatým perem a extrémně dlouhá doutnáková mušketa založená do střelecké vidlice (furkety) s jasně žhnoucím oranžovým doutnákem.
-3. **Polní maršál Colloredo (`commander` — Velitel / Unikátní postava)**: **Asymetrická vznešená silueta**. Bohatě řasená sněhobílá noční košile se širokými rukávy, šarlatová velkokřížová šerpa s bílým Maltézským křížem, vyřezávaná hůl s jantarovou hlavicí v levé ruce, stříbrná kolečková pistole v pravé ruce a zlatavá velitelská svatozář/relikviář u pasu.
-4. **Švédský pikenýr-mušketýr (`trooper` — Pikenýr / Halapartník)**: **Vysoká, ostrá vertikální trojúhelníková silueta**. Ocelový pappenheimský šišák s hřebenem a krytem nosu naražený hluboko do čela, vztyčená halapartna/píka se žlutomodrým praporcem trčící vysoko nad hlavu (okamžitě čitelný trojúhelník shora) a karolínský modro-žlutý kabátec.
-5. **Švédský granátník / Polní inkvizitor (`sectoid` — Elitní granátník / Mystický důstojník)**: **Asymetrická, hrozivá silueta s korouhví**. Vysoká špičatá granátnická mitra se zlatým lvem naražená přes čelo, asymetrický zádový praporec (korouhev) vlající za rameny, těžká černěná zbroj a vysoko pozvednutý žhnoucí železný granát s jiskřící zápalnicí.
-
-### D. Živoucnost bojiště (Sekundární pohyb)
-- **Plazivý dým a poletující popel**: Kouř z černého prachu se bude převalovat nízko u země v pomalých vlnách, zatímco vzduchem nad nádvořím budou stoupat a poletovat žhnoucí jiskry a vločky popela.
-- **Mihotající se pochodně, oltářní svíce a kužely šerosvitu**: Na pilířích a zídkách nádvoří budou hořet kované barokní pochodně a votivní svíce s mihotavou intenzitou světla a poloprůhlednými kužely teplého světla (Chiaroscuro god-rays) prořezávajícími mlhu.
-- **Pohyb ve větru u jednotek**: Pláště, chocholy na kloboucích a zádové praporce budou mít jemnou harmonickou animaci vlnění ve větru.
+### C. Jednoznačné ovládání schodišť
+- **Chůze po podestě v aktivním patře**: Najetí a kliknutí na samotnou dlaždici podlahy v aktivním patře (i v místě schodiště) udrží pohyb vojáka v aktivním patře.
+- **Změna patra přes portál schodiště**: Kliknutí na plovoucí štítek portálu schodiště (`P1↔P0` nebo `P1↔P2`) naplánuje cestu po schodech do sousedního patra a po dokončení přesunu plynule přepne aktivní patro na nové podlaží.
 
 ---
 
 ## 3. Klíčová produktová rozhodnutí a kompromisy
 
-- **Rozhodnutí 1: Zachování živé barevnosti uvnitř barokního šerosvitu**
-  - *Zvolený přístup*: Ztlumení kontrastu samotné podlahy (60 %) a sjednocení kamenného zdiva (30 %), ale zvýšení sytosti a světelného kontrastu erbovních barev jednotek, chocholů, šerp a ohňů (10 %).
-  - *Proč*: Čistě temná scéna by působila fádně a zhoršila čitelnost jednotek; kontrast sytých erbovních barev proti klidnému šerosvitu podlahy dává hře živý, malířský vzhled (styl Rembrandtovy *Noční hlídky*).
-  - *Zvažované alternativy*: Plošné ztmavení všech barev včetně jednotek — zamítnuto, protože by postavy splynuly s pozadím.
-- **Rozhodnutí 2: Unifikace 2D spritů a 3D modelů pod stejným jazykem tvarů**
-  - *Zvolený přístup*: Upravit jak procedurální SVG sprity (s `alphaTest` vrženými stíny), tak skládané 3D modely, aby přepínání režimu `2D / 3D` v HUDu zachovalo identické siluety, barvy i opravené klobouky.
-  - *Proč*: Hráč může kdykoliv přepnout mezi 2D malovanými figurkami a 3D modely; obě varianty musí ctít stejnou výtvarnou režii.
+- **Rozhodnutí 1: Obnovení nativní 3D detekce paprsku (`InstancedMesh.prototype.raycast`) pro P1 a P2**
+  - *Zvolený přístup*: Explicitně předávat platnou referenci na metodu `THREE.InstancedMesh.prototype.raycast`, když je patro aktivní, místo hodnoty `undefined`.
+  - *Proč*: Zajišťuje, že po přepnutí z `P0` na `P1` nebo `P2` 3D engine okamžitě a spolehlivě detekuje podlahu vyššího patra.
+  - *Zvažované alternativy*: Výpočet průsečíku s matematickou rovinou v prostoru — zamítnuto, protože `InstancedMesh` raycasting přesně respektuje reálný tvar balkónů, arkád a výřezů nádvoří.
+- **Rozhodnutí 2: Striktní hierarchie výběru patra na souřadnici `[X, Z]`**
+  - *Zvolený přístup*: Při jakémkoliv zachycení kurzoru na `[X, Z]` nejprve ověřit existenci podlahy v `activeFloor`. Pouze pokud tam podlaha vůbec neexistuje, použít nižší patro.
+  - *Proč*: Zabraňuje nechtěnému propadnutí kurzoru mezerou mezi dlaždicemi nebo přes 3D modely zábradlí do přízemí, pokud nad místem existuje podlaha vybraného patra.
 
 ---
 
 ## 4. Technická architektura a tok dat
 
-### Architektonické schéma vizuálního pipeline
+### Schéma vyhodnocení pohybu a prioritizace patra
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        TacticalScene (R3F Canvas)                       │
-│  ┌───────────────────────────────────────────────────────────────────┐  │
-│  │ Chiaroscuro Lighting Rig                                          │  │
-│  │ • Středový nasvícený plán (Teplé kužely světla + Directional Key) │  │
-│  │ • Okrajová viněta a hluboká mlha (60 % břidlicové šero)           │  │
-│  │ • Mihotající se pochodně a oltářní svíce (Flickering PointLights) │  │
-│  └───────────────┬───────────────────────────────────┬───────────────┘  │
-│                  ▼                                   ▼                  │
-│  ┌───────────────────────────────┐   ┌───────────────────────────────┐  │
-│  │     InstancedBattlefield      │   │    Atmospheric Particles      │  │
-│  │ • 60 % Klidná dlažba/bláto    │   │ • RainParticles (déšť)        │  │
-│  │ • 30 % Barokní zdivo s římsou │   │ • AshAndEmbers (popel/jiskry) │  │
-│  │ • 10 % Sudy, pramice, majáky  │   │ • Plazivý dým u země          │  │
-│  │ • Kované pochodně a svícny    │   │ • Kužely světla (God-rays)    │  │
-│  └───────────────────────────────┘   └───────────────────────────────┘  │
-│                                                                         │
-│  ┌───────────────────────────────────────────────────────────────────┐  │
-│  │                     UnitActor (5 tříd postav)                     │  │
-│  │  • Sekundární pohyb ve větru (vlnění plášťů, chocholů a praporců) │  │
-│  │  ├── UnitVisual2D (SVG Sprity):                                   │  │
-│  │  │    Klobouky/přilby ve vrstvě NAD hlavou, naražené přes čelo,   │  │
-│  │  │    výrazné siluety (píky, vidlice s mušketou, kyrysy, mitry)   │  │
-│  │  └── UnitVisual3D (Kompozitní 3D figurky):                        │  │
-│  │       Snížené klobouky/přilby obepínající hlavu, 3D píky,         │  │
-│  │       vlající pláště, zádové korouhve a žhnoucí doutnáky          │  │
-│  └───────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                     Vstup hráče (Kurzor myši / Kliknutí)                 │
+└────────────────────────────────────┬─────────────────────────────────────┘
+                                     ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│           3D Raycasting vrstev podlah (P2 -> P1 -> P0)                   │
+│  • P2 aktivní při activeFloor >= 2 (jinak raycast vypnut)                │
+│  • P1 aktivní při activeFloor >= 1 (jinak raycast vypnut)                │
+│  • P0 vždy připraveno jako záchytná vrstva pro jednopatrovou zahradu     │
+└────────────────────────────────────┬─────────────────────────────────────┘
+                                     ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│        Prioritní filtr aktivního patra (resolvePreferredFloorCoord)      │
+│                                                                          │
+│   Existuje na souřadnici [X, Z] pochozí dlaždice v activeFloor?          │
+│     ├── ANO ──► Vyber cíl [X, activeFloor, Z] (Pohyb ve vybraném patře)  │
+│     └── NE  ──► Jednopatrové místo (zahrada / dvůr):                     │
+│                 Vyber dostupnou dlaždici [X, hitFloor, Z]                │
+│                 (Řez budovy zůstává pevně na activeFloor!)               │
+└────────────────────────────────────┬─────────────────────────────────────┘
+                                     ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                  3D A* Pathfinding & Zóny dosahu                         │
+│  • Preferuje kroky v rámci stejného patra                                │
+│  • Schodišťový "ramp step-on" do jiného patra se aktivuje jen tehdy,     │
+│    když je podesta ve vlastním patře obsazena jinou jednotkou            │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Mapování stavu a interaktivních prvků
-- **Vykreslování 2D spritů a jejich 3D stínů**: Aktualizované SVG sprity s opravenými klobouky a výraznými siluetami automaticky propisují svůj obrys i do `MeshDepthMaterial` (`alphaTest={0.5}`), takže vržené stíny na dlažbě budou přesně odpovídat širokým kloboukům, chocholům a vztyčeným píkám.
-- **Animace živoucnosti v herní smyčce (`useFrame`)**:
-  - Mihotání pochodní a svící plynule moduluje intenzitu a poloměr světla pomocí součtu harmonických funkcí (`sin(t * 7.3) + cos(t * 13.1)`), bez alokací paměti v render loopu.
-  - Plazivý dým na zakouřených polích i ambientní přízemní opar využívají plynulou horizontální rotaci a pulzaci měřítka při zemi.
-  - Poletující popel a jiskry využijí instancovaný částicový systém (`InstancedMesh`), který funguje za každého počasí a dodává bojišti neustálý pohyb.
+### Mapování stavu a interakcí
+- **Správa `effectiveViewFloor`**: Hodnota `effectiveViewFloor` je pevně svázána s `activeFloor`, takže pohyb kurzoru nad nižším patrem nikdy nespustí nechtěný cutaway ořez aktivního patra.
+- **Vykreslení zón dosahu (`zoneMeshRef`)**: Zobrazuje plné modré/žluté zóny pro všechny dosažitelné dlaždice v `activeFloor` a současně zobrazuje dosažitelné dlaždice v nižších patrech pouze na těch souřadnicích `[X, Z]`, kde v `activeFloor` není žádná podlaha (např. otevřená zahrada).
+- **Interakce se schodištěm**: Samotné 3D stupně schodiště při pohybu v `activeFloor` směrují na podestu v `activeFloor` (pokud na ní jednotka ještě nestojí), zatímco kliknutí na portálový odznak `P1↔P0` cílí přímo na opačné podlaží schodiště.

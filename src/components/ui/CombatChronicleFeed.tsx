@@ -63,7 +63,7 @@ export function CombatChronicleFeed() {
     <aside
       aria-label="Kronika boje"
       style={dragStyle}
-      className="pointer-events-none fixed top-16 right-3 z-20 flex flex-col items-end gap-1.5 max-w-xs w-full select-none"
+      className="pointer-events-none relative flex flex-col items-end gap-1.5 max-w-xs w-full select-none z-20"
     >
       {/* Přetahovatelná ovládací kapsle kroniky (Diarium) */}
       <div

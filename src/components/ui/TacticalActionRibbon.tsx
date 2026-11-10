@@ -101,6 +101,8 @@ export function TacticalActionRibbon() {
   const cycleTarget = useGameStore((s) => s.cycleTarget);
   const toggleBreakdown = useGameStore((s) => s.toggleBreakdown);
   const executeShoot = useGameStore((s) => s.executeShoot);
+  const executeMelee = useGameStore((s) => s.executeMelee);
+  const visibleMeleeTargets = useGameStore((s) => s.visibleMeleeTargets);
 
   const [ribbonMinimized, setRibbonMinimized] = useState(false);
   const aimDrag = useDraggableHud();
@@ -114,6 +116,11 @@ export function TacticalActionRibbon() {
   const isSelectedDetained =
     (selectedUnit?.detainedTurns ?? 0) > 0 || (selectedUnit?.hp ?? 1) <= 0;
   const hasAp = (selectedUnit?.ap ?? 0) > 0 && !isSelectedDetained;
+  const anyUnitHasAp = playerUnits.some(
+    (u) => u.alive && u.hp > 0 && u.ap > 0 && (u.detainedTurns ?? 0) === 0,
+  );
+  const isColloredoDischarged =
+    selectedUnit?.id === "player-colloredo" && selectedUnit?.pistolLoaded === false;
   const ability = selectedUnit?.ability;
   const canUseAbility =
     canCommand &&
@@ -129,9 +136,13 @@ export function TacticalActionRibbon() {
   const currentTile = selectedUnit ? grid.getTile(selectedUnit.pos) : undefined;
   const bestCov = currentTile ? bestTileCover(currentTile.cover) : "none";
 
-  // Data pro režim střelby a čistý výhled během výstřelu
+  // Data pro režim střelby a chladných zbraní (Aiming HUD)
   const isAiming = actionMode === "shoot" && !isBusy;
-  const isShootingView = actionMode === "shoot" || activeProjectile !== null;
+  const isMeleeAiming = actionMode === "melee" && !isBusy;
+  const isShootingView =
+    actionMode === "shoot" ||
+    actionMode === "melee" ||
+    activeProjectile !== null;
 
   // Zda má aktuální voják nebo kterýkoliv bojeschopný spolubojovník cíl v dostřelu (a odhalený v šerosvitu)
   const anyUnitCanShoot =
@@ -160,6 +171,15 @@ export function TacticalActionRibbon() {
     ? units.find((u) => u.id === activeEval.targetId)
     : null;
   const calc = activeEval?.calculation ?? null;
+
+  const activeMeleeEval =
+    visibleMeleeTargets.find((t) => t.targetId === selectedTargetId) ??
+    visibleMeleeTargets[0] ??
+    null;
+  const meleeTargetUnit = activeMeleeEval
+    ? units.find((u) => u.id === activeMeleeEval.targetId)
+    : null;
+  const meleeCalc = activeMeleeEval?.calculation ?? null;
 
   const isTutorialActive = !tutorialDismissed && tutorialStep !== null;
   const isStep1Highlight = isTutorialActive && tutorialStep === 1;
@@ -362,6 +382,188 @@ export function TacticalActionRibbon() {
       )}
 
       {/* =====================================================================
+          1b. REŽIM BOJE ZBLÍZKA: MELEE AIMING PANEL (CHLADNÁ ZBRAŇ / PAŽBA)
+         ===================================================================== */}
+      {isMeleeAiming && meleeCalc && meleeTargetUnit && selectedUnit && (
+        <div
+          style={aimDrag.dragStyle}
+          className="w-full max-w-5xl flex flex-col xl:flex-row items-center xl:items-end justify-center gap-2 mb-2"
+        >
+          {/* LEVÉ KŘÍDLO: Modifikátory zásahu zblízka */}
+          {breakdownOpen && (
+            <aside className="pointer-events-auto flex-1 xl:max-w-xs baroque-cartouche baroque-border rounded-xl p-3 text-amber-50 shadow-[0_8px_32px_rgba(0,0,0,0.95)] bg-slate-950/95 border-amber-500/70">
+              <div className="flex items-center justify-between border-b border-amber-900/80 pb-1.5 mb-2">
+                <div className="flex items-center gap-1.5">
+                  <Swords className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="font-cinzel font-black text-xs uppercase tracking-wider text-amber-200">
+                    Útok zblízka
+                  </span>
+                </div>
+                <span className="font-cinzel text-sm font-black text-emerald-400 tabular-nums">
+                  {meleeCalc.hitChance} %
+                </span>
+              </div>
+              <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
+                {meleeCalc.hitModifiers.map((mod) => (
+                  <ModifierRow key={mod.id} item={mod} />
+                ))}
+              </div>
+            </aside>
+          )}
+
+          {/* HLAVNÍ STŘEDOVÝ PANEL: 4 METRIKY CHLADNÉ ZBRANĚ */}
+          <div className="pointer-events-auto w-full xl:w-[490px] shrink-0 baroque-cartouche baroque-border rounded-xl p-3 shadow-[0_8px_32px_rgba(0,0,0,0.95)] text-amber-50 bg-slate-950/95 border-amber-500/80">
+            <div
+              onPointerDown={aimDrag.onPointerDown}
+              title="Tažením myší můžete panel odsunout stranou"
+              className="flex items-center justify-between border-b border-amber-900/80 pb-2 mb-2.5 cursor-grab active:cursor-grabbing"
+            >
+              <button
+                type="button"
+                onClick={toggleBreakdown}
+                title="Rozbalit / sbalit detailní rozpad modifikátorů (klávesa F1)"
+                className={`flex items-center gap-1 px-2.5 py-1 rounded border text-[10px] font-cinzel font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  breakdownOpen
+                    ? "bg-amber-600/35 border-amber-400 text-amber-100 shadow-[0_0_8px_rgba(245,158,11,0.3)]"
+                    : "baroque-bronze-btn text-amber-200 hover:text-amber-100"
+                }`}
+              >
+                <ChevronLeft className="w-3.5 h-3.5 text-amber-400" />
+                <span>Rozpad (F1)</span>
+                <ChevronRight className="w-3.5 h-3.5 text-amber-400" />
+              </button>
+
+              <div className="flex items-center gap-2 min-w-0">
+                <GripHorizontal className="w-3.5 h-3.5 text-amber-400/60 shrink-0" />
+                <span className="font-cinzel font-black text-xs text-amber-200 truncate">
+                  {meleeTargetUnit.name}
+                </span>
+                <span className="text-[10px] font-cinzel font-bold px-1.5 py-0.5 rounded bg-slate-900 text-amber-300 border border-amber-500/50 tabular-nums">
+                  1m kontakt
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1">
+                {aimDrag.hasMoved && (
+                  <button
+                    type="button"
+                    onClick={aimDrag.resetOffset}
+                    title="Vrátit panel míření na výchozí místo"
+                    className="p-1 rounded text-amber-400 hover:text-amber-100 cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setActionMode("move")}
+                  title="Zrušit útok zblízka (Esc)"
+                  className="p-1 rounded baroque-bronze-btn text-amber-400 hover:text-amber-100 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* 4 Boxy šancí pro chladné zbraně */}
+            <div className="grid grid-cols-4 gap-1.5 mb-2.5 text-center">
+              <div className="bg-slate-900/90 border border-emerald-500/60 rounded-lg p-1.5 shadow-[inset_0_1px_0_rgba(16,185,129,0.3)]">
+                <div className="text-[9px] font-cinzel font-bold uppercase text-amber-200/90">
+                  Zásah
+                </div>
+                <div className="text-xl font-cinzel font-black text-emerald-400 leading-tight tabular-nums">
+                  {meleeCalc.hitChance}%
+                </div>
+                <div className="text-[9px] font-literata text-amber-300/90 truncate font-medium">
+                  {meleeCalc.heightAdvantage ? "Výška +15%" : "Tělo na tělo"}
+                </div>
+              </div>
+
+              <div className="bg-slate-900/90 border border-amber-500/60 rounded-lg p-1.5 shadow-[inset_0_1px_0_rgba(245,158,11,0.3)]">
+                <div className="text-[9px] font-cinzel font-bold uppercase text-amber-200/90">
+                  Krit
+                </div>
+                <div className="text-xl font-cinzel font-black text-amber-300 leading-tight tabular-nums">
+                  {meleeCalc.critChance}%
+                </div>
+                <div className="text-[9px] font-literata text-amber-300/90 truncate font-medium tabular-nums">
+                  +{meleeCalc.critBonusDamage} HP
+                </div>
+              </div>
+
+              <div className="bg-slate-900/90 border border-rose-500/60 rounded-lg p-1.5 shadow-[inset_0_1px_0_rgba(244,63,94,0.3)]">
+                <div className="text-[9px] font-cinzel font-bold uppercase text-amber-200/90">
+                  Zranění
+                </div>
+                <div className="text-lg font-cinzel font-black text-rose-300 leading-tight tabular-nums">
+                  {meleeCalc.minDamage}–{meleeCalc.maxDamage}
+                </div>
+                <div className="text-[9px] font-literata text-amber-300 truncate font-medium tabular-nums">
+                  Průraz {meleeCalc.armorPierce}
+                </div>
+              </div>
+
+              <div className="bg-slate-900/90 border border-amber-600/60 rounded-lg p-1.5 shadow-[inset_0_1px_0_rgba(217,119,6,0.3)]">
+                <div className="text-[9px] font-cinzel font-bold uppercase text-amber-200/90 flex items-center justify-center gap-0.5">
+                  <Swords className="w-2.5 h-2.5 text-amber-400" />
+                  <span>Zbraň</span>
+                </div>
+                <div className="text-xs font-cinzel font-black text-amber-300 leading-tight truncate">
+                  {selectedUnit.id === "player-colloredo" ? "Pažba" : meleeCalc.weaponName}
+                </div>
+                <div className="text-[9px] font-literata text-amber-300/80 truncate font-medium">
+                  {selectedUnit.id === "player-colloredo" ? "Nouzový úder" : "Chladná ocel"}
+                </div>
+              </div>
+            </div>
+
+            {/* Tlačítko Útok zblízka (Space / Enter) */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => executeMelee(meleeCalc.targetId)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg bg-gradient-to-r from-red-700 via-amber-600 to-amber-500 hover:from-red-600 hover:to-amber-400 border border-amber-300 text-stone-950 font-cinzel font-black text-xs uppercase tracking-wider shadow-[0_4px_16px_rgba(245,158,11,0.5)] transition-all cursor-pointer"
+              >
+                <Swords className="w-4 h-4 text-stone-950" />
+                <span>
+                  {selectedUnit.id === "player-colloredo" ? "Udeřit pažbou" : "Zaútočit zblízka"} · {meleeCalc.hitChance} % (Space)
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActionMode("move")}
+                className="px-3.5 py-2.5 rounded-lg baroque-bronze-btn text-xs font-cinzel font-bold text-amber-200 hover:text-amber-100 cursor-pointer"
+              >
+                Zrušit (Esc)
+              </button>
+            </div>
+          </div>
+
+          {/* PRAVÉ KŘÍDLO: Modifikátory kritu a zbroje */}
+          {breakdownOpen && (
+            <aside className="pointer-events-auto flex-1 xl:max-w-xs baroque-cartouche baroque-border rounded-xl p-3 text-amber-50 shadow-[0_8px_32px_rgba(0,0,0,0.95)] bg-slate-950/95 border-amber-500/70">
+              <div className="flex items-center justify-between border-b border-amber-900/80 pb-1.5 mb-2">
+                <div className="flex items-center gap-1.5">
+                  <Swords className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="font-cinzel font-black text-xs uppercase tracking-wider text-amber-200">
+                    Krit & Kyrys
+                  </span>
+                </div>
+                <span className="font-cinzel text-sm font-black text-amber-300 tabular-nums">
+                  {meleeCalc.critChance} %
+                </span>
+              </div>
+              <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
+                {meleeCalc.critModifiers.map((mod) => (
+                  <ModifierRow key={mod.id} item={mod} />
+                ))}
+              </div>
+            </aside>
+          )}
+        </div>
+      )}
+
+      {/* =====================================================================
           2. ZÁKLADNÍ SPODNÍ PÁS: PŘETAHOVATELNÝ & MINIMALIZOVATELNÝ
          ===================================================================== */}
       <div
@@ -497,8 +699,18 @@ export function TacticalActionRibbon() {
                         {selectedUnit.buffTitle} ·{" "}
                       </span>
                     ) : null}
-                    {selectedUnit.weapon.name} ({selectedUnit.weapon.minDamage}–
-                    {selectedUnit.weapon.maxDamage} HP)
+                    {selectedUnit.id === "player-colloredo" ? (
+                      <span>
+                        {selectedUnit.weapon.name} {selectedUnit.pistolLoaded ? "(1/1)" : "(0/1 vybitá)"} · Pažba (1–2 HP)
+                      </span>
+                    ) : (
+                      <span>
+                        {selectedUnit.weapon.name} ({selectedUnit.weapon.minDamage}–{selectedUnit.weapon.maxDamage} HP)
+                        {selectedUnit.meleeWeapon && (
+                          <span className="text-amber-300/80"> · {selectedUnit.meleeWeapon.name}</span>
+                        )}
+                      </span>
+                    )}
                   </div>
 
                   {/* HP Pips & Armor Pips & AP Dots */}
@@ -673,10 +885,98 @@ export function TacticalActionRibbon() {
                     </button>
                   </div>
                 )
+              ) : isMeleeAiming ? (
+                visibleMeleeTargets.length === 0 || !meleeCalc || !meleeTargetUnit ? (
+                  <div className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
+                    <span className="font-cinzel text-amber-300 font-bold">
+                      Žádný nepřítel není na sousední dlaždici (kontakt 1 pole).
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActionMode("move")}
+                      className="px-3.5 py-1.5 rounded baroque-bronze-btn text-xs font-cinzel font-bold text-amber-200 hover:text-amber-100 transition-colors cursor-pointer"
+                    >
+                      Zpět k pohybu (Esc)
+                    </button>
+                  </div>
+                ) : (
+                  /* REŽIM BOJE ZBLÍZKA: TARGET RIBBON */
+                  <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setActionMode("move")}
+                      title="Návrat do režimu pohybu (Esc)"
+                      className="flex items-center gap-1 px-2.5 py-2 rounded baroque-bronze-btn text-xs font-cinzel font-bold text-amber-200 hover:text-amber-100 transition-colors cursor-pointer shrink-0"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Zpět (Esc)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => cycleTarget(-1)}
+                      title="Předchozí cíl (Shift + Tab)"
+                      className="p-2 rounded baroque-bronze-btn text-amber-300 hover:text-amber-100 cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+
+                    <div className="flex-1 flex items-center gap-1.5 overflow-x-auto px-1">
+                      {visibleMeleeTargets.map((ev) => {
+                        const enemy = units.find((u) => u.id === ev.targetId);
+                        if (!enemy) return null;
+                        const isSelectedTarget = ev.targetId === meleeCalc?.targetId;
+
+                        return (
+                          <button
+                            key={ev.targetId}
+                            type="button"
+                            onClick={() => selectTarget(ev.targetId)}
+                            title={`${enemy.name} · ${ev.calculation.hitChance} % zásah zblízka`}
+                            className={`flex-1 flex items-center justify-between gap-2 px-2.5 py-1.5 rounded border transition-all cursor-pointer min-w-[155px] ${
+                              isSelectedTarget
+                                ? "bg-amber-600/40 border-amber-300 text-amber-100 ring-2 ring-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.5)]"
+                                : "bg-amber-950/80 border-amber-500/70 text-amber-200 hover:border-amber-300"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="flex items-center justify-center w-6 h-6 rounded bg-slate-950 border border-amber-500/50 shrink-0">
+                                <Swords className="w-3.5 h-3.5 text-amber-400" />
+                              </div>
+                              <div className="text-left min-w-0">
+                                <div className="text-xs font-cinzel font-black truncate text-amber-100">
+                                  {enemy.name}
+                                </div>
+                                <div className="flex items-center gap-1 text-[10px] font-cinzel font-bold tabular-nums">
+                                  <span className="text-amber-300">
+                                    {ev.calculation.hitChance}% ZÁSAH
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-cinzel font-bold px-1.5 py-0.5 rounded bg-slate-900 text-amber-300 border border-amber-500/50">
+                              1m
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => cycleTarget(1)}
+                      title="Další cíl (Tab)"
+                      className="flex items-center gap-1 px-2.5 py-2 rounded baroque-bronze-btn text-xs font-cinzel font-bold text-amber-300 hover:text-amber-100 cursor-pointer"
+                    >
+                      <span>Tab</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )
               ) : (
-                /* BĚŽNÝ REŽIM: ŘADA AKČNÍCH TLAČÍTEK ([1] - [5] a [Space]) */
+                /* BĚŽNÝ REŽIM: ŘADA AKČNÍCH TLAČÍTEK ([1] - [5], [B] a [Space]) */
                 <div className="flex items-center justify-between gap-1.5">
-                  <div className="flex-1 grid grid-cols-5 gap-1.5">
+                  <div className="flex-1 grid grid-cols-6 gap-1.5">
                     <button
                       type="button"
                       disabled={!canCommand}
@@ -700,26 +1000,65 @@ export function TacticalActionRibbon() {
 
                     <button
                       type="button"
-                      disabled={!canCommand || !anyUnitCanShoot}
+                      disabled={!canCommand || !anyUnitCanShoot || isColloredoDischarged}
                       onClick={() =>
                         setActionMode(actionMode === "shoot" ? "move" : "shoot")
+                      }
+                      title={
+                        isColloredoDischarged
+                          ? "Kolečková bambitka byla vystřelena a v boji ji nelze znovu nabít! Použijte úder pažbou [B]."
+                          : undefined
                       }
                       className={`flex flex-col items-center justify-center py-1.5 px-1 rounded border text-xs font-cinzel font-black transition-all cursor-pointer ${
                         actionMode === "shoot"
                           ? "bg-red-900/90 border-red-400 text-rose-100 shadow-[0_0_12px_rgba(239,68,68,0.5)]"
-                          : "baroque-bronze-btn text-amber-200/90 hover:text-rose-200 disabled:opacity-40"
+                          : isColloredoDischarged
+                            ? "bg-stone-900/80 border-stone-700 text-stone-500 cursor-not-allowed opacity-60"
+                            : "baroque-bronze-btn text-amber-200/90 hover:text-rose-200 disabled:opacity-40"
                       } ${
-                        isStep2Highlight && canCommand && anyUnitCanShoot
+                        isStep2Highlight && canCommand && anyUnitCanShoot && !isColloredoDischarged
                           ? "ring-2 ring-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.6)] animate-pulse"
                           : ""
                       }`}
                     >
                       <Crosshair className="w-4 h-4 text-rose-400 mb-0.5" />
                       <div className="flex items-center gap-1">
-                        <span>
-                          Střelba ({visibleTargets.length > 0 ? visibleTargets.length : "✓"})
+                        <span className="truncate max-w-[85px]">
+                          {isColloredoDischarged
+                            ? "Vybitá (0/1)"
+                            : `Střelba (${visibleTargets.length > 0 ? visibleTargets.length : "✓"})`}
                         </span>
                         <span className="text-[9px] text-amber-300 font-bold">[2]</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={!canCommand || !hasAp || visibleMeleeTargets.length === 0}
+                      onClick={() =>
+                        setActionMode(actionMode === "melee" ? "move" : "melee")
+                      }
+                      title={
+                        selectedUnit?.id === "player-colloredo"
+                          ? "Úder těžkou ořechovou pažbou vybité bambitky (1–2 HP zranění, nouzový boj zblízka)"
+                          : `Útok chladnou zbraní: ${selectedUnit?.meleeWeapon?.name ?? "Dýka"} (${selectedUnit?.meleeWeapon?.minDamage}–${selectedUnit?.meleeWeapon?.maxDamage} HP)`
+                      }
+                      className={`flex flex-col items-center justify-center py-1.5 px-1 rounded border text-xs font-cinzel font-black transition-all cursor-pointer ${
+                        actionMode === "melee"
+                          ? "bg-amber-700/90 border-amber-300 text-amber-100 shadow-[0_0_12px_rgba(245,158,11,0.5)]"
+                          : visibleMeleeTargets.length > 0 && hasAp && canCommand
+                            ? "bg-amber-950/90 border-amber-500/80 text-amber-200 hover:text-amber-100 ring-1 ring-amber-400/50"
+                            : "baroque-bronze-btn text-amber-200/90 hover:text-amber-100 disabled:opacity-40"
+                      }`}
+                    >
+                      <Swords className="w-4 h-4 text-amber-400 mb-0.5" />
+                      <div className="flex items-center gap-1">
+                        <span className="truncate max-w-[85px]">
+                          {selectedUnit?.id === "player-colloredo"
+                            ? "Pažba"
+                            : `Zblízka (${visibleMeleeTargets.length})`}
+                        </span>
+                        <span className="text-[9px] text-amber-300 font-bold">[B]</span>
                       </div>
                     </button>
 
@@ -801,7 +1140,16 @@ export function TacticalActionRibbon() {
                     type="button"
                     disabled={!canCommand}
                     onClick={endTurn}
-                    className="flex flex-col items-center justify-center py-1.5 px-3.5 rounded border bg-amber-500 hover:bg-amber-400 border-amber-300 text-stone-950 text-xs font-cinzel font-black uppercase tracking-wider shadow-[0_2px_12px_rgba(245,158,11,0.5)] transition-all disabled:opacity-40 shrink-0 cursor-pointer"
+                    title={
+                      !anyUnitHasAp && canCommand
+                        ? "Všichni vojáci vyčerpali své akční body (0 AP). Stiskněte pro ukončení tahu!"
+                        : "Ukončit tah hráče (Mezerník)"
+                    }
+                    className={`flex flex-col items-center justify-center py-1.5 px-3.5 rounded border text-stone-950 text-xs font-cinzel font-black uppercase tracking-wider transition-all disabled:opacity-40 shrink-0 cursor-pointer ${
+                      !anyUnitHasAp && canCommand
+                        ? "bg-amber-400 hover:bg-amber-300 border-amber-200 ring-2 ring-amber-300 shadow-[0_0_18px_rgba(251,191,36,0.85)] animate-pulse"
+                        : "bg-amber-500 hover:bg-amber-400 border-amber-300 shadow-[0_2px_12px_rgba(245,158,11,0.5)]"
+                    }`}
                   >
                     <SkipForward className="w-4 h-4 mb-0.5 text-stone-950" />
                     <div className="flex items-center gap-1">

@@ -23,7 +23,11 @@ import {
   getTileVisibility,
   previewReconFromTile,
 } from "../../core/FogOfWar";
-import { bestTileCover, coordKey } from "../../core/GridSystem";
+import {
+  bestTileCover,
+  coordKey,
+  resolvePreferredFloorCoord,
+} from "../../core/GridSystem";
 import type {
   CardinalDir,
   DoorData,
@@ -1089,6 +1093,7 @@ export function InstancedBattlefield() {
   const actionMode = useGameStore((s) => s.actionMode);
   const activeProjectile = useGameStore((s) => s.activeProjectile);
   const selectedUnitId = useGameStore((s) => s.selectedUnitId);
+  const selectedTargetId = useGameStore((s) => s.selectedTargetId);
   const units = useGameStore((s) => s.units);
   const setHoveredTile = useGameStore((s) => s.setHoveredTile);
   const handleTileClick = useGameStore((s) => s.handleTileClick);
@@ -1101,6 +1106,7 @@ export function InstancedBattlefield() {
   const weather = useGameStore((s) => s.weather);
 
   const selectedUnit = units.find((u) => u.id === selectedUnitId);
+  const selectedTargetUnit = units.find((u) => u.id === selectedTargetId);
   const isShootingView = actionMode === "shoot" || activeProjectile !== null;
 
   const hoveredReachable = useMemo(() => {
@@ -1112,11 +1118,8 @@ export function InstancedBattlefield() {
     );
   }, [hoveredTile, reachableTiles]);
 
-  // Pokud hráč najede myší na schodiště (nebo na cílové pole v jiném patře), dočasně odhalíme cílové patro!
-  const effectiveViewFloor: FloorLevel =
-    actionMode === "move" && hoveredTile && hoveredReachable
-      ? hoveredTile.y
-      : activeFloor;
+  // Pevně držíme vybrané patro (P0 / P1 / P2): přejetí myší nad dvůr či zahradu nikdy neshodí řez aktivního patra
+  const effectiveViewFloor: FloorLevel = activeFloor;
 
   const waypoint = useMemo<{
     coord: GridCoord;
@@ -1479,13 +1482,59 @@ export function InstancedBattlefield() {
       if (list.length > 0) mesh.computeBoundingSphere();
     };
 
-    // Smart Wall Culling & Wall Stubs (ADR-0010 Ticket 06)
+    // Smart Wall Culling & Wall Stubs (ADR-0010 Ticket 06 + Action Camera Corridor Culling)
     const angle = Math.PI * 0.25 + cameraStep * (Math.PI * 0.5);
     const camDirX = Math.sin(angle);
     const camDirZ = Math.cos(angle);
-    const focusCoord = selectedUnit?.pos ?? hoveredTile ?? { x: 10, y: 0, z: 18 };
+    const focusCoord =
+      activeProjectile?.to ??
+      selectedUnit?.pos ??
+      hoveredTile ?? { x: 10, y: 0, z: 18 };
+
+    const shotFrom =
+      activeProjectile?.from ??
+      (actionMode === "shoot" ? selectedUnit?.pos : undefined);
+    const shotTo =
+      activeProjectile?.to ??
+      (actionMode === "shoot" ? selectedTargetUnit?.pos : undefined);
+    const missImpact =
+      activeProjectile?.hit === false
+        ? activeProjectile.missImpactCoord
+        : undefined;
 
     const isFrontWall = (c: GridCoord): boolean => {
+      // Pokud jde o zeď, do které právě narazila zbloudilá kulka při minutí, ponecháme ji v plné výšce,
+      // aby bylo jasně vidět roztříštění omítky a odraz střely od zdiva!
+      if (
+        missImpact &&
+        c.x === missImpact.x &&
+        c.y === missImpact.y &&
+        c.z === missImpact.z
+      ) {
+        return false;
+      }
+
+      // Během míření nebo letu projektilu snížíme na sokl (Wall Stub) každou zeď v koridoru mezi střelcem,
+      // dráhou střely, cílem a boční akční kamerou
+      if (shotFrom && shotTo) {
+        const segX = shotTo.x - shotFrom.x;
+        const segZ = shotTo.z - shotFrom.z;
+        const segLenSq = Math.max(0.001, segX * segX + segZ * segZ);
+        const tProj = Math.max(
+          -0.25,
+          Math.min(
+            1.25,
+            ((c.x - shotFrom.x) * segX + (c.z - shotFrom.z) * segZ) / segLenSq,
+          ),
+        );
+        const closestX = shotFrom.x + tProj * segX;
+        const closestZ = shotFrom.z + tProj * segZ;
+        const distToShotLine = Math.hypot(c.x - closestX, c.z - closestZ);
+        if (distToShotLine <= 2.65) {
+          return true;
+        }
+      }
+
       if (c.y !== effectiveViewFloor) return false;
       const dx = c.x - focusCoord.x;
       const dz = c.z - focusCoord.z;
@@ -1600,7 +1649,10 @@ export function InstancedBattlefield() {
     fogSnapshot,
     fogOfWarEnabled,
     cameraStep,
+    actionMode,
+    activeProjectile,
     selectedUnit?.pos,
+    selectedTargetUnit?.pos,
     hoveredTile,
     effectiveViewFloor,
   ]);
@@ -1728,7 +1780,17 @@ export function InstancedBattlefield() {
 
     const filtered = reachableList.filter((item) => {
       if (item.coord.y === effectiveViewFloor) return true;
-      // Na jiných patrech zvýrazníme pouze nástupní/výstupní podesty schodišť, aby obraz nebyl přeplácaný dvojitou sítí
+      // Pokud ve vybraném patře (effectiveViewFloor) na této [X, Z] souřadnici vůbec není podlaha
+      // (např. jednopatrová část zahrady nebo otevřený dvůr), zobrazíme dosažitelnou dlaždici v nižším patře
+      const activeTileAtXZ = grid.getTile({
+        x: item.coord.x,
+        y: effectiveViewFloor,
+        z: item.coord.z,
+      });
+      if (!activeTileAtXZ || !activeTileAtXZ.hasFloor) {
+        return item.coord.y < effectiveViewFloor;
+      }
+      // Tam, kde podlaha v effectiveViewFloor existuje, na jiných patrech zvýrazníme jen podesty schodišť
       const t = grid.getTile(item.coord);
       return Boolean(t?.isLadder || (t?.stairType && t.stairType !== "none"));
     });
@@ -1739,7 +1801,18 @@ export function InstancedBattlefield() {
       _dummy.position.set(wx, wy + 0.028, wz);
       _dummy.rotation.set(-Math.PI * 0.5, 0, 0);
       const isCurrentViewFloor = item.coord.y === effectiveViewFloor;
-      const scale = isCurrentViewFloor ? 0.92 : 0.58;
+      const activeTileAtXZ = grid.getTile({
+        x: item.coord.x,
+        y: effectiveViewFloor,
+        z: item.coord.z,
+      });
+      const isSingleStoryFallback =
+        !isCurrentViewFloor && (!activeTileAtXZ || !activeTileAtXZ.hasFloor);
+      const scale = isCurrentViewFloor
+        ? 0.92
+        : isSingleStoryFallback
+          ? 0.86
+          : 0.58;
       _dummy.scale.set(scale, scale, 1);
       _dummy.updateMatrix();
       mesh.setMatrixAt(i, _dummy.matrix);
@@ -1756,7 +1829,7 @@ export function InstancedBattlefield() {
     if (filtered.length > 0) mesh.computeBoundingSphere();
   }, [reachableList, actionMode, effectiveViewFloor, grid]);
 
-  // Pointer handlers for Instanced Floor Meshes
+  // Pointer handlers for Instanced Floor Meshes — s vysokou preferencí aktivního patra (activeFloor)
   const onFloorPointerMove = (
     e: ThreeEvent<PointerEvent>,
     tiles: TileData[],
@@ -1767,7 +1840,14 @@ export function InstancedBattlefield() {
     const idx = e.instanceId;
     if (idx === undefined) return;
     const tile = tiles[idx];
-    if (tile) setHoveredTile(tile.coord);
+    if (tile) {
+      const preferredCoord = resolvePreferredFloorCoord(
+        grid,
+        tile.coord,
+        activeFloor,
+      );
+      setHoveredTile(preferredCoord);
+    }
   };
 
   const onFloorClick = (
@@ -1780,11 +1860,18 @@ export function InstancedBattlefield() {
     const idx = e.instanceId;
     if (idx === undefined) return;
     const tile = tiles[idx];
-    if (tile) handleTileClick(tile.coord);
+    if (tile) {
+      const preferredCoord = resolvePreferredFloorCoord(
+        grid,
+        tile.coord,
+        activeFloor,
+      );
+      handleTileClick(preferredCoord);
+    }
   };
 
-  // Resolve target coordinate when hovering or clicking a 3D staircase
-  const resolveStairTargetCoord = (span: StairSpan): GridCoord => {
+  // Cíl pro portálový štítek schodiště (P0↔P1 / P1↔P2): explicitně přepíná / přesouvá do sousedního patra
+  const resolveStairPortalTargetCoord = (span: StairSpan): GridCoord => {
     const unitFloor = selectedUnit?.pos.y ?? activeFloor;
     const preferredFloor: FloorLevel =
       unitFloor === span.fromFloor
@@ -1808,18 +1895,41 @@ export function InstancedBattlefield() {
     return { x: span.x, y: preferredFloor, z: span.z };
   };
 
+  // Cíl pro samotnou 3D podlahu/stupně schodiště: drží pohyb v aktivním patře (pokud jednotka už nestojí přímo na této podestě)
+  const resolveStairFloorCoord = (span: StairSpan): GridCoord => {
+    const isSpanOnActive =
+      span.fromFloor === activeFloor || span.toFloor === activeFloor;
+    const isUnitStandingHereOnActive =
+      selectedUnit?.pos.x === span.x &&
+      selectedUnit?.pos.z === span.z &&
+      selectedUnit?.pos.y === activeFloor;
+
+    if (isSpanOnActive && !isUnitStandingHereOnActive) {
+      const sameFloorCoord: GridCoord = {
+        x: span.x,
+        y: activeFloor,
+        z: span.z,
+      };
+      const sameFloorTile = grid.getTile(sameFloorCoord);
+      if (sameFloorTile && sameFloorTile.hasFloor) {
+        return sameFloorCoord;
+      }
+    }
+    return resolveStairPortalTargetCoord(span);
+  };
+
   const onStairPointerMove = (
     e: ThreeEvent<PointerEvent>,
     span: StairSpan,
   ) => {
     e.stopPropagation();
-    const targetCoord = resolveStairTargetCoord(span);
+    const targetCoord = resolveStairFloorCoord(span);
     setHoveredTile(targetCoord);
   };
 
   const onStairClick = (e: ThreeEvent<MouseEvent>, span: StairSpan) => {
     e.stopPropagation();
-    const targetCoord = resolveStairTargetCoord(span);
+    const targetCoord = resolveStairFloorCoord(span);
     const reachKey = `${targetCoord.x},${targetCoord.y},${targetCoord.z}`;
     if (actionMode === "move" && reachableTiles.has(reachKey)) {
       handleTileClick(targetCoord);
@@ -1916,7 +2026,9 @@ export function InstancedBattlefield() {
         args={[undefined, undefined, upperFloorTiles.length]}
         castShadow={!upperCutaway}
         receiveShadow
-        raycast={activeFloor < 1 ? () => null : undefined}
+        raycast={
+          activeFloor < 1 ? () => null : THREE.InstancedMesh.prototype.raycast
+        }
         onPointerMove={(e) => onFloorPointerMove(e, upperFloorTiles, 1)}
         onClick={(e) => onFloorClick(e, upperFloorTiles, 1)}
       >
@@ -1937,7 +2049,9 @@ export function InstancedBattlefield() {
         count={watchtowerFloorTiles.length}
         castShadow={!watchtowerCutaway}
         receiveShadow
-        raycast={activeFloor < 2 ? () => null : undefined}
+        raycast={
+          activeFloor < 2 ? () => null : THREE.InstancedMesh.prototype.raycast
+        }
         onPointerMove={(e) => onFloorPointerMove(e, watchtowerFloorTiles, 2)}
         onClick={(e) => onFloorClick(e, watchtowerFloorTiles, 2)}
       >
@@ -1958,6 +2072,7 @@ export function InstancedBattlefield() {
         count={obstacles.low0.length}
         castShadow
         receiveShadow
+        raycast={() => null}
       >
         <boxGeometry args={[TILE_SIZE * 0.84, 0.82, TILE_SIZE * 0.84]} />
         <meshStandardMaterial roughness={0.72} metalness={0.14} />
@@ -1981,6 +2096,7 @@ export function InstancedBattlefield() {
         count={obstacles.high0.length}
         castShadow
         receiveShadow
+        raycast={() => null}
       >
         <boxGeometry args={[TILE_SIZE * 0.96, FLOOR_HEIGHT, TILE_SIZE * 0.96]} />
         <meshStandardMaterial roughness={0.75} metalness={0.14} />
@@ -1993,6 +2109,7 @@ export function InstancedBattlefield() {
         count={obstacles.pillar0.length}
         castShadow
         receiveShadow
+        raycast={() => null}
       >
         <cylinderGeometry args={[0.44, 0.54, FLOOR_HEIGHT, 14]} />
         <meshStandardMaterial roughness={0.58} metalness={0.2} />
@@ -2016,6 +2133,7 @@ export function InstancedBattlefield() {
         count={obstacles.kegs0.length}
         castShadow
         receiveShadow
+        raycast={() => null}
       >
         <cylinderGeometry args={[0.35, 0.32, 0.72, 14]} />
         <meshStandardMaterial roughness={0.5} metalness={0.35} />
@@ -2167,7 +2285,7 @@ export function InstancedBattlefield() {
       {obstacles.stairs.map((span) => {
         const spanOpacity =
           span.fromFloor > effectiveViewFloor ? 0.22 : 1.0;
-        const targetCoord = resolveStairTargetCoord(span);
+        const targetCoord = resolveStairPortalTargetCoord(span);
         const reachInfo = reachableTiles.get(
           `${targetCoord.x},${targetCoord.y},${targetCoord.z}`,
         );

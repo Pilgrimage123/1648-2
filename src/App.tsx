@@ -132,7 +132,7 @@ export default function App() {
         return;
       }
 
-      // Klávesové zkratky akcí (1 = Pohyb, 2 = Střelba, 3 = Overwatch, 4 = Granát, 5 = Zvláštní schopnost)
+      // Klávesové zkratky akcí (1 = Pohyb, 2 = Střelba, B/6 = Zblízka, 3 = Overwatch, 4 = Granát, 5 = Zvláštní schopnost)
       if (state.turn === "player" && !state.isBusy) {
         if (e.key === "1") {
           e.preventDefault();
@@ -142,6 +142,11 @@ export default function App() {
         if (e.key === "2") {
           e.preventDefault();
           state.setActionMode(state.actionMode === "shoot" ? "move" : "shoot");
+          return;
+        }
+        if (e.key === "b" || e.key === "B" || e.key === "6") {
+          e.preventDefault();
+          state.setActionMode(state.actionMode === "melee" ? "move" : "melee");
           return;
         }
         if (e.key === "3") {
@@ -161,11 +166,15 @@ export default function App() {
         }
       }
 
-      // Tab / Shift+Tab: Cyklení cílů (při střelbě) nebo cyklení vojáků (při pohybu)
+      // Tab / Shift+Tab: Cyklení cílů (při střelbě a boji zblízka) nebo cyklení vojáků (při pohybu)
       if (e.key === "Tab" && state.turn === "player" && !state.isBusy) {
         e.preventDefault();
         if (state.actionMode === "shoot") {
           if (state.visibleTargets.length > 0) {
+            state.cycleTarget(e.shiftKey ? -1 : 1);
+          }
+        } else if (state.actionMode === "melee") {
+          if (state.visibleMeleeTargets.length > 0) {
             state.cycleTarget(e.shiftKey ? -1 : 1);
           }
         } else {
@@ -187,14 +196,19 @@ export default function App() {
         return;
       }
 
-      // Space / Enter: Potvrzení výstřelu v režimu míření, nebo ukončení tahu v klidu
+      // Space / Enter: Potvrzení výstřelu/úderu zblízka v režimu míření, nebo ukončení tahu v klidu
       if (state.turn === "player" && !state.isBusy) {
         if (state.actionMode === "shoot" && (e.key === "Enter" || e.key === " ")) {
           e.preventDefault();
           state.executeShoot();
           return;
         }
-        if (state.actionMode !== "shoot" && e.key === " ") {
+        if (state.actionMode === "melee" && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          state.executeMelee();
+          return;
+        }
+        if (state.actionMode !== "shoot" && state.actionMode !== "melee" && e.key === " ") {
           e.preventDefault();
           state.endTurn();
           return;
@@ -241,13 +255,11 @@ export default function App() {
         <TacticalAdvisorWidget />
       </div>
 
-      {/* Pravý horní roh: Kapsle nástrojů kamery, pater a 2D/3D zobrazení */}
-      <div className="pointer-events-none absolute top-3 right-3 z-20">
+      {/* Pravý horní roh: Kapsle nástrojů kamery, průřez pater a feed kroniky boje (uspořádáno v přirozeném vertikálním toku bez překrývání) */}
+      <div className="pointer-events-none absolute top-3 right-3 z-20 flex flex-col items-end gap-2 max-w-xs sm:max-w-sm">
         <TacticalUtilitiesCapsule />
+        <CombatChronicleFeed />
       </div>
-
-      {/* Pravá část: Plovoucí feed kroniky boje */}
-      <CombatChronicleFeed />
 
       {/* Spodní střed: Sjednocená taktická akční lišta (Tactical Action Ribbon & Aiming HUD) */}
       <TacticalActionRibbon />

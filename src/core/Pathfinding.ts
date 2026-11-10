@@ -37,7 +37,7 @@ function getConnectedStairFloors(tile: TileData, currentFloor: FloorLevel): Floo
     return [];
   }
   if (tile.stairConnections && tile.stairConnections.length > 0) {
-    return tile.stairConnections;
+    return tile.stairConnections.filter((f) => f !== currentFloor);
   }
   // Fallback pro zpětnou kompatibilitu s `setLadder` bez explicitních `stairConnections`
   if (currentFloor === 0) return [1];
@@ -83,25 +83,25 @@ export function getNeighbors(
 
     if (!grid.isBlockedByUnit(nextCoord, units, movingUnitId)) {
       pushNeighbor(nextCoord, 1);
-    }
-
-    // 1b. Ramp step-on: if the adjacent tile on our floor is a staircase whose landing on our floor
-    // is occupied, allow stepping directly onto its connected upper/lower floor landing (cost 2).
-    const neighborStairFloors = getConnectedStairFloors(nextTile, current.y);
-    for (const targetFloor of neighborStairFloors) {
-      const upperOrLowerLanding: GridCoord = {
-        x: nextCoord.x,
-        y: targetFloor,
-        z: nextCoord.z,
-      };
-      const landingTile = grid.getTile(upperOrLowerLanding);
-      if (
-        landingTile &&
-        landingTile.hasFloor &&
-        landingTile.walkable &&
-        !grid.isBlockedByUnit(upperOrLowerLanding, units, movingUnitId)
-      ) {
-        pushNeighbor(upperOrLowerLanding, 2);
+    } else {
+      // 1b. Ramp step-on: ONLY if the adjacent tile on our floor is a staircase whose landing on our floor
+      // is occupied by another unit, allow stepping directly onto its connected upper/lower floor landing (cost 2).
+      const neighborStairFloors = getConnectedStairFloors(nextTile, current.y);
+      for (const targetFloor of neighborStairFloors) {
+        const upperOrLowerLanding: GridCoord = {
+          x: nextCoord.x,
+          y: targetFloor,
+          z: nextCoord.z,
+        };
+        const landingTile = grid.getTile(upperOrLowerLanding);
+        if (
+          landingTile &&
+          landingTile.hasFloor &&
+          landingTile.walkable &&
+          !grid.isBlockedByUnit(upperOrLowerLanding, units, movingUnitId)
+        ) {
+          pushNeighbor(upperOrLowerLanding, 2);
+        }
       }
     }
   }
@@ -211,12 +211,21 @@ export function findPathAStar(
       if (closedSet.has(nextKey)) continue;
 
       const tentativeG = currentNode.g + stepCost;
+      const floorChangeBias =
+        (nextCoord.y !== currentNode.coord.y ? 0.05 : 0) +
+        Math.abs(nextCoord.y - goal.y) * 0.02;
+      const tentativeF =
+        tentativeG + heuristic3D(nextCoord, goal) + floorChangeBias;
       const existing = openMap.get(nextKey);
-      if (!existing || tentativeG < existing.g) {
+      if (
+        !existing ||
+        tentativeG < existing.g ||
+        (tentativeG === existing.g && tentativeF < existing.f)
+      ) {
         const nextNode: AStarNode = {
           coord: nextCoord,
           g: tentativeG,
-          f: tentativeG + heuristic3D(nextCoord, goal),
+          f: tentativeF,
           parentKey: currentKey,
         };
         openMap.set(nextKey, nextNode);

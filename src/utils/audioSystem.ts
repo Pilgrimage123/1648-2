@@ -175,38 +175,103 @@ export function playMisfireSound() {
   noise.stop(now + 0.32);
 }
 
-/** Hit impact thud / metal armor shred */
-export function playHitSound(isCrit = false) {
+/** Hit impact thud / flesh splatter / metal armor shred */
+export function playHitSound(isCrit = false, severity: 0 | 1 | 2 | 3 = 2) {
   const ctx = getAudioContext();
   if (!ctx) return;
 
   const now = ctx.currentTime;
 
-  // Impact thud
+  // 1. Heavy body impact thud
   const thud = ctx.createOscillator();
   const thudGain = ctx.createGain();
   thud.type = "triangle";
-  thud.frequency.setValueAtTime(isCrit ? 260 : 180, now);
-  thud.frequency.exponentialRampToValueAtTime(45, now + 0.15);
-  thudGain.gain.setValueAtTime(isCrit ? 0.6 : 0.4, now);
-  thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+  thud.frequency.setValueAtTime(isCrit || severity >= 3 ? 260 : 185, now);
+  thud.frequency.exponentialRampToValueAtTime(42, now + 0.16);
+  thudGain.gain.setValueAtTime(
+    isCrit || severity >= 3 ? 0.65 : severity === 2 ? 0.48 : 0.35,
+    now,
+  );
+  thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.19);
   thud.connect(thudGain);
   thudGain.connect(ctx.destination);
   thud.start(now);
-  thud.stop(now + 0.2);
+  thud.stop(now + 0.21);
 
-  // Metallic armor clank
+  // 2. Wet visceral blood / flesh tear transient (when severity >= 1)
+  if (severity >= 1) {
+    const noise = ctx.createBufferSource();
+    noise.buffer = getSharedNoiseBuffer(ctx);
+    const filter = ctx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(severity >= 3 ? 1150 : 1450, now);
+    filter.Q.value = 2.2;
+    const splatterGain = ctx.createGain();
+    splatterGain.gain.setValueAtTime(0.18 + severity * 0.11, now);
+    splatterGain.gain.exponentialRampToValueAtTime(
+      0.001,
+      now + 0.12 + severity * 0.04,
+    );
+    noise.connect(filter);
+    filter.connect(splatterGain);
+    splatterGain.connect(ctx.destination);
+    noise.start(now);
+    noise.stop(now + 0.28);
+  }
+
+  // 3. Metallic armor clank
   const clank = ctx.createOscillator();
   const clankGain = ctx.createGain();
   clank.type = "sine";
   clank.frequency.setValueAtTime(isCrit ? 1400 : 850, now);
   clank.frequency.exponentialRampToValueAtTime(400, now + 0.12);
-  clankGain.gain.setValueAtTime(isCrit ? 0.45 : 0.2, now);
+  clankGain.gain.setValueAtTime(isCrit ? 0.45 : 0.22, now);
   clankGain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
   clank.connect(clankGain);
   clankGain.connect(ctx.destination);
   clank.start(now);
   clank.stop(now + 0.15);
+}
+
+/** Missed shot ricochet whine + stone masonry / timber crack */
+export function playRicochetSound(isWood = false) {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  const now = ctx.currentTime;
+
+  // 1. Stone / brick / wood crack noise burst
+  const noise = ctx.createBufferSource();
+  noise.buffer = getSharedNoiseBuffer(ctx);
+  const filter = ctx.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.setValueAtTime(isWood ? 950 : 2400, now);
+  filter.Q.value = isWood ? 1.8 : 2.6;
+
+  const crackGain = ctx.createGain();
+  crackGain.gain.setValueAtTime(0.42, now);
+  crackGain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+
+  noise.connect(filter);
+  filter.connect(crackGain);
+  crackGain.connect(ctx.destination);
+  noise.start(now);
+  noise.stop(now + 0.18);
+
+  // 2. Deflected lead ball ricochet whistle ("pew-zing")
+  if (!isWood) {
+    const whine = ctx.createOscillator();
+    const whineGain = ctx.createGain();
+    whine.type = "sine";
+    whine.frequency.setValueAtTime(1950, now + 0.01);
+    whine.frequency.exponentialRampToValueAtTime(580, now + 0.22);
+    whineGain.gain.setValueAtTime(0.18, now + 0.01);
+    whineGain.gain.exponentialRampToValueAtTime(0.001, now + 0.23);
+    whine.connect(whineGain);
+    whineGain.connect(ctx.destination);
+    whine.start(now + 0.01);
+    whine.stop(now + 0.24);
+  }
 }
 
 /**
@@ -337,3 +402,78 @@ export function playSpecialAbilitySound(
     });
   }
 }
+
+/** Visceral melee attack sound (Blade slash/steel clash or heavy walnut pistol-butt thud) */
+export function playMeleeSound(
+  kind: "blade" | "butt" = "blade",
+  isHit = true,
+  isCrit = false,
+) {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+
+  if (kind === "butt") {
+    // Heavy wooden pistol butt dull thud with metallic brass resonance
+    const thudOsc = ctx.createOscillator();
+    const thudGain = ctx.createGain();
+    thudOsc.type = "sine";
+    thudOsc.frequency.setValueAtTime(isCrit ? 160 : 120, now);
+    thudOsc.frequency.exponentialRampToValueAtTime(35, now + 0.18);
+    thudGain.gain.setValueAtTime(0.55, now);
+    thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+    thudOsc.connect(thudGain);
+    thudGain.connect(ctx.destination);
+    thudOsc.start(now);
+    thudOsc.stop(now + 0.22);
+
+    if (isHit) {
+      // Wood knock / brass plate click
+      const woodOsc = ctx.createOscillator();
+      const woodGain = ctx.createGain();
+      woodOsc.type = "triangle";
+      woodOsc.frequency.setValueAtTime(450, now);
+      woodOsc.frequency.exponentialRampToValueAtTime(90, now + 0.08);
+      woodGain.gain.setValueAtTime(0.4, now);
+      woodGain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+      woodOsc.connect(woodGain);
+      woodGain.connect(ctx.destination);
+      woodOsc.start(now);
+      woodOsc.stop(now + 0.1);
+    }
+    return;
+  }
+
+  // Steel sword / rapier / dagger whoosh & sharp metal slash
+  const whoosh = ctx.createBufferSource();
+  whoosh.buffer = getSharedNoiseBuffer(ctx);
+  const whooshFilter = ctx.createBiquadFilter();
+  whooshFilter.type = "bandpass";
+  whooshFilter.frequency.setValueAtTime(800, now);
+  whooshFilter.frequency.exponentialRampToValueAtTime(2200, now + 0.12);
+  whooshFilter.Q.value = 3.5;
+  const whooshGain = ctx.createGain();
+  whooshGain.gain.setValueAtTime(0.45, now);
+  whooshGain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+  whoosh.connect(whooshFilter);
+  whooshFilter.connect(whooshGain);
+  whooshGain.connect(ctx.destination);
+  whoosh.start(now);
+  whoosh.stop(now + 0.18);
+
+  if (isHit) {
+    // Sharp blade steel ring & flesh cut
+    const clang = ctx.createOscillator();
+    const clangGain = ctx.createGain();
+    clang.type = "sine";
+    clang.frequency.setValueAtTime(isCrit ? 1450 : 920, now + 0.04);
+    clang.frequency.exponentialRampToValueAtTime(280, now + 0.25);
+    clangGain.gain.setValueAtTime(0.5, now + 0.04);
+    clangGain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+    clang.connect(clangGain);
+    clangGain.connect(ctx.destination);
+    clang.start(now + 0.04);
+    clang.stop(now + 0.3);
+  }
+}
+

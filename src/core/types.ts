@@ -150,6 +150,20 @@ export interface SpecialAbilityDef {
   currentCooldown: number;
 }
 
+export interface MeleeWeaponStats {
+  id: string;
+  name: string;
+  kind: "sword" | "dagger" | "polearm" | "pistol_butt" | "fist";
+  minDamage: number;
+  maxDamage: number;
+  critBonusDamage: number;
+  baseCritChance: number;
+  baseAccuracy: number;
+  armorPierce: number;
+  armorShred: number;
+  description: string;
+}
+
 export interface UnitData {
   id: string;
   name: string;
@@ -171,6 +185,10 @@ export interface UnitData {
   /** Počet polí za 1 AP (Modrá zóna) */
   movePerAp: number;
   weapon: WeaponStats;
+  /** Chladná zbraň pro boj zblízka (šavle, kord, dýka, pažba pistole) */
+  meleeWeapon?: MeleeWeaponStats;
+  /** Zda má jednorannou pistoli/bambitku nabitou (hrabě Colloredo má pouze 1 výstřel bez možnosti přebití!) */
+  pistolLoaded?: boolean;
   grenades: number;
   isOverwatch: boolean;
   /** Zda se jednotka v aktuálním tahu již pohnula (ovlivňuje bonus za furketu) */
@@ -270,6 +288,33 @@ export interface TargetEvaluation {
   losRay: GridCoord[];
   inRange: boolean;
   calculation: ShotCalculationResult;
+}
+
+export interface MeleeCalculationResult {
+  attackerId: string;
+  targetId: string;
+  weaponName: string;
+  kind: MeleeWeaponStats["kind"];
+  hitChance: number;
+  critChance: number;
+  heightAdvantage: boolean;
+  minDamage: number;
+  maxDamage: number;
+  critBonusDamage: number;
+  armorPierce: number;
+  armorShred: number;
+  expectedArmorLoss: number;
+  expectedHpLossMin: number;
+  expectedHpLossMax: number;
+  hitModifiers: StatModifier[];
+  critModifiers: StatModifier[];
+}
+
+export interface MeleeTargetEvaluation {
+  targetId: string;
+  targetPos: GridCoord;
+  inRange: boolean;
+  calculation: MeleeCalculationResult;
 }
 
 export interface AttackOutcome {

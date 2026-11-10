@@ -139,19 +139,55 @@ export function TacticalUtilitiesCapsule() {
           </button>
         </div>
 
-        {/* Rychlý přepínač průřezu pater */}
+        {/* Rychlá přímá tlačítka pater P0 / P1 / P2 (1-klikové přepínání podlaží) */}
+        <div
+          role="group"
+          aria-label="Výběr podlaží"
+          className="flex items-center bg-slate-900 rounded-lg p-0.5 border border-amber-900/80 shadow-inner"
+        >
+          {([0, 1, 2] as const).map((floor) => {
+            const isActive = activeFloor === floor;
+            const floorName =
+              floor === 0
+                ? "Přízemí & Zahrada"
+                : floor === 1
+                  ? "Piano Nobile & Terasa"
+                  : "Maltézská věž";
+            return (
+              <button
+                key={floor}
+                type="button"
+                onClick={() => setActiveFloor(floor)}
+                title={`Přepnout pohled do patra P${floor} (${floorName}) [Klávesy V / PageUp / PageDown / Alt+Kolečko]`}
+                className={`px-2 py-0.5 rounded text-[11px] font-cinzel font-black transition-all cursor-pointer ${
+                  isActive
+                    ? "bg-amber-400 text-slate-950 shadow-[0_0_8px_rgba(245,158,11,0.6)]"
+                    : "text-amber-300/80 hover:text-amber-100 hover:bg-amber-950/60"
+                }`}
+              >
+                P{floor}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Tlačítko rozbalení / sbalení detailního vertikálního průřezu pater */}
         <button
           type="button"
           onClick={() => setStackExpanded((p) => !p)}
-          title="Rozbalit / sbalit vertikální průřez pater paláce (klávesy V / PageUp / PageDown / Alt+Kolečko)"
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-950/80 hover:bg-amber-900/80 border border-amber-400/80 text-xs font-cinzel font-black text-amber-100 shadow-[0_0_10px_rgba(245,158,11,0.3)] transition-all cursor-pointer"
+          title="Rozbalit / sbalit detailní architektonický průřez pater s vojáky a schodišti (klávesy V / PageUp / PageDown)"
+          className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border text-xs font-cinzel font-black transition-all cursor-pointer ${
+            stackExpanded
+              ? "bg-amber-950/90 border-amber-400 text-amber-100 shadow-[0_0_8px_rgba(245,158,11,0.35)]"
+              : "baroque-bronze-btn text-amber-200 hover:text-amber-100"
+          }`}
         >
           <Layers className="w-3.5 h-3.5 text-amber-400" />
-          <span>Patro P{activeFloor}</span>
+          <span className="hidden sm:inline">Průřez</span>
           {stackExpanded ? (
-            <ChevronUp className="w-3.5 h-3.5 text-amber-300" />
+            <ChevronUp className="w-3 h-3 text-amber-300" />
           ) : (
-            <ChevronDown className="w-3.5 h-3.5 text-amber-300" />
+            <ChevronDown className="w-3 h-3 text-amber-300" />
           )}
         </button>
 
@@ -389,13 +425,20 @@ export function TacticalUtilitiesCapsule() {
                         </span>
                       )}
 
-                      {isCurrentView && (
+                      {isCurrentView ? (
                         <span
-                          title="Právě zobrazené patro kamery"
-                          className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-500/25 border border-amber-400/70 text-[9px] font-cinzel font-black text-amber-200"
+                          title="Právě aktivní patro bojiště a kamery"
+                          className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-500/25 border border-amber-400/80 text-[9px] font-cinzel font-black text-amber-200 shadow-[0_0_8px_rgba(245,158,11,0.3)]"
                         >
                           <Eye className="w-2.5 h-2.5 text-amber-300" />
-                          <span>Pohled</span>
+                          <span>Aktivní</span>
+                        </span>
+                      ) : (
+                        <span
+                          title={`Kliknutím přepnout pohled do patra ${code}`}
+                          className="text-[9px] font-cinzel font-bold text-amber-300/80 group-hover:text-amber-100 px-1 py-0.5 rounded group-hover:bg-amber-950/80 transition-colors"
+                        >
+                          Zobrazit →
                         </span>
                       )}
                     </div>

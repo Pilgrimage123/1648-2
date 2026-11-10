@@ -13,6 +13,9 @@ import type {
   CoverLevel,
   FloorLevel,
   GridCoord,
+  MeleeCalculationResult,
+  MeleeTargetEvaluation,
+  MeleeWeaponStats,
   ShotCalculationResult,
   StatModifier,
   TargetEvaluation,
@@ -1016,6 +1019,302 @@ export function rollRangedAttack(
     misfireChance: calculation.misfireChance,
     flanked: calculation.isFlanked,
     heightAdvantage: calculation.heightAdvantage,
+    killed,
+  };
+}
+
+/**
+ * Zjistí, zda se dvě souřadnice nacházejí v bezprostředním sousedství pro boj zblízka
+ * (Chebyshevova vzdálenost v rovině X-Z <= 1, výškový rozdíl patra |dy| <= 1, a nejde o stejné pole).
+ */
+export function isAdjacentForMelee(a: GridCoord, b: GridCoord): boolean {
+  const dx = Math.abs(a.x - b.x);
+  const dy = Math.abs(a.y - b.y);
+  const dz = Math.abs(a.z - b.z);
+  return dx <= 1 && dz <= 1 && dy <= 1 && !(dx === 0 && dy === 0 && dz === 0);
+}
+
+/**
+ * Vypočítá pravděpodobnost zásahu, kritického úderu a ztráty zbroje při útoku zblízka (17. století).
+ * Hrabě Colloredo má pouze těžkou ořechovou pažbu své jednoranné bambitky, která působí jen 1-2 HP
+ * a proti nepřátelskému kyrysu je minimálně účinná.
+ */
+export function calculateMeleeAttack(
+  grid: GridSystem,
+  attacker: UnitData,
+  target: UnitData,
+  allUnits?: UnitData[],
+): MeleeCalculationResult {
+  const weapon: MeleeWeaponStats = attacker.meleeWeapon ?? {
+    id: "fist",
+    name: "Pěstní souboj",
+    kind: "fist",
+    minDamage: 1,
+    maxDamage: 2,
+    critBonusDamage: 1,
+    baseCritChance: 5,
+    baseAccuracy: 70,
+    armorPierce: 0,
+    armorShred: 0,
+    description: "Zoufalý boj holýma rukama.",
+  };
+
+  const hitModifiers: StatModifier[] = [];
+  const critModifiers: StatModifier[] = [];
+
+  // 1. ZÁKLADNÍ PŘESNOST ZBRANĚ ZBLÍZKA
+  hitModifiers.push({
+    id: "base-melee-acc",
+    label: `Základní přesnost (${weapon.name})`,
+    detail: weapon.description,
+    value: weapon.baseAccuracy,
+    unit: "%",
+    kind: "base",
+  });
+
+  // 2. BOJOVÁ ZKUŠENOST / ZRUČNOST POSTAVY
+  const skillBonus = Math.round((attacker.marksmanship - 65) * 0.4);
+  if (skillBonus !== 0) {
+    hitModifiers.push({
+      id: "melee-skill-factor",
+      label: "Bojová zručnost šermíře",
+      detail: attacker.roleTitle,
+      value: skillBonus,
+      unit: "%",
+      kind: skillBonus > 0 ? "bonus" : "penalty",
+    });
+  }
+
+  // 3. HANDICAP HRABĚTE COLLOREDA (V noční košili, 7 zranění z Lützenu, těžká pažba)
+  if (attacker.id === "player-colloredo") {
+    hitModifiers.push({
+      id: "colloredo-melee-handicap",
+      label: "Zranění z Lützenu & noční košile",
+      detail: "Maršál těžce kulhá a ohání se těžkou vybitou bambitkou (-15 %)",
+      value: -15,
+      unit: "%",
+      kind: "penalty",
+    });
+  }
+
+  // 4. VÝŠKOVÁ PŘEVAHA (High Ground +15 %)
+  const heightAdvantage = attacker.pos.y > target.pos.y;
+  if (heightAdvantage) {
+    hitModifiers.push({
+      id: "melee-high-ground",
+      label: "Výšková převaha (úder shora)",
+      detail: `Útok z patra ${attacker.pos.y} na patro ${target.pos.y}`,
+      value: 15,
+      unit: "%",
+      kind: "bonus",
+    });
+  }
+
+  // 5. STAV OTŘESENÍ MORÁLKY (Shaken)
+  if (attacker.isShaken) {
+    hitModifiers.push({
+      id: "attacker-shaken",
+      label: "Otřesená morálka útočníka",
+      detail: "Třes rukou po nepřátelské palbě",
+      value: -20,
+      unit: "%",
+      kind: "penalty",
+    });
+  }
+  if (target.isShaken) {
+    hitModifiers.push({
+      id: "target-shaken",
+      label: "Dezorientovaný cíl (Otřesen)",
+      detail: "Cíl nestíhá krýt úder zblízka",
+      value: 15,
+      unit: "%",
+      kind: "bonus",
+    });
+  }
+
+  const rawHit =
+    weapon.baseAccuracy +
+    skillBonus +
+    (attacker.id === "player-colloredo" ? -15 : 0) +
+    (heightAdvantage ? 15 : 0) +
+    (attacker.isShaken ? -20 : 0) +
+    (target.isShaken ? 15 : 0);
+  const hitChance = Math.max(10, Math.min(95, Math.round(rawHit)));
+
+  // KRITICKÝ ZÁSAH
+  critModifiers.push({
+    id: "base-melee-crit",
+    label: `Základní kritická šance (${weapon.name})`,
+    detail: `Bonus kritického zásahu +${weapon.critBonusDamage} HP`,
+    value: weapon.baseCritChance,
+    unit: "%",
+    kind: "base",
+  });
+
+  const armorCritPenalty = target.armor > 0 ? -target.armor * 8 : 0;
+  if (armorCritPenalty !== 0) {
+    critModifiers.push({
+      id: "target-armor-crit-resist",
+      label: `Odolnost kyrysu (${target.armor} b. zbroje)`,
+      detail: "Ocelový kyrys odráží sečné a tupé rány",
+      value: armorCritPenalty,
+      unit: "%",
+      kind: "penalty",
+    });
+  }
+
+  if (weapon.armorPierce > 0) {
+    critModifiers.push({
+      id: "melee-armor-pierce",
+      label: "Průraz čepelí (Armor Pierce)",
+      detail: "Hrot zbraně ignoruje body zbroje",
+      value: weapon.armorPierce,
+      unit: "ZBROJ",
+      kind: "bonus",
+    });
+  }
+
+  if (weapon.armorShred > 0) {
+    critModifiers.push({
+      id: "melee-armor-shred",
+      label: "Destrukce zbroje (Armor Shred)",
+      detail: "Čepel rozsekává řemení a plech kyrysu",
+      value: weapon.armorShred,
+      unit: "ZBROJ",
+      kind: "bonus",
+    });
+  }
+
+  const rawCrit = weapon.baseCritChance + armorCritPenalty;
+  const critChance = Math.max(0, Math.min(85, Math.round(rawCrit)));
+
+  // VÝPOČET ZTRÁT ZDRAVÍ A ZBROJE
+  const expectedArmorLoss = Math.min(target.armor, weapon.armorShred);
+  const remainingArmor = Math.max(0, target.armor - expectedArmorLoss);
+  const effectiveAbsorption = Math.max(0, remainingArmor - weapon.armorPierce);
+
+  const expectedHpLossMin = Math.max(1, weapon.minDamage - effectiveAbsorption);
+  const expectedHpLossMax = Math.max(
+    expectedHpLossMin,
+    weapon.maxDamage - effectiveAbsorption,
+  );
+
+  return {
+    attackerId: attacker.id,
+    targetId: target.id,
+    weaponName: weapon.name,
+    kind: weapon.kind,
+    hitChance,
+    critChance,
+    heightAdvantage,
+    minDamage: weapon.minDamage,
+    maxDamage: weapon.maxDamage,
+    critBonusDamage: weapon.critBonusDamage,
+    armorPierce: weapon.armorPierce,
+    armorShred: weapon.armorShred,
+    expectedArmorLoss,
+    expectedHpLossMin,
+    expectedHpLossMax,
+    hitModifiers,
+    critModifiers,
+  };
+}
+
+/**
+ * Vyhodnotí všechny nepřátele stojící na sousedních polích pro útok zblízka.
+ */
+export function evaluateAdjacentMeleeTargets(
+  grid: GridSystem,
+  attacker: UnitData,
+  allUnits: UnitData[],
+  visibleEnemyIds?: Set<string>,
+): MeleeTargetEvaluation[] {
+  const results: MeleeTargetEvaluation[] = [];
+
+  for (const unit of allUnits) {
+    if (!unit.alive || unit.hp <= 0 || unit.faction === attacker.faction) {
+      continue;
+    }
+    if (visibleEnemyIds && !visibleEnemyIds.has(unit.id)) {
+      continue;
+    }
+    if (!isAdjacentForMelee(attacker.pos, unit.pos)) {
+      continue;
+    }
+
+    const calculation = calculateMeleeAttack(grid, attacker, unit, allUnits);
+    results.push({
+      targetId: unit.id,
+      targetPos: unit.pos,
+      inRange: true,
+      calculation,
+    });
+  }
+
+  results.sort((a, b) => b.calculation.hitChance - a.calculation.hitChance);
+  return results;
+}
+
+/**
+ * Provede útok chladnou zbraní nebo pažbou zblízka.
+ * Útok zblízka nikdy neselhává na vlhký doutnák (misfired: false).
+ */
+export function rollMeleeAttack(
+  attacker: UnitData,
+  target: UnitData,
+  calc: MeleeCalculationResult,
+  rng: () => number = Math.random,
+): AttackOutcome {
+  const hitRoll = rng() * 100;
+  const hit = hitRoll < calc.hitChance;
+
+  if (!hit) {
+    return {
+      attackerId: attacker.id,
+      targetId: target.id,
+      misfired: false,
+      hit: false,
+      critical: false,
+      damage: 0,
+      armorShredded: 0,
+      armorAbsorbed: 0,
+      hitChance: calc.hitChance,
+      critChance: calc.critChance,
+      misfireChance: 0,
+      flanked: true,
+      heightAdvantage: attacker.pos.y > target.pos.y,
+      killed: false,
+    };
+  }
+
+  const critRoll = rng() * 100;
+  const critical = critRoll < calc.critChance;
+  const span = calc.maxDamage - calc.minDamage + 1;
+  const rollDamage = calc.minDamage + Math.floor(rng() * Math.max(1, span));
+  const rawDamage = rollDamage + (critical ? calc.critBonusDamage : 0);
+
+  const armorShredded = Math.min(target.armor, calc.armorShred);
+  const remainingArmor = Math.max(0, target.armor - armorShredded);
+  const effectivePierce = calc.armorPierce + (critical ? 1 : 0);
+  const armorAbsorbed = Math.max(0, remainingArmor - effectivePierce);
+
+  const finalDamage = Math.max(1, rawDamage - armorAbsorbed);
+  const killed = target.hp - finalDamage <= 0;
+
+  return {
+    attackerId: attacker.id,
+    targetId: target.id,
+    misfired: false,
+    hit: true,
+    critical,
+    damage: finalDamage,
+    armorShredded,
+    armorAbsorbed,
+    hitChance: calc.hitChance,
+    critChance: calc.critChance,
+    misfireChance: 0,
+    flanked: true,
+    heightAdvantage: attacker.pos.y > target.pos.y,
     killed,
   };
 }

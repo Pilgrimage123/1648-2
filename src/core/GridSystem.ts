@@ -18,6 +18,7 @@ import type {
   TileData,
   UnitData,
   WeaponStats,
+  MeleeWeaponStats,
 } from "./types";
 
 export const GRID_WIDTH = 20;
@@ -54,6 +55,48 @@ export function bestTileCover(cover: DirectionalCover): CoverLevel {
     best = maxCoverLevel(best, cover[dir]);
   }
   return best;
+}
+
+/**
+ * S vysokou prioritou vybere dlaždici v aktuálně vybraném patře (`activeFloor`: P0 / P1 / P2).
+ * Jiné patro nabídne pouze tehdy, když je zcela jasné, že na dané souřadnici `[x, z]`
+ * vybrané patro vůbec nemá podlahu (např. v jednopatrových místech zahrady nebo nad otevřeným dvorem).
+ */
+export function resolvePreferredFloorCoord(
+  grid: GridSystem,
+  rawCoord: GridCoord,
+  activeFloor: FloorLevel,
+): GridCoord {
+  if (rawCoord.y === activeFloor) {
+    const exact = grid.getTile(rawCoord);
+    if (exact && exact.hasFloor) return rawCoord;
+  }
+
+  // 1. Nejvyšší priorita: existuje na [x, z] podlaha přímo ve vybraném patře (activeFloor)?
+  const preferred: GridCoord = {
+    x: rawCoord.x,
+    y: activeFloor,
+    z: rawCoord.z,
+  };
+  const preferredTile = grid.getTile(preferred);
+  if (preferredTile && preferredTile.hasFloor) {
+    return preferred;
+  }
+
+  // 2. Fallback pro jednopatrová místa (zahrada, otevřený dvůr): nejbližší nižší existující podlaha
+  for (let f = activeFloor - 1; f >= 0; f--) {
+    const candidate: GridCoord = {
+      x: rawCoord.x,
+      y: f as FloorLevel,
+      z: rawCoord.z,
+    };
+    const candidateTile = grid.getTile(candidate);
+    if (candidateTile && candidateTile.hasFloor) {
+      return candidate;
+    }
+  }
+
+  return rawCoord;
 }
 
 /**
@@ -499,10 +542,9 @@ export function createInitialGrid(): GridSystem {
   // ===========================================================================
   for (let z = 15; z <= 22; z++) {
     for (let x = 3; x <= 16; x++) {
-      // Otevřené nebe nad vnitřním nádvořím (x: 7..12, z: 16..18) a nad hlavním obloukem Sala Terreny (x: 9..10, z: 15)
+      // Otevřené nebe nad vnitřním nádvořím (x: 7..12, z: 16..18)
       const isCourtyardWell = x >= 7 && x <= 12 && z >= 16 && z <= 18;
-      const isSalaTerrenaArch = (x === 9 || x === 10) && z === 15;
-      if (isCourtyardWell || isSalaTerrenaArch) continue;
+      if (isCourtyardWell) continue;
 
       const isGrandCarpet =
         ((x === 9 || x === 10) && z >= 19 && z <= 22) ||
@@ -868,6 +910,111 @@ export const WEAPON_CATALOG: Record<string, WeaponStats> = {
 };
 
 /**
+ * Dobové chladné zbraně pro boj zblízka (17. století):
+ * šavle, kordy, rapíry, tesáky, klerická furketa a nouzová ořechová pažba vybité bambitky.
+ */
+export const MELEE_CATALOG: Record<string, MeleeWeaponStats> = {
+  colloredo_pistol_butt: {
+    id: "colloredo_pistol_butt",
+    name: "Pažba vybité bambitky",
+    kind: "pistol_butt",
+    minDamage: 1,
+    maxDamage: 2,
+    critBonusDamage: 1,
+    baseCritChance: 5,
+    baseAccuracy: 60,
+    armorPierce: 0,
+    armorShred: 0,
+    description:
+      "Hrabě v noční košili nemá meč. Zoufale se brání úderem těžké ořechové pažby své vystřelené pistole (minimální poškození proti kyrysu).",
+  },
+  valet_cleaver: {
+    id: "valet_cleaver",
+    name: "Lovecký tesák komorníka",
+    kind: "dagger",
+    minDamage: 3,
+    maxDamage: 5,
+    critBonusDamage: 2,
+    baseCritChance: 15,
+    baseAccuracy: 85,
+    armorPierce: 0,
+    armorShred: 1,
+    description:
+      "Ostrý lovecký tesák na černou zvěř, kterým Jan Matěj dokáže probodnout slabiny nepřátelského kyrysu.",
+  },
+  cleric_dagger: {
+    id: "cleric_dagger",
+    name: "Písařské rydlo & vidlice furkety",
+    kind: "polearm",
+    minDamage: 2,
+    maxDamage: 4,
+    critBonusDamage: 2,
+    baseCritChance: 10,
+    baseAccuracy: 75,
+    armorPierce: 1,
+    armorShred: 0,
+    description:
+      "Ocelový hrot muškétové furkety a těžké písařské rydlo klementinského studenta Václava z Michalovic.",
+  },
+  maltese_broadsword: {
+    id: "maltese_broadsword",
+    name: "Maltézský válečný meč & kord",
+    kind: "sword",
+    minDamage: 4,
+    maxDamage: 6,
+    critBonusDamage: 3,
+    baseCritChance: 20,
+    baseAccuracy: 85,
+    armorPierce: 1,
+    armorShred: 1,
+    description:
+      "Těžká kovaná sečná čepel bratra Bartoloměje ukovaná v maltézské zbrojnici — drtí kosti i kyrysy.",
+  },
+  officer_rapier: {
+    id: "officer_rapier",
+    name: "Odowalského důstojnický rapír",
+    kind: "sword",
+    minDamage: 4,
+    maxDamage: 6,
+    critBonusDamage: 3,
+    baseCritChance: 25,
+    baseAccuracy: 88,
+    armorPierce: 2,
+    armorShred: 0,
+    description:
+      "Šermířský valonský rapír zrádného podplukovníka se smrtící bodnou průrazností.",
+  },
+  dragoon_saber: {
+    id: "dragoon_saber",
+    name: "Švédská jezdecká šavle",
+    kind: "sword",
+    minDamage: 3,
+    maxDamage: 5,
+    critBonusDamage: 2,
+    baseCritChance: 15,
+    baseAccuracy: 80,
+    armorPierce: 1,
+    armorShred: 0,
+    description:
+      "Zahnutá dragounská šavle švédské jízdy generála Königsmarcka pro sekání zblízka.",
+  },
+  swedish_dagger: {
+    id: "swedish_dagger",
+    name: "Vojenská zákopová dýka",
+    kind: "dagger",
+    minDamage: 2,
+    maxDamage: 4,
+    critBonusDamage: 2,
+    baseCritChance: 10,
+    baseAccuracy: 75,
+    armorPierce: 0,
+    armorShred: 0,
+    description:
+      "Kovaná pěchotní dýka švédských mušketýrů pro boj tělo na tělo.",
+  },
+};
+
+/**
  * Rozestavení 1. mise: Útěk hraběte Colloreda z Velkopřevorského paláce přes zahradu k Čertovce.
  * Obránci (4): Kulhající velkopřevor a polní maršál v noční košili (VIP) u paty čestného schodiště a jeho 3 věrní.
  * Švédský přepad (4): Zrádce Odowalsky a jeho přepadový oddíl ve Velkopřevorské zahradě a na belvederu.
@@ -892,6 +1039,8 @@ export function createInitialUnits(): UnitData[] {
       marksmanship: 75,
       movePerAp: 3, // Těžký handicap: 7 zranění z Lützenu 1632, těžce kulhá
       weapon: WEAPON_CATALOG.colloredo_wheellock_pistol!,
+      meleeWeapon: MELEE_CATALOG.colloredo_pistol_butt!,
+      pistolLoaded: true, // Má pouze 1 výstřel z postele, nelze v boji znovu nabít!
       grenades: 0,
       isOverwatch: false,
       movedThisTurn: false,
@@ -932,6 +1081,7 @@ export function createInitialUnits(): UnitData[] {
       marksmanship: 68,
       movePerAp: 5,
       weapon: WEAPON_CATALOG.wheellock_carbine!,
+      meleeWeapon: MELEE_CATALOG.valet_cleaver!,
       grenades: 1,
       isOverwatch: false,
       movedThisTurn: false,
@@ -957,7 +1107,7 @@ export function createInitialUnits(): UnitData[] {
       roleTitle: "Klementinský klerik & písař (Furketa & Doutnák)",
       faction: "player",
       archetype: "sniper",
-      pos: { x: 11, y: 1, z: 16 },
+      pos: { x: 13, y: 1, z: 15 },
       facing: "N",
       hp: 6,
       maxHp: 6,
@@ -968,6 +1118,7 @@ export function createInitialUnits(): UnitData[] {
       marksmanship: 78,
       movePerAp: 4,
       weapon: WEAPON_CATALOG.matchlock_musket_fork!,
+      meleeWeapon: MELEE_CATALOG.cleric_dagger!,
       grenades: 1,
       isOverwatch: false,
       movedThisTurn: false,
@@ -1004,6 +1155,7 @@ export function createInitialUnits(): UnitData[] {
       marksmanship: 65,
       movePerAp: 4,
       weapon: WEAPON_CATALOG.heavy_arquebus!,
+      meleeWeapon: MELEE_CATALOG.maltese_broadsword!,
       grenades: 2,
       isOverwatch: false,
       movedThisTurn: false,
@@ -1041,6 +1193,7 @@ export function createInitialUnits(): UnitData[] {
       marksmanship: 74,
       movePerAp: 4,
       weapon: WEAPON_CATALOG.odowalsky_carbine!,
+      meleeWeapon: MELEE_CATALOG.officer_rapier!,
       grenades: 1,
       isOverwatch: false,
       movedThisTurn: false,
@@ -1066,6 +1219,7 @@ export function createInitialUnits(): UnitData[] {
       marksmanship: 68,
       movePerAp: 5,
       weapon: WEAPON_CATALOG.wheellock_carbine!,
+      meleeWeapon: MELEE_CATALOG.dragoon_saber!,
       grenades: 0,
       isOverwatch: false,
       movedThisTurn: false,
@@ -1091,6 +1245,7 @@ export function createInitialUnits(): UnitData[] {
       marksmanship: 65,
       movePerAp: 4,
       weapon: WEAPON_CATALOG.swedish_musket!,
+      meleeWeapon: MELEE_CATALOG.swedish_dagger!,
       grenades: 0,
       isOverwatch: false,
       movedThisTurn: false,
@@ -1116,6 +1271,7 @@ export function createInitialUnits(): UnitData[] {
       marksmanship: 72,
       movePerAp: 4,
       weapon: WEAPON_CATALOG.swedish_musket!,
+      meleeWeapon: MELEE_CATALOG.swedish_dagger!,
       grenades: 1,
       isOverwatch: false,
       movedThisTurn: false,
@@ -1148,6 +1304,7 @@ export function createReinforcementUnits(): UnitData[] {
       marksmanship: 68,
       movePerAp: 5,
       weapon: WEAPON_CATALOG.wheellock_carbine!,
+      meleeWeapon: MELEE_CATALOG.dragoon_saber!,
       grenades: 0,
       isOverwatch: false,
       movedThisTurn: false,
@@ -1171,6 +1328,7 @@ export function createReinforcementUnits(): UnitData[] {
       marksmanship: 65,
       movePerAp: 4,
       weapon: WEAPON_CATALOG.swedish_musket!,
+      meleeWeapon: MELEE_CATALOG.dragoon_saber!,
       grenades: 1,
       isOverwatch: false,
       movedThisTurn: false,

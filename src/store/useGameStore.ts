@@ -6,12 +6,17 @@
 
 import { create } from "zustand";
 import {
+  calculateMeleeAttack,
   calculateShot,
   checkLineOfSight3D,
   computeEnemyAiDecision,
+  evaluateAdjacentMeleeTargets,
   evaluateVisibleTargets,
   facingFromDelta,
   gridDistance3D,
+  isAdjacentForMelee,
+  resolveTargetCoverAgainstShot,
+  rollMeleeAttack,
   rollRangedAttack,
 } from "../core/CombatSystem";
 import {
@@ -24,6 +29,7 @@ import {
   sameCoord,
 } from "../core/GridSystem";
 import {
+  checkFogLineOfSight3D,
   computeFogOfWar,
   createInitialExploredCoords,
   previewReconFromTile,
@@ -35,16 +41,22 @@ import {
   playExplosionSound,
   playMisfireSound,
   playHitSound,
+  playMeleeSound,
+  playRicochetSound,
   playSpecialAbilitySound,
 } from "../utils/audioSystem";
 import type {
+  AttackOutcome,
   CaptureReason,
   CardinalDir,
   CombatLogEntry,
+  CoverLevel,
   Faction,
   FloorLevel,
   FogOfWarSnapshot,
   GridCoord,
+  MeleeCalculationResult,
+  MeleeTargetEvaluation,
   ReachableTile,
   RenderMode,
   TargetEvaluation,
@@ -52,7 +64,44 @@ import type {
   WeatherType,
 } from "../core/types";
 
-export type ActionMode = "move" | "shoot" | "grenade";
+export type ActionMode = "move" | "shoot" | "grenade" | "melee";
+
+export type ImpactObstacleKind =
+  | "high_wall"
+  | "pillar"
+  | "low_wall"
+  | "palace_wood"
+  | "palace_stucco"
+  | "cobble";
+
+export interface UnitCombatLoss {
+  id: number;
+  timestamp: number;
+  durationMs: number;
+  attackerName: string;
+  weaponName: string;
+  hit: boolean;
+  critical: boolean;
+  misfired: boolean;
+  hitChance?: number;
+  /** Stav zdraví před zásahem a po zásahu */
+  hpBefore: number;
+  hpAfter: number;
+  hpLost: number;
+  maxHp: number;
+  /** Stav zbroje (kyrysu) před zásahem a po zásahu */
+  armorBefore: number;
+  armorAfter: number;
+  armorLost: number;
+  armorAbsorbed: number;
+  maxArmor: number;
+  /** Ztráta akčních bodů (AP), morálky, hlídky či svobody */
+  apLost: number;
+  shakenApplied: boolean;
+  overwatchLost: boolean;
+  detainedApplied: boolean;
+  killed: boolean;
+}
 
 export interface UnitVisualFX {
   lungeTimestamp: number;
@@ -62,18 +111,35 @@ export interface UnitVisualFX {
     text: string;
     tone: "hit" | "crit" | "miss" | "misfire" | "overwatch" | "buff";
   } | null;
+  combatLoss?: UnitCombatLoss | null;
 }
 
 export interface ProjectileVisual {
   id: number;
   from: GridCoord;
   to: GridCoord;
-  kind: "bullet" | "grenade" | "sniper_beam" | "shrapnel_burst";
+  targetId?: string;
+  hitChance?: number;
+  kind: "bullet" | "grenade" | "sniper_beam" | "shrapnel_burst" | "melee_strike";
   createdAt: number;
   durationMs?: number;
   hit?: boolean;
   critical?: boolean;
   misfired?: boolean;
+  /** Výsledné zranění do zdraví (HP) pro škálování částic krve a otřesu kamery */
+  damage?: number;
+  /** Závažnost krvácení: 0 = bez krve (minutí / pohlceno kyrysem), 1 = lehké (1-2 HP), 2 = střední průstřel (3-4 HP), 3 = těžké/kritické/smrtící (5+ HP) */
+  bloodSeverity?: 0 | 1 | 2 | 3;
+  /** Počet stržených bodů zbroje (odletující kovové střepiny kyrysu) */
+  armorShredded?: number;
+  /** Počet bodů poškození pohlcených zbrojí */
+  armorAbsorbed?: number;
+  /** Zda cíl po zásahu padl k zemi */
+  killed?: boolean;
+  /** Typ zasažené překážky / zdiva při minutí cíle */
+  impactObstacle?: ImpactObstacleKind;
+  /** Přesná souřadnice dlaždice/překážky, do které narazila zbloudilá kulka při minutí */
+  missImpactCoord?: GridCoord;
   extraTargets?: GridCoord[];
   detonatedKegs?: GridCoord[];
 }
@@ -119,6 +185,7 @@ interface GameStoreState {
   hoveredPath: GridCoord[];
   hoveredSpottedEnemyIds: string[];
   visibleTargets: TargetEvaluation[];
+  visibleMeleeTargets: MeleeTargetEvaluation[];
   selectedTargetId: string | null;
 
   isBusy: boolean;
@@ -175,6 +242,7 @@ interface GameStoreState {
   handleUnitClick: (unitId: string) => void;
   completeUnitMovement: () => void;
   executeShoot: (targetId?: string) => void;
+  executeMelee: (targetId?: string) => void;
   activateOverwatch: () => void;
   executeGrenade: (targetCoord: GridCoord) => void;
   toggleDoor: (coord: GridCoord) => void;
@@ -206,6 +274,163 @@ function delay(ms: number): Promise<void> {
     return Promise.resolve();
   }
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Spočítá metadata zásahu nebo minutí střely:
+ * - Určí stupeň krvácení (`bloodSeverity`: 0 | 1 | 2 | 3) podle uděleného poškození, kritického zásahu a vyřazení cíle
+ * - Při minutí (`hit === false`) vyhledá skutečnou překážku (kryt před cílem nebo zeď/pilíř za cílem),
+ *   do které kulka narazí a ze které odletí kusy zdiva, omítky, dřevěných třísek a prachu.
+ */
+export function resolveShotImpactMetadata(
+  grid: GridSystem,
+  from: GridCoord,
+  to: GridCoord,
+  outcome: Pick<
+    AttackOutcome,
+    | "hit"
+    | "critical"
+    | "misfired"
+    | "damage"
+    | "armorShredded"
+    | "armorAbsorbed"
+    | "killed"
+  >,
+): {
+  bloodSeverity: 0 | 1 | 2 | 3;
+  impactObstacle: ImpactObstacleKind;
+  missImpactCoord: GridCoord;
+} {
+  let bloodSeverity: 0 | 1 | 2 | 3 = 0;
+  if (outcome.hit && !outcome.misfired && outcome.damage > 0) {
+    if (
+      outcome.damage >= 5 ||
+      outcome.killed ||
+      (outcome.critical && outcome.damage >= 3)
+    ) {
+      bloodSeverity = 3;
+    } else if (outcome.damage >= 3 || outcome.critical) {
+      bloodSeverity = 2;
+    } else {
+      bloodSeverity = 1;
+    }
+  }
+
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const len = Math.max(1, Math.hypot(dx, dz));
+  const stepX = Math.round(dx / len);
+  const stepZ = Math.round(dz / len);
+  const perpX = -stepZ;
+  const perpZ = stepX;
+
+  // Kandidáti na zasaženou překážku při minutí:
+  // 1) Kryt přímo před cílem (který střelu zastavil)
+  // 2) Zeď / pilíř / barikáda přímo za cílem nebo šikmo vedle cíle ve směru palby
+  const candidates: GridCoord[] = [
+    { x: to.x - stepX, y: to.y, z: to.z - stepZ },
+    { x: to.x + stepX, y: to.y, z: to.z + stepZ },
+    { x: to.x + stepX + perpX, y: to.y, z: to.z + stepZ + perpZ },
+    { x: to.x + stepX - perpX, y: to.y, z: to.z + stepZ - perpZ },
+    { x: to.x + perpX, y: to.y, z: to.z + perpZ },
+    { x: to.x - perpX, y: to.y, z: to.z - perpZ },
+    to,
+  ];
+
+  for (const cand of candidates) {
+    const t = grid.getTile(cand);
+    if (!t) continue;
+    if (t.obstacle === "high_wall") {
+      return {
+        bloodSeverity,
+        impactObstacle: cand.z >= 15 ? "palace_stucco" : "high_wall",
+        missImpactCoord: cand,
+      };
+    }
+    if (t.obstacle === "pillar") {
+      return {
+        bloodSeverity,
+        impactObstacle: "pillar",
+        missImpactCoord: cand,
+      };
+    }
+    if (t.obstacle === "low_wall") {
+      return {
+        bloodSeverity,
+        impactObstacle: cand.z >= 15 ? "palace_wood" : "low_wall",
+        missImpactCoord: cand,
+      };
+    }
+  }
+
+  const fallbackCoord: GridCoord = {
+    x: Math.max(0, Math.min(grid.width - 1, to.x + stepX)),
+    y: to.y,
+    z: Math.max(0, Math.min(grid.depth - 1, to.z + stepZ)),
+  };
+  return {
+    bloodSeverity,
+    impactObstacle: to.z >= 15 ? "palace_stucco" : "cobble",
+    missImpactCoord: fallbackCoord,
+  };
+}
+
+/**
+ * Sestaví přesný rozpis ztrát zasažené jednotky (`UnitCombatLoss`) pro přímé zobrazení nad cílem během útoku.
+ */
+export function buildUnitCombatLoss(
+  beforeUnit: UnitData,
+  afterUnit: UnitData,
+  opts: {
+    attackerName: string;
+    weaponName: string;
+    hit: boolean;
+    critical: boolean;
+    misfired: boolean;
+    hitChance?: number;
+    armorAbsorbed?: number;
+    durationMs?: number;
+  },
+): UnitCombatLoss {
+  const hpBefore = beforeUnit.hp;
+  const hpAfter = Math.max(0, afterUnit.hp);
+  const hpLost = Math.max(0, hpBefore - hpAfter);
+  const armorBefore = beforeUnit.armor;
+  const armorAfter = Math.max(0, afterUnit.armor);
+  const armorLost = Math.max(0, armorBefore - armorAfter);
+  const apLost = Math.max(0, beforeUnit.ap - afterUnit.ap);
+  const shakenApplied = !beforeUnit.isShaken && afterUnit.isShaken && hpAfter > 0;
+  const overwatchLost = beforeUnit.isOverwatch && !afterUnit.isOverwatch;
+  const detainedApplied =
+    (beforeUnit.detainedTurns ?? 0) === 0 && (afterUnit.detainedTurns ?? 0) > 0;
+  const killed =
+    hpBefore > 0 && hpAfter <= 0 && afterUnit.id !== "player-colloredo";
+
+  return {
+    id: fxSeq++,
+    timestamp: performance.now(),
+    durationMs: opts.durationMs ?? 1500,
+    attackerName: opts.attackerName,
+    weaponName: opts.weaponName,
+    hit: opts.hit,
+    critical: opts.critical,
+    misfired: opts.misfired,
+    hitChance: opts.hitChance,
+    hpBefore,
+    hpAfter,
+    hpLost,
+    maxHp: beforeUnit.maxHp,
+    armorBefore,
+    armorAfter,
+    armorLost,
+    armorAbsorbed: opts.armorAbsorbed ?? 0,
+    maxArmor: Math.max(beforeUnit.maxArmor, armorBefore),
+    apLost,
+    shakenApplied,
+    overwatchLost,
+    detainedApplied,
+    killed,
+  };
 }
 
 /**
@@ -505,6 +730,58 @@ export function findFreeSpawnCoord(
   return preferred;
 }
 
+/**
+ * Automaticky vyhledá následujícího bojeschopného vojáka hráče s volnými AP (ap > 0).
+ * Pokud má aktuálně vybraná jednotka stále volné AP (ap > 0), ponechá ji vybranou.
+ * Jakmile jednotka vyčerpá svůj tah (ap === 0), přepne automaticky na dalšího vojáka v pořadí.
+ */
+export function findNextAvailablePlayerUnit(
+  units: UnitData[],
+  currentSelectedId: string | null,
+): UnitData | null {
+  const synced = syncColloredoMobility(units);
+  const playerUnits = synced.filter(
+    (u) =>
+      u.faction === "player" &&
+      u.alive &&
+      u.hp > 0 &&
+      (u.detainedTurns ?? 0) === 0,
+  );
+  if (playerUnits.length === 0) return null;
+
+  const currentUnit = playerUnits.find((u) => u.id === currentSelectedId);
+  // Pokud má stávající jednotka stále AP > 0, ponecháme ji vybranou!
+  if (currentUnit && currentUnit.ap > 0) {
+    return currentUnit;
+  }
+
+  // Pokud stávající jednotka vyčerpala AP (ap === 0), hledáme dalšího vojáka v pořadí družiny s ap > 0
+  const currentRosterIdx = synced.findIndex((u) => u.id === currentSelectedId);
+  if (currentRosterIdx >= 0) {
+    for (let i = 1; i <= synced.length; i++) {
+      const idx = (currentRosterIdx + i) % synced.length;
+      const candidate = synced[idx];
+      if (
+        candidate &&
+        candidate.faction === "player" &&
+        candidate.alive &&
+        candidate.hp > 0 &&
+        candidate.ap > 0 &&
+        (candidate.detainedTurns ?? 0) === 0
+      ) {
+        return candidate;
+      }
+    }
+  }
+
+  // Pokud nebyl nalezen žádný v kruhovém pořadí, vezmeme prvního s AP > 0
+  const firstWithAp = playerUnits.find((u) => u.ap > 0);
+  if (firstWithAp) return firstWithAp;
+
+  // Pokud VŠICHNI vojáci vyčerpali svoje AP (0 AP), ponecháme stávající jednotku nebo první živou
+  return currentUnit ?? playerUnits[0] ?? null;
+}
+
 function extractDynamicLights(blastZones: BlastZoneEvent[]): DynamicLightSource[] {
   return blastZones.slice(-8).map((bz) => ({
     coord: bz.coord,
@@ -537,6 +814,7 @@ function deriveSelectionData(
     return {
       reachableTiles: new Map<string, ReachableTile>(),
       visibleTargets: [] as TargetEvaluation[],
+      visibleMeleeTargets: [] as MeleeTargetEvaluation[],
       selectedTargetId: null as string | null,
       units: syncedUnits,
       fogSnapshot,
@@ -552,14 +830,19 @@ function deriveSelectionData(
   const visibleTargets = isDetained
     ? ([] as TargetEvaluation[])
     : evaluateVisibleTargets(grid, unit, syncedUnits, weather, visibleFilter);
+  const visibleMeleeTargets = isDetained
+    ? ([] as MeleeTargetEvaluation[])
+    : evaluateAdjacentMeleeTargets(grid, unit, syncedUnits, visibleFilter);
   const keepTarget =
     preferredTargetId &&
-    visibleTargets.some((t) => t.targetId === preferredTargetId)
+    (visibleTargets.some((t) => t.targetId === preferredTargetId) ||
+      visibleMeleeTargets.some((t) => t.targetId === preferredTargetId))
       ? preferredTargetId
-      : (visibleTargets[0]?.targetId ?? null);
+      : (visibleTargets[0]?.targetId ?? visibleMeleeTargets[0]?.targetId ?? null);
   return {
     reachableTiles,
     visibleTargets,
+    visibleMeleeTargets,
     selectedTargetId: keepTarget,
     units: syncedUnits,
     fogSnapshot,
@@ -732,6 +1015,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         text: string;
         tone: "hit" | "crit" | "miss" | "misfire" | "overwatch" | "buff";
       };
+      loss: UnitCombatLoss | null;
     }>,
   ) => {
     const now = performance.now();
@@ -740,6 +1024,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         lungeTimestamp: 0,
         hitTimestamp: 0,
         floatingBanner: null,
+        combatLoss: null,
       };
       return {
         unitFx: {
@@ -750,6 +1035,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             floatingBanner: patch.banner
               ? { id: fxSeq++, ...patch.banner }
               : prev.floatingBanner,
+            combatLoss:
+              patch.loss !== undefined ? patch.loss : prev.combatLoss,
           },
         },
       };
@@ -825,35 +1112,166 @@ export const useGameStore = create<GameStoreState>((set, get) => {
   const performOverwatchReactionsIfAny = async (
     movedUnitId: string,
     destCoord: GridCoord,
+    movementPath?: GridCoord[],
   ) => {
     const state = get();
     const movedUnit = state.units.find((u) => u.id === movedUnitId);
     if (!movedUnit || !movedUnit.alive) return;
 
-    const watchers = state.units.filter(
+    // Trasa pohybu (nebo fallback na cílové pole)
+    const evaluatedPath =
+      movementPath && movementPath.length > 0 ? movementPath : [destCoord];
+
+    // Najdeme hlídkující vojáky opačné frakce
+    const potentialWatchers = state.units.filter(
       (u) =>
         u.alive &&
         u.hp > 0 &&
         u.faction !== movedUnit.faction &&
-        u.isOverwatch &&
-        gridDistance3D(u.pos, destCoord) <= u.weapon.maxRange &&
-        checkLineOfSight3D(state.grid, u.pos, destCoord).clear,
+        u.isOverwatch,
     );
 
-    for (const watcher of watchers) {
+    if (potentialWatchers.length === 0) return;
+
+    for (const watcher of potentialWatchers) {
       const currentMoved = get().units.find((u) => u.id === movedUnitId);
       if (!currentMoved || !currentMoved.alive || currentMoved.hp <= 0) break;
 
+      // Zkontrolujeme, zda střelec má stále aktivní hlídku (nebyl mezitím vyřazen či zrušen)
+      const freshWatcher = get().units.find((u) => u.id === watcher.id);
+      if (
+        !freshWatcher ||
+        !freshWatcher.alive ||
+        freshWatcher.hp <= 0 ||
+        !freshWatcher.isOverwatch
+      ) {
+        continue;
+      }
+
+      // XCOM taktika: Hlídkující hledá moment na trase, kdy nepřítel běží
+      // ZÁROVEŇ: 1) pohybuje se, 2) NENÍ v krytu (cover !== 'full', ideálně cover === 'none'), 3) je plně viditelný
+      type CandidateStep = {
+        coord: GridCoord;
+        cover: CoverLevel;
+        isFlanked: boolean;
+        dist: number;
+        index: number;
+      };
+
+      const validSteps: CandidateStep[] = [];
+
+      for (let i = 0; i < evaluatedPath.length; i++) {
+        const step = evaluatedPath[i]!;
+        const dist = gridDistance3D(freshWatcher.pos, step);
+        if (dist > freshWatcher.weapon.maxRange) continue;
+
+        // Kontrola 3D přímé viditelnosti
+        const los = checkLineOfSight3D(get().grid, freshWatcher.pos, step);
+        if (!los.clear) continue;
+
+        // Kontrola mlhy války (musí být viditelný v šerosvitu pozorovatele)
+        const fogCheck = checkFogLineOfSight3D(
+          get().grid,
+          freshWatcher.pos,
+          step,
+          false,
+        );
+        if (!fogCheck) continue;
+
+        // Kontrola krytu na daném poli vůči střelci: nepřítel NESMÍ být v krytu (žádný Full Cover)
+        const coverRes = resolveTargetCoverAgainstShot(
+          get().grid,
+          freshWatcher.pos,
+          step,
+        );
+
+        if (coverRes.cover !== "full") {
+          validSteps.push({
+            coord: step,
+            cover: coverRes.cover,
+            isFlanked: coverRes.cover === "none",
+            dist,
+            index: i,
+          });
+        }
+      }
+
+      // Pokud na žádném poli nebyl cíl nekrytý a viditelný, zkusíme fallback na cílové pole pouze pokud není za plnou zdí
+      let ambushStep: CandidateStep | null = null;
+      if (validSteps.length > 0) {
+        // Preferujeme pole bez jakéhokoliv krytu (cover === 'none' / obchvat),
+        // následně co nejblíže optimálnímu dostřelu střelce a blíže začátku pohybu (rychlý záchyt)
+        validSteps.sort((a, b) => {
+          if (a.isFlanked && !b.isFlanked) return -1;
+          if (!a.isFlanked && b.isFlanked) return 1;
+          const aDistDiff = Math.abs(a.dist - freshWatcher.weapon.optimalRange);
+          const bDistDiff = Math.abs(b.dist - freshWatcher.weapon.optimalRange);
+          if (aDistDiff !== bDistDiff) return aDistDiff - bDistDiff;
+          return a.index - b.index;
+        });
+        ambushStep = validSteps[0]!;
+      } else {
+        const distToDest = gridDistance3D(freshWatcher.pos, destCoord);
+        const losDest = checkLineOfSight3D(get().grid, freshWatcher.pos, destCoord);
+        if (distToDest <= freshWatcher.weapon.maxRange && losDest.clear) {
+          const destCover = resolveTargetCoverAgainstShot(
+            get().grid,
+            freshWatcher.pos,
+            destCoord,
+          );
+          if (destCover.cover !== "full") {
+            ambushStep = {
+              coord: destCoord,
+              cover: destCover.cover,
+              isFlanked: destCover.cover === "none",
+              dist: distToDest,
+              index: evaluatedPath.length - 1,
+            };
+          }
+        }
+      }
+
+      if (!ambushStep) continue;
+
+      const ambushCoord = ambushStep.coord;
+
+      // 1. Upozornění a zaměření: Hlídkující spatřil pohybujícího se nekrytého nepřítele
+      // Natočíme hlídkujícího k cíli a zobrazíme indikátor napadení
+      set((s) => ({
+        activeFloor: ambushCoord.y,
+        units: s.units.map((u) =>
+          u.id === freshWatcher.id
+            ? {
+                ...u,
+                facing: facingFromDelta(u.pos, ambushCoord, u.facing),
+              }
+            : u,
+        ),
+      }));
+
+      triggerUnitFx(freshWatcher.id, {
+        banner: { text: "SPATŘEN V POHYBU!", tone: "overwatch" },
+      });
+
+      // 2. Přesně 1 sekunda (1000 ms) prodleva po splnění podmínek (pohybuje se + není v krytu + viditelný)
+      // Během této 1s hráč vidí zaměření, hlídkující sleduje nekrytý cíl a akční kamera se připraví na výstřel!
+      await delay(1000);
+
+      // Znovu ověříme stav před samotným výstřelem (zda mezitím hra neskončila)
+      const targetUnitNow = get().units.find((u) => u.id === movedUnitId);
+      if (!targetUnitNow || !targetUnitNow.alive || targetUnitNow.hp <= 0) break;
+
       const calculation = calculateShot(
         get().grid,
-        watcher,
-        currentMoved,
+        freshWatcher,
+        { ...targetUnitNow, pos: ambushCoord },
         get().weather,
-        watcher.pos,
+        freshWatcher.pos,
       );
+
       const outcome = rollRangedAttack(
-        watcher,
-        currentMoved,
+        freshWatcher,
+        targetUnitNow,
         calculation,
         Math.random,
         0.85,
@@ -861,24 +1279,31 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
       // Výstřel z Overwatch vytvoří oblak kouře z černého prachu na dlaždici střelce
       if (!outcome.misfired) {
-        get().grid.addSmoke(watcher.pos, 0, 2);
+        get().grid.addSmoke(freshWatcher.pos, 0, 2);
       }
 
       if (outcome.misfired) {
         playMisfireSound();
       } else {
-        playGunshotSound(watcher.weapon.lockType === "wheellock");
+        playGunshotSound(freshWatcher.weapon.lockType === "wheellock");
       }
 
+      const impactMeta = resolveShotImpactMetadata(
+        get().grid,
+        freshWatcher.pos,
+        ambushCoord,
+        outcome,
+      );
       const nowTs = performance.now();
       set((s) => ({
+        activeFloor: ambushCoord.y,
         smokeVersion: s.smokeVersion + 1,
         combatIntensity: s.combatIntensity + 1,
         blastZones: [
           ...s.blastZones.slice(-18),
           {
             id: fxSeq++,
-            coord: watcher.pos,
+            coord: freshWatcher.pos,
             createdAt: nowTs,
             baseRadius: 1.4,
             maxRadius: 3.8,
@@ -889,7 +1314,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             : [
                 {
                   id: fxSeq++,
-                  coord: destCoord,
+                  coord: outcome.hit ? ambushCoord : impactMeta.missImpactCoord,
                   createdAt: nowTs,
                   baseRadius: 1.2,
                   maxRadius: 3.2,
@@ -898,44 +1323,64 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               ]),
         ],
         units: s.units.map((u) =>
-          u.id === watcher.id
+          u.id === freshWatcher.id
             ? {
                 ...u,
                 isOverwatch: false,
-                facing: facingFromDelta(u.pos, destCoord, u.facing),
+                facing: facingFromDelta(u.pos, ambushCoord, u.facing),
               }
             : u,
         ),
         activeProjectile: {
           id: fxSeq++,
-          from: watcher.pos,
-          to: destCoord,
+          from: freshWatcher.pos,
+          to: ambushCoord,
+          targetId: currentMoved.id,
+          hitChance: outcome.hitChance,
           kind: "bullet",
           createdAt: nowTs,
-          durationMs: 620,
+          durationMs: 1780,
           hit: outcome.hit,
           critical: outcome.critical,
           misfired: outcome.misfired,
+          damage: outcome.damage,
+          bloodSeverity: impactMeta.bloodSeverity,
+          armorShredded: outcome.armorShredded,
+          armorAbsorbed: outcome.armorAbsorbed,
+          killed: outcome.killed,
+          impactObstacle: impactMeta.impactObstacle,
+          missImpactCoord: impactMeta.missImpactCoord,
         },
       }));
 
-      triggerUnitFx(watcher.id, {
+      triggerUnitFx(freshWatcher.id, {
         lunge: true,
         banner: outcome.misfired
           ? { text: "SELHÁNÍ!", tone: "misfire" }
-          : { text: "OVERWATCH!", tone: "overwatch" },
+          : { text: "PŘEPAD ZE ZÁLOHY!", tone: "overwatch" },
       });
 
-      // Čekání na dolet střely k cíli (38 % z 620 ms = ~235 ms)
-      await delay(235);
-      if (outcome.hit && !outcome.misfired) {
-        playHitSound();
+      // Čekání na plynulý dolet střely k cíli (~41 % z 1780 ms = 730 ms)
+      await delay(730);
+      if (!outcome.misfired) {
+        if (outcome.hit) {
+          playHitSound(outcome.critical, impactMeta.bloodSeverity);
+        } else {
+          playRicochetSound(impactMeta.impactObstacle === "palace_wood");
+        }
       }
 
       let newlyDetainedByOw = false;
+      const beforeTargetOw =
+        get().units.find((u) => u.id === currentMoved.id) ?? currentMoved;
+      let afterTargetOw: UnitData = beforeTargetOw;
+
       set((s) => {
         if (!outcome.misfired) {
-          s.grid.damageTile(destCoord, 1);
+          s.grid.damageTile(
+            outcome.hit ? ambushCoord : impactMeta.missImpactCoord,
+            1,
+          );
         }
         const updatedUnits = s.units.map((u) => {
           if (u.id !== currentMoved.id) return u;
@@ -958,12 +1403,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         const captureSync = syncColloredoCaptureState(updatedUnits);
         newlyDetainedByOw = captureSync.newlyDetained;
         const syncedUnits = syncColloredoMobility(captureSync.units);
+        afterTargetOw =
+          syncedUnits.find((u) => u.id === currentMoved.id) ?? beforeTargetOw;
 
         const logMsg = outcome.misfired
-          ? `${watcher.name} chtěl vypálit z Overwatch na ${currentMoved.name}, ale zvlhlý prach selhal!`
+          ? `${freshWatcher.name} chtěl vypálit ze zálohy na ${currentMoved.name}, ale zvlhlý prach selhal!`
           : outcome.hit
-            ? `${watcher.name} zasáhl z Overwatch ${currentMoved.name} (−${outcome.damage} HP${outcome.armorShredded > 0 ? `, −${outcome.armorShredded} zbroj` : ""}${outcome.critical ? ", KRITICKÝ!" : ""})!`
-            : `${watcher.name} vypálil z Overwatch na ${currentMoved.name}, ale minul (${outcome.hitChance} %).`;
+            ? `${freshWatcher.name} zasáhl z přepadu nekrytého ${currentMoved.name} (−${outcome.damage} HP${outcome.armorShredded > 0 ? `, −${outcome.armorShredded} zbroj` : ""}${outcome.critical ? ", KRITICKÝ!" : ""})!`
+            : `${freshWatcher.name} vypálil ze zálohy na běžícího ${currentMoved.name}, ale minul (${outcome.hitChance} %).`;
 
         const extraLogs: CombatLogEntry[] = [];
         if (captureSync.newlyDetained) {
@@ -984,7 +1431,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             ...s.combatLog,
             makeLog(
               s.round,
-              watcher.faction,
+              freshWatcher.faction,
               logMsg,
               outcome.misfired
                 ? "misfire"
@@ -998,8 +1445,19 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       });
 
       if (!outcome.misfired) {
+        const owLoss = buildUnitCombatLoss(beforeTargetOw, afterTargetOw, {
+          attackerName: freshWatcher.name,
+          weaponName: freshWatcher.weapon.name,
+          hit: outcome.hit,
+          critical: outcome.critical,
+          misfired: outcome.misfired,
+          hitChance: outcome.hitChance,
+          armorAbsorbed: outcome.armorAbsorbed,
+          durationMs: 1550,
+        });
         triggerUnitFx(currentMoved.id, {
           hit: outcome.hit,
+          loss: owLoss,
           banner: newlyDetainedByOw
             ? { text: "ZADRŽEN! (1/2)", tone: "crit" }
             : outcome.hit
@@ -1013,7 +1471,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         });
       }
 
-      await delay(385);
+      await delay(1050);
       set({ activeProjectile: null });
     }
   };
@@ -1051,6 +1509,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     hoveredPath: [],
     hoveredSpottedEnemyIds: [],
     visibleTargets: derived.visibleTargets,
+    visibleMeleeTargets: derived.visibleMeleeTargets,
     selectedTargetId: derived.selectedTargetId,
 
     isBusy: false,
@@ -1177,6 +1636,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         fogSnapshot: sel.fogSnapshot,
         reachableTiles: sel.reachableTiles,
         visibleTargets: sel.visibleTargets,
+        visibleMeleeTargets: sel.visibleMeleeTargets,
         selectedTargetId: sel.selectedTargetId,
         hoveredPath: [],
       });
@@ -1447,6 +1907,76 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         });
         return;
       }
+
+      if (mode === "melee") {
+        if (
+          !unit ||
+          !unit.alive ||
+          unit.ap <= 0 ||
+          (unit.detainedTurns ?? 0) > 0 ||
+          unit.hp <= 0
+        )
+          return;
+
+        const visibleFilter = state.fogOfWarEnabled
+          ? state.fogSnapshot.visibleEnemyIds
+          : undefined;
+
+        let meleeTargets = evaluateAdjacentMeleeTargets(
+          state.grid,
+          unit,
+          state.units,
+          visibleFilter,
+        );
+
+        if (meleeTargets.length === 0) {
+          const readyMeleeUser = state.units.find((u) => {
+            if (
+              u.faction !== "player" ||
+              !u.alive ||
+              u.hp <= 0 ||
+              u.ap <= 0 ||
+              (u.detainedTurns ?? 0) > 0
+            ) {
+              return false;
+            }
+            return (
+              evaluateAdjacentMeleeTargets(
+                state.grid,
+                u,
+                state.units,
+                visibleFilter,
+              ).length > 0
+            );
+          });
+          if (readyMeleeUser) {
+            unit = readyMeleeUser;
+            meleeTargets = evaluateAdjacentMeleeTargets(
+              state.grid,
+              readyMeleeUser,
+              state.units,
+              visibleFilter,
+            );
+          }
+        }
+
+        const keepId =
+          state.selectedTargetId &&
+          meleeTargets.some((t) => t.targetId === state.selectedTargetId)
+            ? state.selectedTargetId
+            : (meleeTargets[0]?.targetId ?? null);
+        const targetUnit = state.units.find((u) => u.id === keepId);
+
+        set({
+          selectedUnitId: unit.id,
+          actionMode: "melee",
+          visibleMeleeTargets: meleeTargets,
+          selectedTargetId: keepId,
+          activeFloor: targetUnit ? targetUnit.pos.y : unit.pos.y,
+          hoveredPath: [],
+        });
+        return;
+      }
     },
 
     toggleBreakdown: () => {
@@ -1455,11 +1985,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
     selectTarget: (targetId: string) => {
       const state = get();
-      if (state.visibleTargets.some((t) => t.targetId === targetId)) {
+      const inVisible = state.visibleTargets.some((t) => t.targetId === targetId);
+      const inMelee = state.visibleMeleeTargets.some((t) => t.targetId === targetId);
+      if (inVisible || inMelee) {
         const target = state.units.find((u) => u.id === targetId);
         set({
           selectedTargetId: targetId,
-          actionMode: "shoot",
+          actionMode: inMelee && !inVisible ? "melee" : state.actionMode,
           activeFloor: target ? target.pos.y : state.activeFloor,
         });
       }
@@ -1467,16 +1999,19 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
     cycleTarget: (dir: 1 | -1) => {
       const state = get();
-      if (state.visibleTargets.length === 0) return;
-      const currentIdx = state.visibleTargets.findIndex(
+      const targetPool =
+        state.actionMode === "melee"
+          ? state.visibleMeleeTargets
+          : state.visibleTargets;
+      if (targetPool.length === 0) return;
+      const currentIdx = targetPool.findIndex(
         (t) => t.targetId === state.selectedTargetId,
       );
       const nextIdx =
         currentIdx < 0
           ? 0
-          : (currentIdx + dir + state.visibleTargets.length) %
-            state.visibleTargets.length;
-      const nextTargetId = state.visibleTargets[nextIdx]?.targetId;
+          : (currentIdx + dir + targetPool.length) % targetPool.length;
+      const nextTargetId = targetPool[nextIdx]?.targetId;
       if (nextTargetId) {
         get().selectTarget(nextTargetId);
       }
@@ -1556,6 +2091,31 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       }
 
       const currentUnit = state.units.find((u) => u.id === state.selectedUnitId);
+      const isAdjacent =
+        !!currentUnit && isAdjacentForMelee(currentUnit.pos, clickedUnit.pos);
+
+      // Režim úderu zblízka
+      if (state.actionMode === "melee") {
+        if (isAdjacent) {
+          get().executeMelee(clickedUnit.id);
+        } else {
+          get().selectTarget(clickedUnit.id);
+        }
+        return;
+      }
+
+      // Pokud hrabě Colloredo již vystřelil svou jednorannou bambitku a klikne na sousedního nepřítele, udeří jej pažbou!
+      if (
+        currentUnit &&
+        currentUnit.id === "player-colloredo" &&
+        currentUnit.pistolLoaded === false &&
+        isAdjacent &&
+        currentUnit.ap > 0
+      ) {
+        get().executeMelee(clickedUnit.id);
+        return;
+      }
+
       const canCurrentShootTarget =
         !!currentUnit &&
         currentUnit.alive &&
@@ -1740,9 +2300,11 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               to: coord,
               kind: "bullet",
               createdAt: nowTs,
-              durationMs: 680,
+              durationMs: 1780,
               hit: true,
               critical: true,
+              damage: 5,
+              bloodSeverity: 0,
               detonatedKegs: [coord],
             },
           }));
@@ -1752,12 +2314,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             banner: { text: "ODPAL SUDU!", tone: "crit" },
           });
 
-          await delay(240);
+          await delay(730);
           playExplosionSound();
 
+          const beforeUnitsKeg = get().units;
           const blast = processExplosions(
             get().grid,
-            get().units,
+            beforeUnitsKeg,
             coord,
             5,
             2,
@@ -1766,8 +2329,23 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           const syncedUnits = syncColloredoMobility(captureSync.units);
 
           for (const vid of blast.victims) {
+            const bUnit = beforeUnitsKeg.find((u) => u.id === vid);
+            const aUnit = syncedUnits.find((u) => u.id === vid);
+            const kegLoss =
+              bUnit && aUnit
+                ? buildUnitCombatLoss(bUnit, aUnit, {
+                    attackerName: activeUnit.name,
+                    weaponName: "Výbuch prachového sudu",
+                    hit: true,
+                    critical: true,
+                    misfired: false,
+                    hitChance: 100,
+                    durationMs: 1500,
+                  })
+                : null;
             triggerUnitFx(vid, {
               hit: true,
+              loss: kegLoss,
               banner: { text: "VÝBUCH SUDU −5 HP!", tone: "crit" },
             });
           }
@@ -1792,7 +2370,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             };
           });
 
-          await delay(440);
+          await delay(1050);
           const afterState = get();
           const outcomeCheck = checkMissionOutcome(
             afterState.grid,
@@ -1969,7 +2547,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           });
         }
 
-        await performOverwatchReactionsIfAny(unit.id, finalStep);
+        await performOverwatchReactionsIfAny(unit.id, finalStep, path);
 
         const afterState = get();
         const outcomeCheck = checkMissionOutcome(afterState.grid, afterState.units);
@@ -2019,10 +2597,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         }
 
         const prevVisibleEnemyIds = new Set(afterState.fogSnapshot.visibleEnemyIds);
+        const autoNextUnit = findNextAvailablePlayerUnit(afterState.units, afterState.selectedUnitId);
+        const autoNextId = autoNextUnit?.id ?? afterState.selectedUnitId;
         const nextDerived = deriveSelectionData(
           afterState.grid,
           afterState.units,
-          afterState.selectedUnitId,
+          autoNextId,
           afterState.weather,
           afterState.selectedTargetId,
           afterState.fogSnapshot.exploredCoords,
@@ -2058,10 +2638,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
         set((s) => ({
           isBusy: false,
+          selectedUnitId: autoNextId,
+          activeFloor: autoNextUnit ? autoNextUnit.pos.y : s.activeFloor,
           units: nextDerived.units,
           fogSnapshot: nextDerived.fogSnapshot,
           reachableTiles: nextDerived.reachableTiles,
           visibleTargets: nextDerived.visibleTargets,
+          visibleMeleeTargets: nextDerived.visibleMeleeTargets,
           selectedTargetId: nextDerived.selectedTargetId,
           combatLog:
             reconLogs.length > 0
@@ -2092,6 +2675,24 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         attacker.hp <= 0
       )
         return;
+
+      if (attacker.id === "player-colloredo" && attacker.pistolLoaded === false) {
+        set((s) => ({
+          combatLog: [
+            ...s.combatLog,
+            makeLog(
+              s.round,
+              "player",
+              "Bambitka maršála Colloreda je již vystřelená! V boji ji nelze znovu nabít — zbývá pouze úder těžkou pažbou zblízka.",
+              "alert",
+            ),
+          ],
+        }));
+        triggerUnitFx(attacker.id, {
+          banner: { text: "BAMBITKA VYBITÁ!", tone: "misfire" },
+        });
+        return;
+      }
 
       const chosenId = targetIdArg ?? state.selectedTargetId;
       const targetEval = state.visibleTargets.find(
@@ -2151,9 +2752,16 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               }
             : null;
 
+        const impactMeta = resolveShotImpactMetadata(
+          get().grid,
+          attacker.pos,
+          target.pos,
+          outcome,
+        );
         const nowTs = performance.now();
         set((s) => ({
           isBusy: true,
+          activeFloor: target.pos.y,
           smokeVersion: s.smokeVersion + 1,
           combatIntensity: s.combatIntensity + (willDetonateKegPos ? 3 : 1),
           blastZones: [
@@ -2171,7 +2779,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               : [
                   {
                     id: fxSeq++,
-                    coord: willDetonateKegPos ?? target.pos,
+                    coord:
+                      willDetonateKegPos ??
+                      (outcome.hit ? target.pos : impactMeta.missImpactCoord),
                     createdAt: nowTs,
                     baseRadius: willDetonateKegPos ? 2.8 : 1.3,
                     maxRadius: willDetonateKegPos ? 7.5 : 3.6,
@@ -2187,6 +2797,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                   ap: isVerdictShot && outcome.hit ? 1 : 0, // Hit & Run refund za Svatováclavský ortel!
                   isOverwatch: false,
                   abilityBuffActive: false,
+                  pistolLoaded:
+                    attacker.id === "player-colloredo" ? false : u.pistolLoaded,
                 }
               : u,
           ),
@@ -2194,12 +2806,21 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             id: fxSeq++,
             from: attacker.pos,
             to: target.pos,
+            targetId: target.id,
+            hitChance: outcome.hitChance,
             kind: isVerdictShot ? "sniper_beam" : "bullet",
             createdAt: nowTs,
-            durationMs: 680,
+            durationMs: 1780,
             hit: outcome.hit,
             critical: outcome.critical,
             misfired: outcome.misfired,
+            damage: outcome.damage,
+            bloodSeverity: impactMeta.bloodSeverity,
+            armorShredded: outcome.armorShredded,
+            armorAbsorbed: outcome.armorAbsorbed,
+            killed: outcome.killed,
+            impactObstacle: impactMeta.impactObstacle,
+            missImpactCoord: impactMeta.missImpactCoord,
             detonatedKegs: willDetonateKegPos ? [willDetonateKegPos] : undefined,
           },
         }));
@@ -2211,10 +2832,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             : undefined,
         });
 
-        // Čekáme přesně na okamžik dopadu kulky do cíle (~245 ms = 36 % z 680 ms)
-        await delay(245);
-        if (outcome.hit && !outcome.misfired) {
-          playHitSound();
+        // Čekáme přesně na plynulý dolet kulky k cíli (~730 ms = 41 % z 1780 ms)
+        await delay(730);
+        if (!outcome.misfired) {
+          if (outcome.hit) {
+            playHitSound(outcome.critical, impactMeta.bloodSeverity);
+          } else {
+            playRicochetSound(impactMeta.impactObstacle === "palace_wood");
+          }
         }
         if (willDetonateKegPos) {
           playExplosionSound();
@@ -2224,10 +2849,17 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         let detainedByBlast = false;
         let pendingDefeatReason: CaptureReason | null = null;
         let kegVictims: string[] = [];
+        const beforeUnitsShoot = get().units;
+        const beforeTargetShoot =
+          beforeUnitsShoot.find((u) => u.id === target.id) ?? target;
+        let afterUnitsShoot: UnitData[] = beforeUnitsShoot;
 
         set((s) => {
           if (!outcome.misfired) {
-            s.grid.damageTile(target.pos, 1);
+            s.grid.damageTile(
+              outcome.hit ? target.pos : impactMeta.missImpactCoord,
+              1,
+            );
           }
           const updatedUnits = s.units.map((u) => {
             if (u.id !== target.id) return u;
@@ -2284,6 +2916,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           rescuedByShot = captureSync.rescued;
           detainedByBlast = captureSync.newlyDetained;
           finalUnits = syncColloredoMobility(captureSync.units);
+          afterUnitsShoot = finalUnits;
 
           const outcomeCheck = checkMissionOutcome(s.grid, finalUnits);
           if (outcomeCheck.outcome === "defeat") {
@@ -2344,10 +2977,27 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           };
         });
 
-        // Okamžitá reakce cíle v momentě zásahu kulkou
+        // Okamžitá reakce cíle a přímé zobrazení všech ztrát v momentě zásahu kulkou
         if (!outcome.misfired) {
+          const afterTargetShoot =
+            afterUnitsShoot.find((u) => u.id === target.id) ?? beforeTargetShoot;
+          const targetLoss = buildUnitCombatLoss(
+            beforeTargetShoot,
+            afterTargetShoot,
+            {
+              attackerName: attacker.name,
+              weaponName: attacker.weapon.name,
+              hit: outcome.hit,
+              critical: outcome.critical,
+              misfired: outcome.misfired,
+              hitChance: outcome.hitChance,
+              armorAbsorbed: outcome.armorAbsorbed,
+              durationMs: 1550,
+            },
+          );
           triggerUnitFx(target.id, {
             hit: outcome.hit,
+            loss: targetLoss,
             banner: outcome.hit
               ? {
                   text: outcome.critical
@@ -2361,8 +3011,23 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
         for (const vid of kegVictims) {
           if (vid !== target.id) {
+            const bUnit = beforeUnitsShoot.find((u) => u.id === vid);
+            const aUnit = afterUnitsShoot.find((u) => u.id === vid);
+            const vLoss =
+              bUnit && aUnit
+                ? buildUnitCombatLoss(bUnit, aUnit, {
+                    attackerName: attacker.name,
+                    weaponName: "Výbuch prachového sudu",
+                    hit: true,
+                    critical: true,
+                    misfired: false,
+                    hitChance: 100,
+                    durationMs: 1550,
+                  })
+                : null;
             triggerUnitFx(vid, {
               hit: true,
+              loss: vLoss,
               banner: { text: "VÝBUCH SUDU −5 HP!", tone: "crit" },
             });
           }
@@ -2379,15 +3044,17 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           });
         }
 
-        // Necháme doznít efekt zásahu, jisker a tlakové vlny v záběru kamery
-        await delay(435);
+        // Necháme 1050 ms doznít efekt zásahu, rozpis ztrát cíle, krev a úlomky zdiva v záběru akční kamery
+        await delay(1050);
 
         set((s) => {
           const outcomeCheck = checkMissionOutcome(s.grid, s.units);
+          const autoNextUnit = findNextAvailablePlayerUnit(s.units, s.selectedUnitId);
+          const autoNextId = autoNextUnit?.id ?? s.selectedUnitId;
           const nextDerived = deriveSelectionData(
             s.grid,
             s.units,
-            s.selectedUnitId,
+            autoNextId,
             s.weather,
             s.selectedTargetId,
             s.fogSnapshot.exploredCoords,
@@ -2397,8 +3064,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           return {
             isBusy: outcomeCheck.outcome === "defeat",
             activeProjectile: null,
+            selectedUnitId: autoNextId,
             actionMode: "move",
-            activeFloor: attacker.pos.y,
+            activeFloor: autoNextUnit ? autoNextUnit.pos.y : attacker.pos.y,
             outcome:
               outcomeCheck.outcome === "defeat"
                 ? "ongoing"
@@ -2407,6 +3075,291 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             fogSnapshot: nextDerived.fogSnapshot,
             reachableTiles: nextDerived.reachableTiles,
             visibleTargets: nextDerived.visibleTargets,
+            visibleMeleeTargets: nextDerived.visibleMeleeTargets,
+            selectedTargetId: nextDerived.selectedTargetId,
+          };
+        });
+
+        if (pendingDefeatReason) {
+          await playCaptureFinalAnimationAndDefeat(
+            pendingDefeatReason,
+            get().round,
+          );
+        }
+      })();
+    },
+
+    executeMelee: (targetIdArg?: string) => {
+      const state = get();
+      if (state.isBusy || state.turn !== "player" || state.outcome !== "ongoing")
+        return;
+
+      const attacker = state.units.find((u) => u.id === state.selectedUnitId);
+      if (
+        !attacker ||
+        !attacker.alive ||
+        attacker.ap < 1 ||
+        (attacker.detainedTurns ?? 0) > 0 ||
+        attacker.hp <= 0
+      )
+        return;
+
+      const meleeWeapon = attacker.meleeWeapon ?? {
+        id: "fist",
+        name: "Pěstní souboj",
+        kind: "fist" as const,
+        minDamage: 1,
+        maxDamage: 2,
+        critBonusDamage: 1,
+        baseCritChance: 5,
+        baseAccuracy: 70,
+        armorPierce: 0,
+        armorShred: 0,
+        description: "Zoufalý boj holýma rukama.",
+      };
+
+      const chosenId =
+        targetIdArg ??
+        state.visibleMeleeTargets[0]?.targetId ??
+        state.selectedTargetId;
+      const target = state.units.find(
+        (u) =>
+          u.id === chosenId &&
+          u.alive &&
+          u.hp > 0 &&
+          u.faction !== attacker.faction,
+      );
+      if (!target || !isAdjacentForMelee(attacker.pos, target.pos)) return;
+
+      void (async () => {
+        const calc = calculateMeleeAttack(
+          get().grid,
+          attacker,
+          target,
+          get().units,
+        );
+        const outcome = rollMeleeAttack(attacker, target, calc);
+        const newFacing = facingFromDelta(
+          attacker.pos,
+          target.pos,
+          attacker.facing,
+        );
+
+        const isButt = meleeWeapon.kind === "pistol_butt";
+        playMeleeSound(isButt ? "butt" : "blade", outcome.hit, outcome.critical);
+
+        const nowTs = performance.now();
+        const bloodSev: 0 | 1 | 2 | 3 = !outcome.hit
+          ? 0
+          : isButt
+            ? 1
+            : outcome.critical || outcome.damage >= 4
+              ? 3
+              : 2;
+
+        set((s) => ({
+          isBusy: true,
+          activeFloor: target.pos.y,
+          combatIntensity: s.combatIntensity + 1,
+          units: s.units.map((u) =>
+            u.id === attacker.id
+              ? {
+                  ...u,
+                  facing: newFacing,
+                  ap: Math.max(0, u.ap - 1),
+                  isOverwatch: false,
+                }
+              : u,
+          ),
+          activeProjectile: {
+            id: fxSeq++,
+            from: attacker.pos,
+            to: target.pos,
+            targetId: target.id,
+            hitChance: outcome.hitChance,
+            kind: "melee_strike",
+            createdAt: nowTs,
+            durationMs: 1720,
+            hit: outcome.hit,
+            critical: outcome.critical,
+            misfired: false,
+            damage: outcome.damage,
+            bloodSeverity: bloodSev,
+            armorShredded: outcome.armorShredded,
+            armorAbsorbed: outcome.armorAbsorbed,
+            killed: outcome.killed,
+          },
+        }));
+
+        triggerUnitFx(attacker.id, {
+          lunge: true,
+          banner: isButt
+            ? { text: "ÚDER PAŽBOU!", tone: "buff" }
+            : { text: "ÚDER ZBLÍZKA!", tone: "buff" },
+        });
+
+        // Čekáme na dopad úderu (~680 ms)
+        await delay(680);
+
+        if (outcome.hit) {
+          playHitSound(outcome.critical, bloodSev);
+        } else {
+          playRicochetSound(true);
+        }
+
+        let rescuedByStrike = false;
+        let pendingDefeatReason: CaptureReason | null = null;
+        const beforeUnits = get().units;
+        const beforeTarget =
+          beforeUnits.find((u) => u.id === target.id) ?? target;
+
+        set((s) => {
+          const updatedUnits = s.units.map((u) => {
+            if (u.id !== target.id) return u;
+            const nextArmor = Math.max(0, u.armor - outcome.armorShredded);
+            const nextHp = Math.max(0, u.hp - outcome.damage);
+            const shakenNow =
+              u.isShaken ||
+              (outcome.hit && (outcome.critical || outcome.damage >= 3));
+            return {
+              ...u,
+              armor: nextArmor,
+              hp: nextHp,
+              isShaken: nextHp > 0 ? shakenNow : false,
+              alive: nextHp > 0,
+              isOverwatch: nextHp > 0 ? u.isOverwatch : false,
+            };
+          });
+
+          const bonusTags: string[] = [];
+          if (outcome.heightAdvantage) bonusTags.push("výšková převaha +15 %");
+          if (outcome.armorShredded > 0)
+            bonusTags.push(`zničena zbroj −${outcome.armorShredded}`);
+          if (outcome.armorAbsorbed > 0)
+            bonusTags.push(`kyrys pohltil ${outcome.armorAbsorbed} HP`);
+          const tagSuffix =
+            bonusTags.length > 0 ? ` [${bonusTags.join(", ")}]` : "";
+
+          const text = isButt
+            ? outcome.hit
+              ? `${attacker.name} udeřil ${target.name} těžkou pažbou bambitky (${outcome.hitChance} %) za ${outcome.damage} HP${outcome.critical ? " — TVRDÝ ÚDER!" : ""}${outcome.killed ? " (OMRÁČEN / PADL)" : ""}${tagSuffix}.`
+              : `${attacker.name} máchl pažbou bambitky naprázdno vedle ${target.name} (${outcome.hitChance} %)${tagSuffix}.`
+            : outcome.hit
+              ? `${attacker.name} zasáhl ${target.name} chladnou zbraní (${meleeWeapon.name}, ${outcome.hitChance} %) za ${outcome.damage} HP${outcome.critical ? " — SMRTÍCÍ SEK!" : ""}${outcome.killed ? " (PADL)" : ""}${tagSuffix}.`
+              : `${attacker.name} sekl zbraní ${meleeWeapon.name} vedle ${target.name} (${outcome.hitChance} %)${tagSuffix}.`;
+
+          const captureSync = syncColloredoCaptureState(updatedUnits);
+          rescuedByStrike = captureSync.rescued;
+          const finalUnits = syncColloredoMobility(captureSync.units);
+
+          const outcomeCheck = checkMissionOutcome(s.grid, finalUnits);
+          if (outcomeCheck.outcome === "defeat") {
+            pendingDefeatReason = outcomeCheck.defeatReason ?? "zero_hp";
+          }
+
+          const newLogs = [
+            ...s.combatLog,
+            makeLog(
+              s.round,
+              "player",
+              text,
+              outcome.hit ? (outcome.critical ? "crit" : "hit") : "miss",
+            ),
+          ];
+          if (captureSync.rescued) {
+            newLogs.push(
+              makeLog(
+                s.round,
+                "player",
+                "ZÁCHRANA VELITELE: Nepřítel poutající maršála padl v souboji muže proti muži!",
+                "story",
+              ),
+            );
+          }
+
+          return {
+            units: finalUnits,
+            combatLog: newLogs,
+          };
+        });
+
+        const afterUnits = get().units;
+        const afterTarget = afterUnits.find((u) => u.id === target.id);
+        const lossObj: UnitCombatLoss | null = outcome.hit
+          ? {
+              id: fxSeq++,
+              timestamp: performance.now(),
+              durationMs: 1650,
+              attackerName: attacker.name,
+              weaponName: meleeWeapon.name,
+              hit: true,
+              critical: outcome.critical,
+              misfired: false,
+              hitChance: outcome.hitChance,
+              hpBefore: beforeTarget.hp,
+              hpAfter: afterTarget?.hp ?? 0,
+              hpLost: outcome.damage,
+              maxHp: target.maxHp,
+              armorBefore: beforeTarget.armor,
+              armorAfter: afterTarget?.armor ?? 0,
+              armorLost: outcome.armorShredded,
+              armorAbsorbed: outcome.armorAbsorbed,
+              maxArmor: target.maxArmor,
+              apLost: 0,
+              shakenApplied: (afterTarget?.isShaken ?? false) && !beforeTarget.isShaken,
+              overwatchLost: beforeTarget.isOverwatch && !(afterTarget?.isOverwatch ?? false),
+              detainedApplied: false,
+              killed: outcome.killed,
+            }
+          : null;
+
+        triggerUnitFx(target.id, {
+          hit: outcome.hit,
+          loss: lossObj,
+          banner: outcome.hit
+            ? outcome.critical
+              ? { text: `KRITICKÝ ZÁSAH −${outcome.damage} HP!`, tone: "crit" }
+              : { text: `−${outcome.damage} HP`, tone: "hit" }
+            : { text: "MINUTÍ ZBLÍZKA", tone: "miss" },
+        });
+
+        if (rescuedByStrike) {
+          triggerUnitFx("player-colloredo", {
+            banner: { text: "VYPROŠTĚN!", tone: "buff" },
+          });
+        }
+
+        await delay(1040);
+
+        set((s) => {
+          const outcomeCheck = checkMissionOutcome(s.grid, s.units);
+          const autoNextUnit = findNextAvailablePlayerUnit(s.units, s.selectedUnitId);
+          const autoNextId = autoNextUnit?.id ?? s.selectedUnitId;
+          const nextDerived = deriveSelectionData(
+            s.grid,
+            s.units,
+            autoNextId,
+            s.weather,
+            s.selectedTargetId,
+            s.fogSnapshot.exploredCoords,
+            s.blastZones,
+            s.fogOfWarEnabled,
+          );
+          return {
+            isBusy: outcomeCheck.outcome === "defeat",
+            activeProjectile: null,
+            selectedUnitId: autoNextId,
+            actionMode: "move",
+            activeFloor: autoNextUnit ? autoNextUnit.pos.y : attacker.pos.y,
+            outcome:
+              outcomeCheck.outcome === "defeat"
+                ? "ongoing"
+                : outcomeCheck.outcome,
+            victoryReason: outcomeCheck.victoryReason,
+            fogSnapshot: nextDerived.fogSnapshot,
+            reachableTiles: nextDerived.reachableTiles,
+            visibleTargets: nextDerived.visibleTargets,
+            visibleMeleeTargets: nextDerived.visibleMeleeTargets,
             selectedTargetId: nextDerived.selectedTargetId,
           };
         });
@@ -2439,10 +3392,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       const updatedUnits = state.units.map((u) =>
         u.id === unit.id ? { ...u, ap: 0, isOverwatch: true } : u,
       );
+      const autoNextUnit = findNextAvailablePlayerUnit(updatedUnits, unit.id);
+      const autoNextId = autoNextUnit?.id ?? unit.id;
       const nextDerived = deriveSelectionData(
         state.grid,
         updatedUnits,
-        state.selectedUnitId,
+        autoNextId,
         state.weather,
         state.selectedTargetId,
         state.fogSnapshot.exploredCoords,
@@ -2452,17 +3407,20 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
       set((s) => ({
         units: updatedUnits,
+        selectedUnitId: autoNextId,
+        activeFloor: autoNextUnit ? autoNextUnit.pos.y : s.activeFloor,
         actionMode: "move",
         fogSnapshot: nextDerived.fogSnapshot,
         reachableTiles: nextDerived.reachableTiles,
         visibleTargets: nextDerived.visibleTargets,
+        visibleMeleeTargets: nextDerived.visibleMeleeTargets,
         selectedTargetId: nextDerived.selectedTargetId,
         combatLog: [
           ...s.combatLog,
           makeLog(
             s.round,
             "player",
-            `${unit.name} přešel do režimu OVERWATCH (hlídá pohyb nepřátel v zorném poli).`,
+            `${unit.name} přešel do režimu HLÍDKA (overwatch).`,
             "overwatch",
           ),
         ],
@@ -2769,10 +3727,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
         const captureSync = syncColloredoCaptureState(updatedUnits);
         const syncedUnits = syncColloredoMobility(captureSync.units);
+        const autoNextUnit = findNextAvailablePlayerUnit(syncedUnits, unit.id);
+        const autoNextId = autoNextUnit?.id ?? unit.id;
         const nextDerived = deriveSelectionData(
           freshState.grid,
           syncedUnits,
-          unit.id,
+          autoNextId,
           freshState.weather,
           freshState.selectedTargetId,
           freshState.fogSnapshot.exploredCoords,
@@ -2815,17 +3775,22 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             })),
           ],
           units: nextDerived.units,
-          selectedUnitId: unit.id,
-          activeFloor: unit.pos.y,
+          selectedUnitId: autoNextId,
+          activeFloor: autoNextUnit ? autoNextUnit.pos.y : unit.pos.y,
           activeProjectile: {
             id: shrapnelProjId,
             from: unit.pos,
             to: primaryTargetPos,
+            targetId: hitEnemyList[0]?.id,
+            hitChance: 100,
             kind: "shrapnel_burst",
             createdAt: nowTs,
-            durationMs: 680,
+            durationMs: 1670,
             hit: true,
             critical: true,
+            damage: 3,
+            bloodSeverity: 2,
+            armorShredded: 2,
             extraTargets: hitEnemyList.map((e) => e.pos),
           },
           fogSnapshot: nextDerived.fogSnapshot,
@@ -2847,19 +3812,35 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           ],
         }));
 
-        setTimeout(() => {
+        const shrapnelTimer = setTimeout(() => {
           if (get().activeProjectile?.id === shrapnelProjId) {
             set({ activeProjectile: null });
           }
-        }, 680);
+        }, 1670);
+        (shrapnelTimer as unknown as { unref?: () => void }).unref?.();
 
         triggerUnitFx(unit.id, {
           lunge: true,
           banner: { text: "PEKELNÁ BOUŘE & ŠRAPNEL! +1 GRANÁT", tone: "crit" },
         });
         for (const eid of hitEnemyIds) {
+          const bEnemy = freshState.units.find((u) => u.id === eid);
+          const aEnemy = nextDerived.units.find((u) => u.id === eid);
+          const shrapnelLoss =
+            bEnemy && aEnemy
+              ? buildUnitCombatLoss(bEnemy, aEnemy, {
+                  attackerName: unit.name,
+                  weaponName: ability.name,
+                  hit: true,
+                  critical: true,
+                  misfired: false,
+                  hitChance: 100,
+                  durationMs: 1670,
+                })
+              : null;
           triggerUnitFx(eid, {
             hit: true,
+            loss: shrapnelLoss,
             banner: { text: "ŠRAPNEL −3 HP · −2 ZBROJ · OMRÁČEN!", tone: "crit" },
           });
         }
@@ -2918,10 +3899,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           return u;
         });
 
+        const autoNextUnit = findNextAvailablePlayerUnit(updatedUnits, unit.id);
+        const autoNextId = autoNextUnit?.id ?? unit.id;
         const nextDerived = deriveSelectionData(
           freshState.grid,
           updatedUnits,
-          unit.id,
+          autoNextId,
           freshState.weather,
           freshState.selectedTargetId,
           freshState.fogSnapshot.exploredCoords,
@@ -2932,18 +3915,23 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         const cmdProjId = fxSeq++;
         set((s) => ({
           units: nextDerived.units,
-          selectedUnitId: unit.id,
-          activeFloor: unit.pos.y,
+          selectedUnitId: autoNextId,
+          activeFloor: autoNextUnit ? autoNextUnit.pos.y : unit.pos.y,
           activeProjectile: shotTarget
             ? {
                 id: cmdProjId,
                 from: unit.pos,
                 to: shotTarget.pos,
+                targetId: shotTarget.id,
+                hitChance: 100,
                 kind: "bullet",
                 createdAt: performance.now(),
-                durationMs: 520,
+                durationMs: 1600,
                 hit: true,
                 critical: true,
+                damage: 3,
+                bloodSeverity: 2,
+                armorShredded: 1,
               }
             : null,
           fogSnapshot: nextDerived.fogSnapshot,
@@ -2966,11 +3954,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         }));
 
         if (shotTarget) {
-          setTimeout(() => {
+          const cmdTimer = setTimeout(() => {
             if (get().activeProjectile?.id === cmdProjId) {
               set({ activeProjectile: null });
             }
-          }, 520);
+          }, 1600);
+          (cmdTimer as unknown as { unref?: () => void }).unref?.();
         }
 
         triggerUnitFx(unit.id, {
@@ -2987,8 +3976,20 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         }
 
         if (shotTarget) {
+          const afterShotTarget =
+            nextDerived.units.find((u) => u.id === shotTarget.id) ?? shotTarget;
+          const cmdLoss = buildUnitCombatLoss(shotTarget, afterShotTarget, {
+            attackerName: unit.name,
+            weaponName: unit.weapon.name,
+            hit: true,
+            critical: true,
+            misfired: false,
+            hitChance: 100,
+            durationMs: 1600,
+          });
           triggerUnitFx(shotTarget.id, {
             hit: true,
+            loss: cmdLoss,
             banner: { text: "VELITELSKÁ KULKA −3 HP", tone: "crit" },
           });
         }
@@ -3053,7 +4054,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             to: targetCoord,
             kind: "grenade",
             createdAt: nowTs,
-            durationMs: 720,
+            durationMs: 1370,
             hit: true,
             critical: true,
           },
@@ -3061,16 +4062,17 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
         triggerUnitFx(attacker.id, { lunge: true });
 
-        await delay(280);
+        await delay(560);
         playExplosionSound();
 
         const grenadeDamage = 4;
         const grenadeShred = 2;
 
         // Zpracování exploze petardy a případné řetězové detonace prachových sudů
+        const beforeGrenadeUnits = get().units;
         const blast = processExplosions(
           get().grid,
-          get().units,
+          beforeGrenadeUnits,
           targetCoord,
           grenadeDamage,
           grenadeShred,
@@ -3081,8 +4083,23 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         let pendingDefeatReason: CaptureReason | null = null;
 
         for (const vid of hitVictims) {
+          const bUnit = beforeGrenadeUnits.find((u) => u.id === vid);
+          const aUnit = updatedUnits.find((u) => u.id === vid);
+          const gLoss =
+            bUnit && aUnit
+              ? buildUnitCombatLoss(bUnit, aUnit, {
+                  attackerName: attacker.name,
+                  weaponName: "Litinová petarda (3×3)",
+                  hit: true,
+                  critical: true,
+                  misfired: false,
+                  hitChance: 100,
+                  durationMs: 1300,
+                })
+              : null;
           triggerUnitFx(vid, {
             hit: true,
+            loss: gLoss,
             banner:
               vid === "player-colloredo" && captureSync.newlyDetained
                 ? { text: "ZADRŽEN! (1/2)", tone: "crit" }
@@ -3149,14 +4166,16 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           };
         });
 
-        await delay(440);
+        await delay(810);
 
         set((s) => {
           const outcomeCheck = checkMissionOutcome(s.grid, s.units);
+          const autoNextUnit = findNextAvailablePlayerUnit(s.units, s.selectedUnitId);
+          const autoNextId = autoNextUnit?.id ?? s.selectedUnitId;
           const nextDerived = deriveSelectionData(
             s.grid,
             s.units,
-            s.selectedUnitId,
+            autoNextId,
             s.weather,
             s.selectedTargetId,
             s.fogSnapshot.exploredCoords,
@@ -3166,6 +4185,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           return {
             isBusy: outcomeCheck.outcome === "defeat",
             activeProjectile: null,
+            selectedUnitId: autoNextId,
+            activeFloor: autoNextUnit ? autoNextUnit.pos.y : s.activeFloor,
             actionMode: "move",
             outcome:
               outcomeCheck.outcome === "defeat"
@@ -3175,6 +4196,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             fogSnapshot: nextDerived.fogSnapshot,
             reachableTiles: nextDerived.reachableTiles,
             visibleTargets: nextDerived.visibleTargets,
+            visibleMeleeTargets: nextDerived.visibleMeleeTargets,
             selectedTargetId: nextDerived.selectedTargetId,
           };
         });
@@ -3368,7 +4390,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               };
             });
 
-            await performOverwatchReactionsIfAny(enemy.id, dest);
+            await performOverwatchReactionsIfAny(enemy.id, dest, plan.movePath);
 
             // Zkontrolujeme, zda se živý švédský voják po pohybu neocitl přímo u nechráněného maršála Colloreda
             const postMoveEnemy = get().units.find(
@@ -3444,8 +4466,15 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                 playGunshotSound(updatedEnemy.weapon.lockType === "wheellock");
               }
 
+              const impactMeta = resolveShotImpactMetadata(
+                get().grid,
+                updatedEnemy.pos,
+                targetUnit.pos,
+                outcome,
+              );
               const nowTs = performance.now();
               set((s) => ({
+                activeFloor: targetUnit.pos.y,
                 smokeVersion: s.smokeVersion + 1,
                 combatIntensity: s.combatIntensity + 1,
                 blastZones: [
@@ -3463,7 +4492,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                     : [
                         {
                           id: fxSeq++,
-                          coord: targetUnit.pos,
+                          coord: outcome.hit
+                            ? targetUnit.pos
+                            : impactMeta.missImpactCoord,
                           createdAt: nowTs,
                           baseRadius: 1.2,
                           maxRadius: 3.4,
@@ -3480,12 +4511,21 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                   id: fxSeq++,
                   from: updatedEnemy.pos,
                   to: targetUnit.pos,
+                  targetId: targetUnit.id,
+                  hitChance: outcome.hitChance,
                   kind: "bullet",
                   createdAt: nowTs,
-                  durationMs: 620,
+                  durationMs: 1780,
                   hit: outcome.hit,
                   critical: outcome.critical,
                   misfired: outcome.misfired,
+                  damage: outcome.damage,
+                  bloodSeverity: impactMeta.bloodSeverity,
+                  armorShredded: outcome.armorShredded,
+                  armorAbsorbed: outcome.armorAbsorbed,
+                  killed: outcome.killed,
+                  impactObstacle: impactMeta.impactObstacle,
+                  missImpactCoord: impactMeta.missImpactCoord,
                 },
               }));
 
@@ -3495,17 +4535,29 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                   ? { text: "SELHÁNÍ!", tone: "misfire" }
                   : undefined,
               });
-              await delay(235);
-              if (outcome.hit && !outcome.misfired) {
-                playHitSound();
+              await delay(730);
+              if (!outcome.misfired) {
+                if (outcome.hit) {
+                  playHitSound(outcome.critical, impactMeta.bloodSeverity);
+                } else {
+                  playRicochetSound(
+                    impactMeta.impactObstacle === "palace_wood",
+                  );
+                }
               }
 
               let newlyDetainedByEnemyShot = false;
               let immediateDefeatReason: CaptureReason | null = null;
+              const beforeEnemyShotTarget =
+                get().units.find((u) => u.id === targetUnit.id) ?? targetUnit;
+              let afterEnemyShotTarget: UnitData = beforeEnemyShotTarget;
 
               set((s) => {
                 if (!outcome.misfired) {
-                  s.grid.damageTile(targetUnit.pos, 1);
+                  s.grid.damageTile(
+                    outcome.hit ? targetUnit.pos : impactMeta.missImpactCoord,
+                    1,
+                  );
                 }
                 const nextUnits = s.units.map((u) => {
                   if (u.id !== targetUnit.id) return u;
@@ -3532,6 +4584,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                 const captureSync = syncColloredoCaptureState(nextUnits);
                 newlyDetainedByEnemyShot = captureSync.newlyDetained;
                 const syncedUnits = syncColloredoMobility(captureSync.units);
+                afterEnemyShotTarget =
+                  syncedUnits.find((u) => u.id === targetUnit.id) ??
+                  beforeEnemyShotTarget;
 
                 const isColloredo = targetUnit.id === "player-colloredo";
                 const targetNextHp = Math.max(0, targetUnit.hp - outcome.damage);
@@ -3599,22 +4654,37 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               });
 
               if (!outcome.misfired) {
+                const enemyShotLoss = buildUnitCombatLoss(
+                  beforeEnemyShotTarget,
+                  afterEnemyShotTarget,
+                  {
+                    attackerName: updatedEnemy.name,
+                    weaponName: updatedEnemy.weapon.name,
+                    hit: outcome.hit,
+                    critical: outcome.critical,
+                    misfired: outcome.misfired,
+                    hitChance: outcome.hitChance,
+                    armorAbsorbed: outcome.armorAbsorbed,
+                    durationMs: 1450,
+                  },
+                );
                 triggerUnitFx(targetUnit.id, {
                   hit: outcome.hit,
+                  loss: enemyShotLoss,
                   banner: newlyDetainedByEnemyShot
                     ? { text: "ZADRŽEN! (1/2)", tone: "crit" }
                     : outcome.hit
-                      ? {
-                          text: outcome.critical
-                            ? `KRIT −${outcome.damage}!`
-                            : `−${outcome.damage} HP`,
-                          tone: outcome.critical ? "crit" : "hit",
-                        }
-                      : { text: "VEDLE", tone: "miss" },
+                       ? {
+                           text: outcome.critical
+                             ? `KRIT −${outcome.damage}!`
+                             : `−${outcome.damage} HP`,
+                           tone: outcome.critical ? "crit" : "hit",
+                         }
+                       : { text: "VEDLE", tone: "miss" },
                 });
               }
 
-              await delay(385);
+              await delay(1050);
               set({ activeProjectile: null });
 
               if (immediateDefeatReason) {

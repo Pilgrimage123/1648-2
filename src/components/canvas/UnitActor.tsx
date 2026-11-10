@@ -7,10 +7,19 @@
 
 import { Line } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { Cloud, Eye, Flame, Footprints, Target } from "lucide-react";
+import {
+  Cloud,
+  Eye,
+  Flame,
+  Footprints,
+  ShieldAlert,
+  Skull,
+  Target,
+  Zap,
+} from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { bestTileCover } from "../../core/GridSystem";
+import { bestTileCover, sameCoord } from "../../core/GridSystem";
 import type { UnitData } from "../../core/types";
 import { useGameStore } from "../../store/useGameStore";
 import { BaroqueCoverBadge } from "../ui/BaroqueCoverBadge";
@@ -48,6 +57,7 @@ export function UnitActor({ unit }: UnitActorProps) {
   const completeUnitMovement = useGameStore((s) => s.completeUnitMovement);
 
   const [hitFlash, setHitFlash] = useState(0);
+  const [lossTick, setLossTick] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const moveProgressRef = useRef(0);
 
@@ -202,14 +212,14 @@ export function UnitActor({ unit }: UnitActorProps) {
 
     if (unitFx?.lungeTimestamp) {
       const elapsed = (now - unitFx.lungeTimestamp) / 1000;
-      if (elapsed >= 0 && elapsed < 0.44) {
-        // Realistický zpětný ráz muškety / arkebuzy při výstřelu (prudké kopnutí vzad a zdvih hlavně s tlumeným návratem)
-        const normT = elapsed / 0.44;
+      if (elapsed >= 0 && elapsed < 0.78) {
+        // Plynulý zpětný ráz muškety / arkebuzy při výstřelu (+90 % delší, C2-hladký návrat)
+        const normT = elapsed / 0.78;
         const recoilEnvelope =
-          normT < 0.18
-            ? normT / 0.18
-            : Math.pow(1 - (normT - 0.18) / 0.82, 1.8);
-        const kickbackDist = -0.24 * recoilEnvelope;
+          normT < 0.14
+            ? THREE.MathUtils.smootherstep(normT, 0, 0.14)
+            : Math.pow(1 - (normT - 0.14) / 0.86, 2.1);
+        const kickbackDist = -0.25 * recoilEnvelope;
         const dirVec =
           unit.facing === "N"
             ? [0, -1]
@@ -226,25 +236,67 @@ export function UnitActor({ unit }: UnitActorProps) {
 
     if (unitFx?.hitTimestamp) {
       const elapsed = (now - unitFx.hitTimestamp) / 1000;
-      if (elapsed >= 0 && elapsed < 0.55) {
-        const intensity = 1 - elapsed / 0.55;
+      if (elapsed >= 0 && elapsed < 1.05) {
+        const intensity = Math.pow(1 - elapsed / 1.05, 1.5);
         setHitFlash(intensity);
-        pivot.position.x += Math.sin(elapsed * 95) * 0.18 * intensity;
-        pivot.position.z += Math.cos(elapsed * 85) * 0.18 * intensity;
+        // Fyzikální zakolísání zasaženého cíle vzad s tlumeným kmitáním
+        const staggerBack = Math.sin(Math.min(1, elapsed * 3.2) * Math.PI) * 0.16;
+        pivot.position.x += Math.sin(elapsed * 68) * 0.14 * intensity;
+        pivot.position.z +=
+          Math.cos(elapsed * 62) * 0.14 * intensity + staggerBack * 0.5;
+        pivot.rotation.x -= staggerBack * 0.85;
       } else if (hitFlash > 0) {
         setHitFlash(0);
       }
     } else if (hitFlash > 0) {
       setHitFlash(0);
     }
+
+    // Pokud jednotka právě padla (alive === false), ale stále probíhá sekvence útoku / výpisu ztrát,
+    // plynule ji skácíme k zemi, aby hráč viděl smrtelný zásah i kompletní odečet ztrát nad cílem!
+    if (!unit.alive && unitFx?.combatLoss) {
+      const lossElapsedSec = (now - unitFx.combatLoss.timestamp) / 1000;
+      const lossDurSec = (unitFx.combatLoss.durationMs ?? 1550) / 1000;
+      if (lossElapsedSec <= lossDurSec + 0.15) {
+        const collapseT = THREE.MathUtils.smootherstep(
+          Math.min(1, lossElapsedSec / 0.65),
+          0,
+          1,
+        );
+        pivot.rotation.x = -1.22 * collapseT;
+        pivot.rotation.z = 0.28 * collapseT;
+        pivot.position.y = -0.36 * collapseT;
+      } else if (lossTick !== unitFx.combatLoss.id) {
+        setLossTick(unitFx.combatLoss.id);
+      }
+    } else if (unitFx?.combatLoss) {
+      const lossElapsedSec = (now - unitFx.combatLoss.timestamp) / 1000;
+      const lossDurSec = (unitFx.combatLoss.durationMs ?? 1550) / 1000;
+      if (lossElapsedSec > lossDurSec && lossTick !== unitFx.combatLoss.id) {
+        setLossTick(unitFx.combatLoss.id);
+      }
+    }
   });
 
-  if (!unit.alive) return null;
+  const nowRender = performance.now();
+  const activeCombatLoss =
+    unitFx?.combatLoss &&
+    nowRender - unitFx.combatLoss.timestamp <=
+      (unitFx.combatLoss.durationMs ?? 1550)
+      ? unitFx.combatLoss
+      : null;
+
+  const isAttackedByProjectile =
+    activeProjectile !== null &&
+    (activeProjectile.targetId === unit.id ||
+      sameCoord(activeProjectile.to, unit.pos) ||
+      (activeProjectile.extraTargets?.some((c) => sameCoord(c, unit.pos)) ??
+        false));
+
+  if (!unit.alive && !activeCombatLoss && !isAttackedByProjectile) return null;
 
   const isShootingView = actionMode === "shoot" || activeProjectile !== null;
-  const isMovingThisUnit = activeMovement?.unitId === unit.id;
-  
-  const isOnActiveFloor = unit.pos.y === activeFloor;
+
   const isHigherFloor = unit.pos.y > activeFloor;
   const isLowerFloor = unit.pos.y < activeFloor;
 
@@ -358,16 +410,30 @@ export function UnitActor({ unit }: UnitActorProps) {
   const baseColor = isPlayer ? "#d97706" : "#dc2626";
 
   const previewArmorLoss =
-    isTargeted && targetEval ? targetEval.calculation.expectedArmorLoss : 0;
+    (isTargeted || isAttackedByProjectile) && targetEval
+      ? targetEval.calculation.expectedArmorLoss
+      : isAttackedByProjectile
+        ? activeProjectile?.armorShredded ?? 0
+        : 0;
   const previewHpLossMax =
-    isTargeted && targetEval ? targetEval.calculation.expectedHpLossMax : 0;
+    (isTargeted || isAttackedByProjectile) && targetEval
+      ? targetEval.calculation.expectedHpLossMax
+      : isAttackedByProjectile
+        ? activeProjectile?.damage ?? 0
+        : 0;
   const previewHpLossMin =
-    isTargeted && targetEval ? targetEval.calculation.expectedHpLossMin : 0;
+    (isTargeted || isAttackedByProjectile) && targetEval
+      ? targetEval.calculation.expectedHpLossMin
+      : isAttackedByProjectile
+        ? activeProjectile?.damage ?? 0
+        : 0;
 
-  // Během střelby a míření skryjeme všechny karty a štítky spolubojovníků,
-  // aby nezakrývaly výhled kamery za ramenem střelce!
+  // Během střelby a míření skryjeme karty spolubojovníků za ramenem střelce,
+  // ale VŽDY zobrazíme kartu cíle, na který letí střela nebo který právě utrpěl ztráty!
   const hideLabelDuringShooting =
     isShootingView &&
+    !isAttackedByProjectile &&
+    !activeCombatLoss &&
     (isPlayer || (!isTargeted && !isHovered)) &&
     !unitFx?.floatingBanner;
 
@@ -375,18 +441,28 @@ export function UnitActor({ unit }: UnitActorProps) {
   const isExpandedCard =
     (!isShootingView && isSelected) ||
     isTargeted ||
+    isAttackedByProjectile ||
+    !!activeCombatLoss ||
     isHovered ||
     isDetainedMarshal ||
     !!unitFx?.floatingBanner;
 
   // Šachovnicový výškový posun (stagger), aby se sousedící štítky nikdy nepřekrývaly
-  const labelY = isShootingView
-    ? 2.65
-    : isSelected || isTargeted
-      ? 2.45
-      : 2.05 + ((unit.pos.x + unit.pos.z) % 2) * 0.28;
+  const labelY =
+    isAttackedByProjectile || activeCombatLoss
+      ? 2.72
+      : isShootingView
+        ? 2.65
+        : isSelected || isTargeted
+          ? 2.45
+          : 2.05 + ((unit.pos.x + unit.pos.z) % 2) * 0.28;
 
-  const shortName = unit.name.split(" ")[0] ?? unit.name;
+  const displayMaxArmor = activeCombatLoss
+    ? Math.max(unit.maxArmor, activeCombatLoss.maxArmor)
+    : unit.maxArmor;
+  const displayMaxHp = activeCombatLoss
+    ? Math.max(unit.maxHp, activeCombatLoss.maxHp)
+    : unit.maxHp;
 
   return (
     <group
@@ -446,8 +522,8 @@ export function UnitActor({ unit }: UnitActorProps) {
           color={
             isDetainedMarshal
               ? "#ef4444"
-              : isTargeted
-                ? targetEval?.calculation.isFlanked
+              : isTargeted || isAttackedByProjectile || activeCombatLoss
+                ? targetEval?.calculation.isFlanked || activeCombatLoss?.critical
                   ? "#facc15"
                   : "#ef4444"
                 : isSelected
@@ -458,7 +534,11 @@ export function UnitActor({ unit }: UnitActorProps) {
           }
           transparent
           opacity={
-            isDetainedMarshal || isSelected || isTargeted
+            isDetainedMarshal ||
+            isSelected ||
+            isTargeted ||
+            isAttackedByProjectile ||
+            !!activeCombatLoss
               ? 0.95
               : 0.65 * visualOpacity
           }
@@ -466,22 +546,26 @@ export function UnitActor({ unit }: UnitActorProps) {
         />
       </mesh>
 
-      {/* Vnitřní zvýraznění vybrané / zaměřené / zadržené postavy */}
-      {(isSelected || isTargeted || isDetainedMarshal) && (
+      {/* Vnitřní zvýraznění vybrané / zaměřené / zasažené / zadržené postavy */}
+      {(isSelected ||
+        isTargeted ||
+        isAttackedByProjectile ||
+        !!activeCombatLoss ||
+        isDetainedMarshal) && (
         <mesh position={[0, 0.02, 0]} rotation={[-Math.PI * 0.5, 0, 0]}>
           <circleGeometry args={[0.48, 24]} />
           <meshBasicMaterial
             color={
               isDetainedMarshal
                 ? "#ef4444"
-                : isTargeted
-                  ? targetEval?.calculation.isFlanked
+                : isTargeted || isAttackedByProjectile || activeCombatLoss
+                  ? targetEval?.calculation.isFlanked || activeCombatLoss?.critical
                     ? "#facc15"
                     : "#ef4444"
                   : "#38bdf8"
             }
             transparent
-            opacity={isDetainedMarshal ? 0.4 : 0.3}
+            opacity={isDetainedMarshal || activeCombatLoss ? 0.45 : 0.32}
           />
         </mesh>
       )}
@@ -506,13 +590,25 @@ export function UnitActor({ unit }: UnitActorProps) {
         )}
       </group>
 
-      {/* Plovoucí HTML štítek (<WorldHtml>) — skrytý pro spolubojovníky během střelby */}
+      {/* Plovoucí HTML štítek (<WorldHtml>) — přímo při útoku ukazuje přesně co zasažený nepřítel ztrácí */}
       {!hideLabelDuringShooting && (
         <WorldHtml
           position={[0, labelY, 0]}
           center
-          distanceFactor={isShootingView ? 12 : 18}
-          zIndexRange={isExpandedCard ? [30, 15] : [14, 0]}
+          distanceFactor={
+            isAttackedByProjectile || activeCombatLoss
+              ? 11.2
+              : isShootingView
+                ? 12
+                : 18
+          }
+          zIndexRange={
+            isAttackedByProjectile || activeCombatLoss
+              ? [45, 30]
+              : isExpandedCard
+                ? [30, 15]
+                : [14, 0]
+          }
           style={{
             pointerEvents: "none",
             opacity: 1,
@@ -530,234 +626,408 @@ export function UnitActor({ unit }: UnitActorProps) {
             className={`select-none flex flex-col items-center gap-1 rounded-xl border backdrop-blur-md shadow-2xl transition-all ${
               isExpandedCard ? "px-2.5 py-1.5 border-2" : "px-1.5 py-1"
             } ${
-              isDetainedMarshal
-                ? "bg-red-950/95 border-red-400 scale-105 ring-2 ring-red-500/70"
-                : isTargeted
-                  ? targetEval?.calculation.isFlanked
-                    ? "bg-amber-950/95 border-amber-400 scale-105 ring-2 ring-amber-400/60"
-                    : "bg-red-950/95 border-red-400 scale-105 ring-2 ring-red-400/60"
-                  : isSelected
-                    ? "bg-slate-950/95 border-sky-400 shadow-[0_0_20px_rgba(56,189,248,0.4)]"
-                    : isPlayer
-                      ? "bg-slate-950/88 border-amber-500/60"
-                      : "bg-slate-950/88 border-red-500/60"
+              activeCombatLoss
+                ? activeCombatLoss.hit
+                  ? activeCombatLoss.critical || activeCombatLoss.killed
+                    ? "bg-red-950/96 border-amber-400 scale-110 ring-2 ring-amber-400/80 shadow-[0_0_26px_rgba(250,204,21,0.55)]"
+                    : "bg-red-950/96 border-red-400 scale-105 ring-2 ring-red-500/75 shadow-[0_0_22px_rgba(239,68,68,0.5)]"
+                  : "bg-slate-950/95 border-slate-400 scale-105 ring-1 ring-slate-400/50"
+                : isDetainedMarshal
+                  ? "bg-red-950/95 border-red-400 scale-105 ring-2 ring-red-500/70"
+                  : isTargeted || isAttackedByProjectile
+                    ? targetEval?.calculation.isFlanked
+                      ? "bg-amber-950/95 border-amber-400 scale-105 ring-2 ring-amber-400/60"
+                      : "bg-red-950/95 border-red-400 scale-105 ring-2 ring-red-400/60"
+                    : isSelected
+                      ? "bg-slate-950/95 border-sky-400 shadow-[0_0_20px_rgba(56,189,248,0.4)]"
+                      : isPlayer
+                        ? "bg-slate-950/88 border-amber-500/60"
+                        : "bg-slate-950/88 border-red-500/60"
             }`}
           >
-          {/* Výstražný odznak zadržení maršála */}
-          {isDetainedMarshal && (
-            <div className="text-[10px] font-cinzel font-black px-2 py-0.5 rounded bg-red-600 text-white uppercase tracking-wider animate-pulse border border-amber-300 shadow-lg whitespace-nowrap">
-              {(unit.detainedTurns ?? 0) >= 2 || isCapturingAnim
-                ? "ZAJAT! (2/2)"
-                : `ZADRŽEN (${unit.detainedTurns ?? 1}/2)`}
-            </div>
-          )}
-
-          {/* Prediktivní zaměřovač cílů před pohybem (Pre-Move LoS Crosshair ADR-0010) */}
-          {isPreMoveTarget && !isDetainedMarshal && (
-            <div className="flex items-center gap-1 text-[10px] font-cinzel font-black px-2 py-0.5 rounded-full bg-red-600 text-white uppercase tracking-wider animate-pulse border border-amber-300 shadow-[0_0_12px_rgba(239,68,68,0.9)] whitespace-nowrap">
-              <Target className="w-3.5 h-3.5 text-amber-300 animate-spin" />
-              <span>V muškách po přesunu</span>
-            </div>
-          )}
-
-          {/* Plovoucí bojový banner */}
-          {unitFx?.floatingBanner && (
-            <div
-              key={unitFx.floatingBanner.id}
-              className={`text-[11px] font-cinzel font-black px-2 py-0.5 rounded uppercase tracking-wider animate-bounce shadow-md whitespace-nowrap ${
-                unitFx.floatingBanner.tone === "crit"
-                  ? "bg-amber-400 text-slate-950 border border-white"
-                  : unitFx.floatingBanner.tone === "hit"
-                    ? "bg-red-600 text-white border border-red-300"
-                    : unitFx.floatingBanner.tone === "misfire"
-                      ? "bg-orange-500 text-slate-950 border border-white"
-                      : unitFx.floatingBanner.tone === "overwatch"
-                        ? "bg-sky-400 text-slate-950 border border-white"
-                        : unitFx.floatingBanner.tone === "buff"
-                          ? "bg-emerald-400 text-slate-950 border border-white"
-                          : "bg-slate-800 text-slate-100 border border-slate-600"
-              }`}
-            >
-              {unitFx.floatingBanner.text}
-            </div>
-          )}
-
-          {/* Horní řádek: Barokní ikona krytu s číslem (−20 / −40) + Jméno + % Zásahu */}
-          <div className="flex items-center gap-1 whitespace-nowrap">
-            {tileMeta.cover !== "none" && (
-              <BaroqueCoverBadge cover={tileMeta.cover} size="sm" />
+            {/* Výstražný odznak zadržení maršála */}
+            {isDetainedMarshal && (
+              <div className="text-[10px] font-cinzel font-black px-2 py-0.5 rounded bg-red-600 text-white uppercase tracking-wider animate-pulse border border-amber-300 shadow-lg whitespace-nowrap">
+                {(unit.detainedTurns ?? 0) >= 2 || isCapturingAnim
+                  ? "ZAJAT! (2/2)"
+                  : `ZADRŽEN (${unit.detainedTurns ?? 1}/2)`}
+              </div>
             )}
 
-            {tileMeta.inSmoke && (
-              <span
-                title="Kouř z černého prachu (−20 % k zásahu)"
-                className="flex items-center justify-center rounded px-1 h-5 bg-slate-700/80 text-slate-200 border border-slate-400/50 text-[9px] font-cinzel font-black gap-0.5"
-              >
-                <Cloud className="w-3 h-3" />
-                <span>−20</span>
-              </span>
+            {/* Fáze 1 útoku (let projektilu k cíli): Indikátor blížící se střely a ohrožených životů/zbroje */}
+            {isAttackedByProjectile && !activeCombatLoss && (
+              <div className="flex items-center gap-1.5 text-[10px] font-cinzel font-black px-2 py-0.5 rounded bg-red-600/95 text-amber-100 uppercase tracking-wider animate-pulse border border-amber-300 shadow-md whitespace-nowrap">
+                <Target className="w-3 h-3 text-amber-300 animate-spin shrink-0" />
+                <span>
+                  ÚTOK NA CÍL
+                  {activeProjectile?.hitChance !== undefined
+                    ? ` • ${activeProjectile.hitChance}%`
+                    : ""}
+                </span>
+              </div>
             )}
 
-            <span className="font-cinzel font-black text-[11px] tracking-wide text-amber-100">
-              {unit.name}
-            </span>
+            {/* Prediktivní zaměřovač cílů před pohybem (Pre-Move LoS Crosshair ADR-0010) */}
+            {isPreMoveTarget &&
+              !isDetainedMarshal &&
+              !isAttackedByProjectile &&
+              !activeCombatLoss && (
+                <div className="flex items-center gap-1 text-[10px] font-cinzel font-black px-2 py-0.5 rounded-full bg-red-600 text-white uppercase tracking-wider animate-pulse border border-amber-300 shadow-[0_0_12px_rgba(239,68,68,0.9)] whitespace-nowrap">
+                  <Target className="w-3.5 h-3.5 text-amber-300 animate-spin" />
+                  <span>V muškách po přesunu</span>
+                </div>
+              )}
 
-            {unit.pos.y !== activeFloor && (
-              <span
-                title={`Relativní výška vůči aktivnímu patru: ${unit.pos.y > activeFloor ? `+${unit.pos.y - activeFloor}` : `-${activeFloor - unit.pos.y}`} patro`}
-                className={`flex items-center gap-0.5 text-[9px] font-cinzel font-black px-1 rounded border tabular-nums ${
-                  unit.pos.y > activeFloor
-                    ? "bg-amber-500/30 text-amber-300 border-amber-400/80 shadow-[0_0_8px_rgba(251,191,36,0.4)]"
-                    : "bg-slate-800/90 text-slate-300 border-slate-600/60"
+            {/* Plovoucí bojový banner (zobrazíme samostatně, pokud není nahrazen detailním panelem ztrát) */}
+            {unitFx?.floatingBanner && !activeCombatLoss && (
+              <div
+                key={unitFx.floatingBanner.id}
+                className={`text-[11px] font-cinzel font-black px-2 py-0.5 rounded uppercase tracking-wider animate-bounce shadow-md whitespace-nowrap ${
+                  unitFx.floatingBanner.tone === "crit"
+                    ? "bg-amber-400 text-slate-950 border border-white"
+                    : unitFx.floatingBanner.tone === "hit"
+                      ? "bg-red-600 text-white border border-red-300"
+                      : unitFx.floatingBanner.tone === "misfire"
+                        ? "bg-orange-500 text-slate-950 border border-white"
+                        : unitFx.floatingBanner.tone === "overwatch"
+                          ? "bg-sky-400 text-slate-950 border border-white"
+                          : unitFx.floatingBanner.tone === "buff"
+                            ? "bg-emerald-400 text-slate-950 border border-white"
+                            : "bg-slate-800 text-slate-100 border border-slate-600"
                 }`}
               >
-                <span>{unit.pos.y > activeFloor ? "▲" : "▼"}</span>
-                <span>{unit.pos.y > activeFloor ? `+${unit.pos.y - activeFloor}` : `-${activeFloor - unit.pos.y}`}</span>
-              </span>
+                {unitFx.floatingBanner.text}
+              </div>
             )}
 
-            {unit.isOverwatch && (
-              <span
-                title="Hlídka (Overwatch) aktivní"
-                className="flex items-center gap-0.5 text-[9px] font-cinzel font-bold px-1 rounded bg-sky-500/30 text-sky-200 border border-sky-400/60"
-              >
-                <Eye className="w-2.5 h-2.5" />
-              </span>
-            )}
-
-            {!isPlayer && targetEval && (
-              <span
-                className={`text-[10px] font-cinzel font-black px-1.5 py-0.2 rounded border tabular-nums ${
-                  targetEval.calculation.isFlanked
-                    ? "bg-amber-500/30 text-amber-200 border-amber-400/80"
-                    : "bg-red-500/30 text-red-200 border-red-400/70"
+            {/* Fáze 2 útoku (Dopad): Záhlaví výsledku zásahu přímo nad cílem */}
+            {activeCombatLoss && (
+              <div
+                key={`loss-hdr-${activeCombatLoss.id}`}
+                className={`flex items-center gap-1 text-[10px] font-cinzel font-black px-2 py-0.5 rounded uppercase tracking-wider shadow-md whitespace-nowrap ${
+                  activeCombatLoss.killed
+                    ? "bg-red-600 text-amber-200 border border-amber-300 animate-pulse"
+                    : activeCombatLoss.critical && activeCombatLoss.hit
+                      ? "bg-amber-400 text-slate-950 border border-white"
+                      : activeCombatLoss.hit
+                        ? activeCombatLoss.hpLost > 0 ||
+                          activeCombatLoss.armorLost > 0
+                          ? "bg-red-600 text-white border border-red-200"
+                          : "bg-amber-500 text-slate-950 border border-amber-200"
+                        : "bg-slate-800 text-slate-200 border border-slate-500"
                 }`}
               >
-                {targetEval.calculation.hitChance}%
-              </span>
+                {activeCombatLoss.killed ? (
+                  <>
+                    <Skull className="w-3.5 h-3.5 text-amber-200 shrink-0" />
+                    <span>SMRTELNÝ ZÁSAH — VYŘAZEN!</span>
+                  </>
+                ) : activeCombatLoss.hit ? (
+                  activeCombatLoss.critical ? (
+                    <>
+                      <Zap className="w-3.5 h-3.5 text-slate-950 shrink-0" />
+                      <span>KRITICKÝ PRŮSTŘEL!</span>
+                    </>
+                  ) : activeCombatLoss.hpLost > 0 ? (
+                    <span>ZÁSAH CÍLE!</span>
+                  ) : (
+                    <span>ODRAŽENO KYRYSEM!</span>
+                  )
+                ) : (
+                  <span>MINUTÍ — ODRAZ DO ZDIVA</span>
+                )}
+              </div>
             )}
-          </div>
 
-          {/* Řádek ukazatelů: v kompaktním režimu 1 čistý řádek kostiček, v rozbaleném plný detail */}
-          {isExpandedCard ? (
-            <div className="flex flex-col gap-0.5 w-full">
-              {unit.maxArmor > 0 && (
+            {/* Horní řádek: Barokní ikona krytu s číslem (−20 / −40) + Jméno + % Zásahu */}
+            <div className="flex items-center gap-1 whitespace-nowrap">
+              {tileMeta.cover !== "none" && (
+                <BaroqueCoverBadge cover={tileMeta.cover} size="sm" />
+              )}
+
+              {tileMeta.inSmoke && (
+                <span
+                  title="Kouř z černého prachu (−20 % k zásahu)"
+                  className="flex items-center justify-center rounded px-1 h-5 bg-slate-700/80 text-slate-200 border border-slate-400/50 text-[9px] font-cinzel font-black gap-0.5"
+                >
+                  <Cloud className="w-3 h-3" />
+                  <span>−20</span>
+                </span>
+              )}
+
+              <span className="font-cinzel font-black text-[11px] tracking-wide text-amber-100">
+                {unit.name}
+              </span>
+
+              {unit.pos.y !== activeFloor && (
+                <span
+                  title={`Relativní výška vůči aktivnímu patru: ${unit.pos.y > activeFloor ? `+${unit.pos.y - activeFloor}` : `-${activeFloor - unit.pos.y}`} patro`}
+                  className={`flex items-center gap-0.5 text-[9px] font-cinzel font-black px-1 rounded border tabular-nums ${
+                    unit.pos.y > activeFloor
+                      ? "bg-amber-500/30 text-amber-300 border-amber-400/80 shadow-[0_0_8px_rgba(251,191,36,0.4)]"
+                      : "bg-slate-800/90 text-slate-300 border-slate-600/60"
+                  }`}
+                >
+                  <span>{unit.pos.y > activeFloor ? "▲" : "▼"}</span>
+                  <span>
+                    {unit.pos.y > activeFloor
+                      ? `+${unit.pos.y - activeFloor}`
+                      : `-${activeFloor - unit.pos.y}`}
+                  </span>
+                </span>
+              )}
+
+              {unit.isOverwatch && (
+                <span
+                  title="Hlídka (Overwatch) aktivní"
+                  className="flex items-center gap-0.5 text-[9px] font-cinzel font-bold px-1 rounded bg-sky-500/30 text-sky-200 border border-sky-400/60"
+                >
+                  <Eye className="w-2.5 h-2.5" />
+                </span>
+              )}
+
+              {!isPlayer && targetEval && !activeCombatLoss && (
+                <span
+                  className={`text-[10px] font-cinzel font-black px-1.5 py-0.2 rounded border tabular-nums ${
+                    targetEval.calculation.isFlanked
+                      ? "bg-amber-500/30 text-amber-200 border-amber-400/80"
+                      : "bg-red-500/30 text-red-200 border-red-400/70"
+                  }`}
+                >
+                  {targetEval.calculation.hitChance}%
+                </span>
+              )}
+            </div>
+
+            {/* Řádek ukazatelů: v kompaktním režimu 1 čistý řádek kostiček, v rozbaleném plný detail se zvýrazněním ztracených dílků */}
+            {isExpandedCard ? (
+              <div className="flex flex-col gap-0.5 w-full">
+                {displayMaxArmor > 0 && (
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-0.5">
+                      {Array.from({ length: displayMaxArmor }, (_, i) => {
+                        const currentArmor = activeCombatLoss
+                          ? activeCombatLoss.armorAfter
+                          : unit.armor;
+                        const hasArmor = i < currentArmor;
+                        const justLostArmor =
+                          !!activeCombatLoss &&
+                          i >= activeCombatLoss.armorAfter &&
+                          i < activeCombatLoss.armorBefore;
+                        const willLoseArmor =
+                          !activeCombatLoss &&
+                          (isTargeted || isAttackedByProjectile) &&
+                          hasArmor &&
+                          i >= Math.max(0, currentArmor - previewArmorLoss);
+                        return (
+                          <span
+                            key={i}
+                            title={
+                              justLostArmor
+                                ? "Ztracený dílek zbroje (průraz kyrysu)"
+                                : "Zbroj (kyrys)"
+                            }
+                            className={`w-2.5 h-2 rounded-[2px] border transition-all ${
+                              justLostArmor
+                                ? "bg-gradient-to-t from-red-600 via-amber-300 to-white border-white animate-pulse shadow-[0_0_8px_#f59e0b] scale-110"
+                                : willLoseArmor
+                                  ? "bg-amber-300 border-white animate-pulse shadow-[0_0_8px_#fde047]"
+                                  : hasArmor
+                                    ? "bg-amber-400 border-amber-200"
+                                    : "bg-slate-900 border-slate-700"
+                            }`}
+                          />
+                        );
+                      })}
+                    </div>
+
+                    {activeCombatLoss && activeCombatLoss.armorLost > 0 ? (
+                      <span className="text-[9px] font-cinzel font-black text-amber-300 whitespace-nowrap tabular-nums">
+                        ZBROJ {activeCombatLoss.armorBefore}→
+                        {activeCombatLoss.armorAfter} (−
+                        {activeCombatLoss.armorLost})
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-0.5">
+                        {Array.from({ length: unit.maxAp }, (_, i) => (
+                          <span
+                            key={i}
+                            style={{
+                              backgroundColor:
+                                i < unit.ap ? baseColor : "transparent",
+                            }}
+                            className="w-1.5 h-1.5 rounded-full border border-amber-300"
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-0.5">
-                    {Array.from({ length: unit.maxArmor }, (_, i) => {
-                      const hasArmor = i < unit.armor;
-                      const willLoseArmor =
-                        isTargeted &&
-                        hasArmor &&
-                        i >= Math.max(0, unit.armor - previewArmorLoss);
+                    {Array.from({ length: displayMaxHp }, (_, i) => {
+                      const currentHp = activeCombatLoss
+                        ? activeCombatLoss.hpAfter
+                        : unit.hp;
+                      const filled = i < currentHp;
+                      const justLostHp =
+                        !!activeCombatLoss &&
+                        i >= activeCombatLoss.hpAfter &&
+                        i < activeCombatLoss.hpBefore;
+                      const guaranteedLossStart = Math.max(
+                        0,
+                        currentHp - previewHpLossMin,
+                      );
+                      const maxLossStart = Math.max(
+                        0,
+                        currentHp - previewHpLossMax,
+                      );
+                      const willLoseGuaranteed =
+                        !activeCombatLoss &&
+                        (isTargeted || isAttackedByProjectile) &&
+                        filled &&
+                        i >= guaranteedLossStart;
+                      const willLoseMaxRange =
+                        !activeCombatLoss &&
+                        (isTargeted || isAttackedByProjectile) &&
+                        filled &&
+                        i >= maxLossStart &&
+                        i < guaranteedLossStart;
+
                       return (
                         <span
                           key={i}
-                          title="Zbroj (kyrys)"
-                          className={`w-2.5 h-2 rounded-[2px] border transition-colors ${
-                            willLoseArmor
-                              ? "bg-amber-300 border-white animate-pulse shadow-[0_0_8px_#fde047]"
-                              : hasArmor
-                                ? "bg-amber-400 border-amber-200"
-                                : "bg-slate-900 border-slate-700"
+                          title={
+                            justLostHp
+                              ? "Právě ztracený dílek zdraví (HP)"
+                              : "Zdraví (HP)"
+                          }
+                          className={`w-2.5 h-2.5 rounded-[1px] border transition-all ${
+                            justLostHp
+                              ? "bg-gradient-to-t from-red-600 via-amber-300 to-white border-white animate-pulse shadow-[0_0_9px_#ef4444] scale-110"
+                              : willLoseGuaranteed
+                                ? "bg-white border-amber-300 animate-pulse shadow-[0_0_8px_#ffffff]"
+                                : willLoseMaxRange
+                                  ? "bg-amber-300 border-amber-100 animate-pulse shadow-[0_0_6px_#fde047]"
+                                  : filled
+                                    ? isPlayer
+                                      ? "bg-emerald-400 border-emerald-200"
+                                      : "bg-rose-500 border-rose-300"
+                                    : "bg-slate-900 border-slate-700"
                           }`}
                         />
                       );
                     })}
                   </div>
 
-                  <div className="flex items-center gap-0.5">
-                    {Array.from({ length: unit.maxAp }, (_, i) => (
-                      <span
-                        key={i}
-                        style={{
-                          backgroundColor:
-                            i < unit.ap ? baseColor : "transparent",
-                        }}
-                        className="w-1.5 h-1.5 rounded-full border border-amber-300"
-                      />
-                    ))}
+                  {activeCombatLoss ? (
+                    <span
+                      className={`text-[9px] font-cinzel font-black whitespace-nowrap tabular-nums ${
+                        activeCombatLoss.hpLost > 0
+                          ? "text-red-300"
+                          : "text-slate-300"
+                      }`}
+                    >
+                      HP {activeCombatLoss.hpBefore}→{activeCombatLoss.hpAfter}{" "}
+                      {activeCombatLoss.hpLost > 0
+                        ? `(−${activeCombatLoss.hpLost})`
+                        : "(0)"}
+                    </span>
+                  ) : (
+                    (isTargeted || isAttackedByProjectile) &&
+                    previewHpLossMax > 0 && (
+                      <span className="text-[9px] font-cinzel font-black text-amber-300 animate-pulse whitespace-nowrap tabular-nums">
+                        −{previewHpLossMin}
+                        {previewHpLossMax !== previewHpLossMin
+                          ? `..${previewHpLossMax}`
+                          : ""}
+                      </span>
+                    )
+                  )}
+                </div>
+
+                {/* Přímý jmenovitý výčet všeho, co zasažený cíl ztrácí během útoku */}
+                {activeCombatLoss && activeCombatLoss.hit && (
+                  <div className="mt-0.5 pt-1 border-t border-red-400/40 flex flex-wrap items-center justify-center gap-1 max-w-[230px]">
+                    {activeCombatLoss.hpLost > 0 && (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-red-600/90 text-white border border-red-300 text-[9px] font-cinzel font-black tracking-wide shadow-sm whitespace-nowrap">
+                        <span>−{activeCombatLoss.hpLost} HP ZDRAVÍ</span>
+                      </span>
+                    )}
+                    {activeCombatLoss.armorLost > 0 && (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-500/90 text-slate-950 border border-amber-200 text-[9px] font-cinzel font-black tracking-wide shadow-sm whitespace-nowrap">
+                        <ShieldAlert className="w-2.5 h-2.5 shrink-0" />
+                        <span>−{activeCombatLoss.armorLost} ZBROJ</span>
+                      </span>
+                    )}
+                    {activeCombatLoss.armorAbsorbed > 0 && (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-slate-800/95 text-amber-200 border border-amber-400/60 text-[9px] font-cinzel font-bold tracking-wide whitespace-nowrap">
+                        <span>
+                          KYRYS POHLTIL {activeCombatLoss.armorAbsorbed} DMG
+                        </span>
+                      </span>
+                    )}
+                    {activeCombatLoss.apLost > 0 && (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-orange-600/90 text-white border border-orange-300 text-[9px] font-cinzel font-black tracking-wide whitespace-nowrap">
+                        <span>−{activeCombatLoss.apLost} AP AKCE</span>
+                      </span>
+                    )}
+                    {activeCombatLoss.shakenApplied && (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-purple-900/95 text-purple-100 border border-purple-400 text-[9px] font-cinzel font-black tracking-wide whitespace-nowrap">
+                        <span>OTŘESEN (−15 % MÍŘENÍ)</span>
+                      </span>
+                    )}
+                    {activeCombatLoss.overwatchLost && (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-sky-900/95 text-sky-100 border border-sky-400 text-[9px] font-cinzel font-black tracking-wide whitespace-nowrap">
+                        <span>ZRUŠEN OVERWATCH</span>
+                      </span>
+                    )}
+                    {activeCombatLoss.detainedApplied && (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-red-700 text-amber-200 border border-amber-300 text-[9px] font-cinzel font-black tracking-wide whitespace-nowrap">
+                        <span>ZADRŽEN (1/2 KOLA)</span>
+                      </span>
+                    )}
+                    {activeCombatLoss.killed && (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-slate-950 text-amber-300 border border-amber-400 text-[9px] font-cinzel font-black tracking-wide whitespace-nowrap">
+                        <Skull className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                        <span>PADL V BOJI</span>
+                      </span>
+                    )}
                   </div>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-0.5">
-                  {Array.from({ length: unit.maxHp }, (_, i) => {
-                    const filled = i < unit.hp;
-                    const guaranteedLossStart = Math.max(
-                      0,
-                      unit.hp - previewHpLossMin,
-                    );
-                    const maxLossStart = Math.max(
-                      0,
-                      unit.hp - previewHpLossMax,
-                    );
-                    const willLoseGuaranteed =
-                      isTargeted && filled && i >= guaranteedLossStart;
-                    const willLoseMaxRange =
-                      isTargeted &&
-                      filled &&
-                      i >= maxLossStart &&
-                      i < guaranteedLossStart;
-
-                    return (
-                      <span
-                        key={i}
-                        className={`w-2.5 h-2.5 rounded-[1px] border transition-all ${
-                          willLoseGuaranteed
-                            ? "bg-white border-amber-300 animate-pulse shadow-[0_0_8px_#ffffff]"
-                            : willLoseMaxRange
-                              ? "bg-amber-300 border-amber-100 animate-pulse shadow-[0_0_6px_#fde047]"
-                              : filled
-                                ? isPlayer
-                                  ? "bg-emerald-400 border-emerald-200"
-                                  : "bg-rose-500 border-rose-300"
-                                : "bg-slate-900 border-slate-700"
-                        }`}
-                      />
-                    );
-                  })}
-                </div>
-
-                {isTargeted && targetEval && (
-                  <span className="text-[9px] font-cinzel font-black text-amber-300 animate-pulse whitespace-nowrap tabular-nums">
-                    −{previewHpLossMin}..{previewHpLossMax}
-                  </span>
                 )}
               </div>
-            </div>
-          ) : (
-            /* Kompaktní řádek pro nevybrané jednotky (žádné překrývání) */
-            <div className="flex items-center gap-1">
-              <div className="flex items-center gap-0.5">
-                {Array.from({ length: unit.maxHp }, (_, i) => (
-                  <span
-                    key={i}
-                    className={`w-1.5 h-1.5 rounded-[1px] ${
-                      i < unit.hp
-                        ? isPlayer
-                          ? "bg-emerald-400"
-                          : "bg-rose-500"
-                        : "bg-slate-800"
-                    }`}
-                  />
-                ))}
-              </div>
-              {unit.armor > 0 && (
-                <div className="flex items-center gap-0.5 pl-0.5 border-l border-slate-700">
-                  {Array.from({ length: unit.armor }, (_, i) => (
+            ) : (
+              /* Kompaktní řádek pro nevybrané jednotky (žádné překrývání) */
+              <div className="flex items-center gap-1">
+                <div className="flex items-center gap-0.5">
+                  {Array.from({ length: unit.maxHp }, (_, i) => (
                     <span
                       key={i}
-                      className="w-1.5 h-1.5 rounded-[1px] bg-amber-400"
+                      className={`w-1.5 h-1.5 rounded-[1px] ${
+                        i < unit.hp
+                          ? isPlayer
+                            ? "bg-emerald-400"
+                            : "bg-rose-500"
+                          : "bg-slate-800"
+                      }`}
                     />
                   ))}
                 </div>
-              )}
-            </div>
-          )}
-        </div>
-      </WorldHtml>
+                {unit.armor > 0 && (
+                  <div className="flex items-center gap-0.5 pl-0.5 border-l border-slate-700">
+                    {Array.from({ length: unit.armor }, (_, i) => (
+                      <span
+                        key={i}
+                        className="w-1.5 h-1.5 rounded-[1px] bg-amber-400"
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </WorldHtml>
       )}
     </group>
   );

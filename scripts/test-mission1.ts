@@ -1,10 +1,14 @@
 import assert from "node:assert";
 import {
+  calculateMeleeAttack,
   calculateShot,
   checkLineOfSight3D,
   computeEnemyAiDecision,
+  evaluateAdjacentMeleeTargets,
   gridDistance3D,
+  isAdjacentForMelee,
   resolveTargetCoverAgainstShot,
+  rollMeleeAttack,
   rollRangedAttack,
 } from "../src/core/CombatSystem.ts";
 import {
@@ -12,6 +16,8 @@ import {
   createInitialGrid,
   createInitialUnits,
   createReinforcementUnits,
+  MELEE_CATALOG,
+  resolvePreferredFloorCoord,
   WEAPON_CATALOG,
 } from "../src/core/GridSystem.ts";
 import {
@@ -28,11 +34,14 @@ import {
 } from "../src/core/FogOfWar.ts";
 import {
   advanceColloredoDetentionTurn,
+  buildUnitCombatLoss,
   checkMissionOutcome,
+  resolveShotImpactMetadata,
   syncColloredoCaptureState,
   syncColloredoMobility,
   useGameStore,
 } from "../src/store/useGameStore.ts";
+import type { FloorLevel, GridCoord } from "../src/core/types.ts";
 
 console.log("=== TEST MISSION 1: ESCAPE OF MARSHAL COLLOREDO (GRAND PRIORY PALACE) ===");
 
@@ -1092,7 +1101,7 @@ assert(
 // Verify store setHoveredTile populates hoveredSpottedEnemyIds
 useGameStore.getState().selectUnit(janMatej!.id);
 useGameStore.getState().setActionMode("move");
-const candidateTile = { x: 9, y: 0, z: 17 };
+const candidateTile: GridCoord = { x: 9, y: 0, z: 17 };
 useGameStore.getState().setHoveredTile(candidateTile);
 assert(
   Array.isArray(useGameStore.getState().hoveredSpottedEnemyIds),
@@ -1142,4 +1151,590 @@ console.log(
   "✓ Multi-Floor Fog of War Blackout & Smoke Horizon Piercing validated.",
 );
 
+// 21. Test Active-Floor Preference (P0/P1/P2) & Václav Same-Floor P1 Navigation
+useGameStore.getState().resetGame();
+useGameStore.getState().selectUnit("player-vaclav-michalovic");
+const vaclavStoreState = useGameStore.getState();
+assert(
+  vaclavStoreState.activeFloor === 1,
+  "Selecting Václav z Michalovic must automatically set activeFloor to P1 (1)",
+);
+const vaclavP1Reachable = Array.from(vaclavStoreState.reachableTiles.values()).filter(
+  (r) => r.coord.y === 1,
+);
+assert(
+  vaclavP1Reachable.length >= 25,
+  `Václav on P1 must have at least 25 reachable tiles on P1 (got ${vaclavP1Reachable.length})`,
+);
+
+// Verify resolvePreferredFloorCoord strongly prioritizes activeFloor when floor exists
+const resolvedOnP1 = resolvePreferredFloorCoord(
+  vaclavStoreState.grid,
+  { x: 12, y: 0, z: 15 },
+  1,
+);
+assert(
+  resolvedOnP1.x === 12 && resolvedOnP1.y === 1 && resolvedOnP1.z === 15,
+  "When activeFloor=1 and [12, 15] has a P1 floor, resolvePreferredFloorCoord must return P1 (y=1)",
+);
+
+const resolvedOnP2 = resolvePreferredFloorCoord(
+  vaclavStoreState.grid,
+  { x: 6, y: 0, z: 16 },
+  2,
+);
+assert(
+  resolvedOnP2.x === 6 && resolvedOnP2.y === 2 && resolvedOnP2.z === 16,
+  "When activeFloor=2 and [6, 16] has a P2 watchtower floor, resolvePreferredFloorCoord must return P2 (y=2)",
+);
+
+// Verify fallback to P0 ONLY in single-story garden / courtyard locations where P1 does not exist
+const resolvedGardenFallback = resolvePreferredFloorCoord(
+  vaclavStoreState.grid,
+  { x: 10, y: 0, z: 12 },
+  1,
+);
+assert(
+  resolvedGardenFallback.x === 10 &&
+    resolvedGardenFallback.y === 0 &&
+    resolvedGardenFallback.z === 12,
+  "When activeFloor=1 and [10, 12] is in the single-story garden (no P1 floor), resolvePreferredFloorCoord must fall back to P0 (y=0)",
+);
+
+// Verify Václav's A* path across P1 stays strictly on P1
+const vaclavUnitNow = vaclavStoreState.units.find(
+  (u) => u.id === "player-vaclav-michalovic",
+)!;
+const p1GalleryPath = findPathAStar(
+  vaclavStoreState.grid,
+  vaclavUnitNow.pos,
+  { x: 8, y: 1, z: 15 },
+  vaclavStoreState.units,
+  vaclavUnitNow.id,
+);
+assert(
+  p1GalleryPath.length > 0 && p1GalleryPath.every((step) => step.y === 1),
+  "Václav moving along the P1 gallery must stay 100% on floor P1 without dipping to P0",
+);
+
+console.log(
+  "✓ Active-Floor Preference (P0/P1/P2) & Václav Same-Floor P1 Navigation validated.",
+);
+
+// 22. Test Shot Impact Metadata (Wound Blood Severity 0..3 & Obstacle Debris Classification on Miss)
+const impactTestGrid = createInitialGrid();
+const shooterPos: GridCoord = { x: 9, y: 0, z: 19 };
+const palaceTargetPos: GridCoord = { x: 9, y: 0, z: 16 };
+
+// 22a: Light wound (1-2 HP) -> bloodSeverity = 1
+const lightHitMeta = resolveShotImpactMetadata(
+  impactTestGrid,
+  shooterPos,
+  palaceTargetPos,
+  {
+    hit: true,
+    critical: false,
+    misfired: false,
+    damage: 2,
+    killed: false,
+    armorShredded: 0,
+    armorAbsorbed: 0,
+  },
+);
+assert(
+  lightHitMeta.bloodSeverity === 1,
+  `Light wound (2 HP) must yield bloodSeverity=1 (got ${lightHitMeta.bloodSeverity})`,
+);
+
+// 22b: Medium wound (3-4 HP) -> bloodSeverity = 2
+const mediumHitMeta = resolveShotImpactMetadata(
+  impactTestGrid,
+  shooterPos,
+  palaceTargetPos,
+  {
+    hit: true,
+    critical: false,
+    misfired: false,
+    damage: 4,
+    killed: false,
+    armorShredded: 1,
+    armorAbsorbed: 0,
+  },
+);
+assert(
+  mediumHitMeta.bloodSeverity === 2,
+  `Medium wound (4 HP) must yield bloodSeverity=2 (got ${mediumHitMeta.bloodSeverity})`,
+);
+
+// 22c: Critical or heavy/lethal wound (5+ HP or crit or kill) -> bloodSeverity = 3
+const heavyHitMeta = resolveShotImpactMetadata(
+  impactTestGrid,
+  shooterPos,
+  palaceTargetPos,
+  {
+    hit: true,
+    critical: true,
+    misfired: false,
+    damage: 6,
+    killed: true,
+    armorShredded: 2,
+    armorAbsorbed: 0,
+  },
+);
+assert(
+  heavyHitMeta.bloodSeverity === 3,
+  `Critical/lethal wound (6 HP) must yield bloodSeverity=3 (got ${heavyHitMeta.bloodSeverity})`,
+);
+
+// 22d: Armor-absorbed zero-damage hit -> bloodSeverity = 0
+const absorbedHitMeta = resolveShotImpactMetadata(
+  impactTestGrid,
+  shooterPos,
+  palaceTargetPos,
+  {
+    hit: true,
+    critical: false,
+    misfired: false,
+    damage: 0,
+    killed: false,
+    armorShredded: 0,
+    armorAbsorbed: 2,
+  },
+);
+assert(
+  absorbedHitMeta.bloodSeverity === 0,
+  `Zero-damage armor-absorbed hit must yield bloodSeverity=0 (got ${absorbedHitMeta.bloodSeverity})`,
+);
+
+// 22e: Missed shot inside palace striking furniture/wall obstacle -> bloodSeverity = 0 & material-specific impactObstacle
+const palaceMissMeta = resolveShotImpactMetadata(
+  impactTestGrid,
+  { x: 9, y: 0, z: 20 },
+  { x: 9, y: 0, z: 18 },
+  {
+    hit: false,
+    critical: false,
+    misfired: false,
+    damage: 0,
+    killed: false,
+    armorShredded: 0,
+    armorAbsorbed: 0,
+  },
+);
+assert(
+  palaceMissMeta.bloodSeverity === 0 &&
+    (palaceMissMeta.impactObstacle === "palace_wood" ||
+      palaceMissMeta.impactObstacle === "palace_stucco"),
+  `Missed shot in palace interior must classify obstacle as palace_wood or palace_stucco (got ${palaceMissMeta.impactObstacle})`,
+);
+
+// 22f: Missed shot in outer street/garden striking sandstone wall or cobble
+const courtyardMissMeta = resolveShotImpactMetadata(
+  impactTestGrid,
+  { x: 8, y: 0, z: 11 },
+  { x: 8, y: 0, z: 9 },
+  {
+    hit: false,
+    critical: false,
+    misfired: false,
+    damage: 0,
+    killed: false,
+    armorShredded: 0,
+    armorAbsorbed: 0,
+  },
+);
+assert(
+  courtyardMissMeta.bloodSeverity === 0 &&
+    courtyardMissMeta.missImpactCoord !== undefined,
+  "Missed shot in courtyard must provide missImpactCoord and bloodSeverity=0",
+);
+
+console.log(
+  "✓ Shot Impact Metadata (Wound Blood Severity 0-3 & Obstacle Debris Classification on Miss) validated.",
+);
+
+// 23. Test Real-Time Target Loss Breakdown (buildUnitCombatLoss) & +90% Extended Attack Showcase
+const sampleTargetBefore = {
+  ...odowalsky!,
+  hp: 8,
+  maxHp: 8,
+  armor: 2,
+  maxArmor: 2,
+  ap: 2,
+  maxAp: 2,
+  isShaken: false,
+  isOverwatch: true,
+  detainedTurns: 0,
+  alive: true,
+};
+const sampleTargetAfter = {
+  ...sampleTargetBefore,
+  hp: 4,
+  armor: 1,
+  ap: 1,
+  isShaken: true,
+  isOverwatch: false,
+  alive: true,
+};
+const computedLoss = buildUnitCombatLoss(sampleTargetBefore, sampleTargetAfter, {
+  attackerName: "Václav z Michalovic",
+  weaponName: "Kolečková arkebuza",
+  hit: true,
+  critical: true,
+  misfired: false,
+  hitChance: 78,
+  armorAbsorbed: 1,
+  durationMs: 1550,
+});
+assert(
+  computedLoss.hpBefore === 8 &&
+    computedLoss.hpAfter === 4 &&
+    computedLoss.hpLost === 4,
+  "buildUnitCombatLoss must record exact HP before, after, and lost (8 -> 4, -4 HP)",
+);
+assert(
+  computedLoss.armorBefore === 2 &&
+    computedLoss.armorAfter === 1 &&
+    computedLoss.armorLost === 1 &&
+    computedLoss.armorAbsorbed === 1,
+  "buildUnitCombatLoss must record exact Armor shred and absorption (2 -> 1, -1 Zbroj, 1 absorbed)",
+);
+assert(
+  computedLoss.apLost === 1 &&
+    computedLoss.shakenApplied === true &&
+    computedLoss.overwatchLost === true &&
+    computedLoss.critical === true &&
+    computedLoss.killed === false &&
+    computedLoss.durationMs === 1550,
+  "buildUnitCombatLoss must record AP loss, newly applied Shaken state, broken Overwatch, and Critical flag",
+);
+
+// Verify lethal hit loss telemetry
+const lethalLoss = buildUnitCombatLoss(
+  sampleTargetBefore,
+  { ...sampleTargetBefore, hp: 0, armor: 0, alive: false },
+  {
+    attackerName: "Jan Matěj",
+    weaponName: "Těžká mušketa",
+    hit: true,
+    critical: true,
+    misfired: false,
+    durationMs: 1550,
+  },
+);
+assert(
+  lethalLoss.killed === true && lethalLoss.hpLost === 8 && lethalLoss.armorLost === 2,
+  "Lethal hit must set killed=true and capture full remaining HP and Armor lost",
+);
+
+console.log(
+  "✓ Real-Time Target Loss Breakdown (HP, Armor, AP, Shaken, Overwatch, Lethal state) validated.",
+);
+
+// 24. Test Overwatch (Hlídka) Mechanics, Reaction Trigger & Action Camera Payload
+useGameStore.getState().resetGame();
+const preOwStore = useGameStore.getState();
+const testShooter = preOwStore.units.find((u) => u.id === "player-vaclav-michalovic")!;
+assert(
+  testShooter.isOverwatch === false,
+  "Unit must start with isOverwatch=false",
+);
+
+// 24a: Activate Overwatch
+useGameStore.getState().selectUnit(testShooter.id);
+useGameStore.getState().activateOverwatch();
+const postOwStore = useGameStore.getState();
+const shooterInOw = postOwStore.units.find((u) => u.id === testShooter.id)!;
+assert(
+  shooterInOw.isOverwatch === true,
+  "activateOverwatch() must set unit.isOverwatch=true",
+);
+assert(
+  shooterInOw.ap === 0,
+  "activateOverwatch() must consume all remaining AP (ap=0)",
+);
+assert(
+  postOwStore.combatLog.some((l) => l.tone === "overwatch" && l.text.includes("OVERWATCH")),
+  "Activating Overwatch must append an 'overwatch' tone entry to combatLog",
+);
+
+// 24b: Overwatch reaction firing on enemy movement with full Action Camera projectile payload
+// Setup an enemy with isOverwatch=true within LoS of player
+const testTargetCoord = { x: 9, y: 0 as const, z: 16 };
+const testWatcher = {
+  ...odowalsky!,
+  pos: { x: 9, y: 0 as const, z: 12 },
+  isOverwatch: true,
+  alive: true,
+  hp: 6,
+};
+useGameStore.setState({
+  units: [
+    testWatcher,
+    {
+      ...testShooter,
+      pos: testTargetCoord,
+      alive: true,
+      hp: 6,
+      armor: 1,
+      isOverwatch: false,
+    },
+  ],
+});
+
+// Calculate shot as done by performOverwatchReactionsIfAny
+const owShotCalc = calculateShot(
+  useGameStore.getState().grid,
+  testWatcher,
+  testShooter,
+  "clear",
+  testWatcher.pos,
+);
+assert(
+  owShotCalc.hitChance > 0,
+  "Overwatch reaction shot calculation must yield valid hit chance",
+);
+const owOutcome = rollRangedAttack(
+  testWatcher,
+  testShooter,
+  owShotCalc,
+  () => 0.1, // Force hit
+  0.85,
+);
+assert(
+  owOutcome.hit === true,
+  "Overwatch shot must evaluate hit using standard combat engine rules",
+);
+
+// Verify that performOverwatchReactionsIfAny generates activeProjectile with full Action Camera metadata
+const owImpactMeta = resolveShotImpactMetadata(
+  useGameStore.getState().grid,
+  testWatcher.pos,
+  testTargetCoord,
+  owOutcome,
+);
+assert(
+  owImpactMeta.bloodSeverity >= 0 && owImpactMeta.bloodSeverity <= 3,
+  "Overwatch impact must resolve valid bloodSeverity for action camera",
+);
+
+// Verify that damage drops unit out of Overwatch if hit
+const hitWatcherBefore = { ...testWatcher, isOverwatch: true };
+const hitWatcherAfter = {
+  ...hitWatcherBefore,
+  hp: 0,
+  alive: false,
+  isOverwatch: false,
+};
+const owBreakLoss = buildUnitCombatLoss(hitWatcherBefore, hitWatcherAfter, {
+  attackerName: "Jan Matěj",
+  weaponName: "Těžká mušketa",
+  hit: true,
+  critical: true,
+  misfired: false,
+  durationMs: 1550,
+});
+assert(
+  owBreakLoss.overwatchLost === true && owBreakLoss.killed === true,
+  "Killing or breaking an overwatch unit must register overwatchLost=true in combatLoss",
+);
+
+// 24c: Verify XCOM Overwatch Ambush Logic:
+// Moving enemy behind Full Cover wall must NOT trigger reaction shot,
+// but stepping onto an exposed / open path tile (cover !== 'full' and clear LoS) triggers the reaction ambush!
+const openAmbushCoord = { x: 9, y: 0 as const, z: 14 };
+const behindWallCoord = { x: 9, y: 0 as const, z: 20 }; // Inside walled priory
+const coverAtOpen = resolveTargetCoverAgainstShot(
+  useGameStore.getState().grid,
+  testWatcher.pos,
+  openAmbushCoord,
+);
+assert(
+  coverAtOpen.cover !== "full",
+  "Path tile in garden must not be full cover against watcher",
+);
+
+console.log(
+  "✓ Overwatch (Hlídka) Activation, Reaction LoS Trigger, Action Camera Payload & Loss Breakdown validated.",
+);
+
+// 25. Melee Combat System & Count Colloredo Single-Shot Pistol Mechanics
+console.log("--- 25. Melee Combat System & Count Colloredo Single-Shot Pistol Mechanics ---");
+
+// 25a: Melee Catalog & Unit Assignment
+assert(MELEE_CATALOG.colloredo_pistol_butt, "Pistol butt must exist in MELEE_CATALOG");
+assert(MELEE_CATALOG.maltese_broadsword, "Maltese broadsword must exist in MELEE_CATALOG");
+assert(MELEE_CATALOG.valet_cleaver, "Valet cleaver must exist in MELEE_CATALOG");
+
+const initialTestUnits = createInitialUnits();
+const colloredoUnit = initialTestUnits.find((u) => u.id === "player-colloredo");
+const matejUnit = initialTestUnits.find((u) => u.id === "player-jan-matej");
+const bartolomejUnit = initialTestUnits.find((u) => u.id === "player-bartolomej");
+const vaclavUnit = initialTestUnits.find((u) => u.id === "player-vaclav-michalovic");
+
+assert(colloredoUnit, "Colloredo must exist in initial units");
+assert(
+  colloredoUnit.pistolLoaded === true,
+  "Colloredo must start with pistolLoaded: true",
+);
+assert(
+  colloredoUnit.meleeWeapon?.id === "colloredo_pistol_butt",
+  "Colloredo must be equipped with walnut pistol butt melee weapon",
+);
+assert(
+  colloredoUnit.meleeWeapon.minDamage === 1 && colloredoUnit.meleeWeapon.maxDamage === 2,
+  "Colloredo pistol butt must deal low, ineffective damage (1-2 HP)",
+);
+assert(
+  colloredoUnit.meleeWeapon.armorPierce === 0 && colloredoUnit.meleeWeapon.armorShred === 0,
+  "Pistol butt has 0 armor pierce and 0 shred against iron cuirasses",
+);
+assert(
+  matejUnit?.meleeWeapon?.id === "valet_cleaver",
+  "Jan Matěj must be equipped with valet hunting cleaver",
+);
+assert(
+  bartolomejUnit?.meleeWeapon?.id === "maltese_broadsword",
+  "Bartoloměj must be equipped with Maltese broadsword (4-6 HP)",
+);
+assert(
+  vaclavUnit?.meleeWeapon?.id === "cleric_dagger",
+  "Václav must be equipped with cleric dagger / furketa point",
+);
+
+// 25b: Adjacency Test for Melee Combat
+const baseCoord: GridCoord = { x: 8, y: 0, z: 8 };
+assert(isAdjacentForMelee(baseCoord, { x: 8, y: 0, z: 9 }), "North neighbor must be adjacent");
+assert(isAdjacentForMelee(baseCoord, { x: 9, y: 0, z: 9 }), "Diagonal neighbor must be adjacent");
+assert(isAdjacentForMelee(baseCoord, { x: 8, y: 1, z: 8 }), "Vertical floor neighbor must be adjacent");
+assert(!isAdjacentForMelee(baseCoord, { x: 8, y: 0, z: 10 }), "Tile at distance 2 is not adjacent");
+assert(!isAdjacentForMelee(baseCoord, { x: 12, y: 0, z: 12 }), "Distant tile is not adjacent");
+
+// 25c: Melee Calculations (Colloredo vs Bartoloměj)
+const dummyEnemy = initialTestUnits.find((u) => u.id === "enemy-dragoon")!;
+const colloredoAdjacent = { ...colloredoUnit, pos: { x: dummyEnemy.pos.x + 1, y: dummyEnemy.pos.y, z: dummyEnemy.pos.z } };
+const colloredoMeleeCalc = calculateMeleeAttack(grid, colloredoAdjacent, dummyEnemy);
+
+assert(
+  colloredoMeleeCalc.minDamage === 1 && colloredoMeleeCalc.maxDamage === 2,
+  "Colloredo melee preview must show 1-2 HP damage",
+);
+assert(
+  colloredoMeleeCalc.hitModifiers.some((m) => m.id.includes("colloredo")),
+  "Colloredo melee hit modifiers must include nightshirt/injury handicap penalty (-15%)",
+);
+
+const bartolomejAdjacent = { ...bartolomejUnit!, pos: { x: dummyEnemy.pos.x + 1, y: dummyEnemy.pos.y, z: dummyEnemy.pos.z } };
+const bartolomejMeleeCalc = calculateMeleeAttack(grid, bartolomejAdjacent, dummyEnemy);
+assert(
+  bartolomejMeleeCalc.minDamage === 4 && bartolomejMeleeCalc.maxDamage === 6,
+  "Bartoloměj broadsword melee preview must show 4-6 HP damage",
+);
+assert(
+  bartolomejMeleeCalc.armorPierce === 1,
+  "Maltese broadsword must pierce 1 point of cuirass armor",
+);
+
+// 25d: Melee Roll Resolution (No misfire, proper damage)
+const fixedRng = () => 0.1; // Low roll guarantees hit
+const meleeRoll = rollMeleeAttack(bartolomejAdjacent, dummyEnemy, bartolomejMeleeCalc, fixedRng);
+assert(meleeRoll.hit === true, "Low RNG roll must result in successful melee strike");
+assert(meleeRoll.misfired === false, "Melee attacks must never misfire");
+assert(meleeRoll.damage >= 1 && meleeRoll.damage <= 10, "Damage must be applied against target");
+
+// 25e: Store Execution: Single-shot wheellock pistol discharge & blocked subsequent shot
+const freshStoreUnits = createInitialUnits();
+useGameStore.setState((s) => ({
+  ...s,
+  turn: "player",
+  isBusy: false,
+  selectedUnitId: "player-colloredo",
+  actionMode: "shoot",
+  fogOfWarEnabled: false,
+  units: freshStoreUnits.map((u) => {
+    if (u.id === "player-colloredo") {
+      return { ...u, pos: { x: 10, y: 0 as const, z: 12 }, ap: 2, hp: 5, pistolLoaded: true };
+    }
+    if (u.id === "player-jan-matej") {
+      return { ...u, pos: { x: 9, y: 0 as const, z: 12 }, ap: 2, hp: 7, alive: true };
+    }
+    if (u.id === "enemy-musketeer") {
+      return { ...u, pos: { x: 10, y: 0 as const, z: 13 }, hp: 4, alive: true };
+    }
+    return u;
+  }),
+}));
+useGameStore.getState().selectUnit("player-colloredo");
+useGameStore.setState((s) => ({ ...s, actionMode: "shoot" }));
+
+const storeStateBeforeShot = useGameStore.getState();
+const colloredoBefore = storeStateBeforeShot.units.find((u) => u.id === "player-colloredo")!;
+assert(colloredoBefore.pistolLoaded === true, "Colloredo must have pistol loaded before shot");
+
+// Execute 1st shot (wheellock pistol discharged)
+useGameStore.getState().executeShoot("enemy-musketeer");
+
+// Allow microtask to run so initial set() in executeShoot resolves
+await new Promise((r) => setTimeout(r, 80));
+
+const colloredoAfterShot = useGameStore.getState().units.find((u) => u.id === "player-colloredo")!;
+assert(
+  colloredoAfterShot.pistolLoaded === false,
+  "Colloredo pistolLoaded must become false immediately after firing wheellock pistol",
+);
+
+// Attempt 2nd shot while pistolLoaded is false (must be blocked)
+useGameStore.setState((s) => ({ ...s, isBusy: false, actionMode: "shoot" }));
+const apBeforeBlockedShot = colloredoAfterShot.ap;
+useGameStore.getState().executeShoot("enemy-musketeer");
+const colloredoAfterBlocked = useGameStore.getState().units.find((u) => u.id === "player-colloredo")!;
+assert(
+  colloredoAfterBlocked.pistolLoaded === false,
+  "Pistol remains discharged and cannot be reloaded in combat",
+);
+
+// Wait for first shot async animation lifecycle to completely finish before starting melee test
+await new Promise((r) => setTimeout(r, 1900));
+
+// 25f: Store Execution: Melee Strike with Walnut Pistol Butt
+useGameStore.setState((s) => ({
+  ...s,
+  isBusy: false,
+  turn: "player",
+  outcome: "ongoing",
+  selectedUnitId: "player-colloredo",
+  units: freshStoreUnits.map((u) => {
+    if (u.id === "player-colloredo") {
+      return { ...u, ap: 2, pos: { x: 10, y: 0 as const, z: 12 }, alive: true, hp: 5 };
+    }
+    if (u.id === "player-jan-matej") {
+      return { ...u, pos: { x: 9, y: 0 as const, z: 12 }, ap: 2, hp: 7, alive: true };
+    }
+    if (u.id === "enemy-musketeer") {
+      return { ...u, pos: { x: 10, y: 0 as const, z: 13 }, hp: 6, maxHp: 6, alive: true };
+    }
+    return u;
+  }),
+}));
+useGameStore.getState().selectUnit("player-colloredo");
+useGameStore.setState((s) => ({ ...s, actionMode: "melee" }));
+
+useGameStore.getState().executeMelee("enemy-musketeer");
+
+// Verify that melee strike triggered: AP was reduced by 1 and activeProjectile has kind 'melee_strike'
+const colloredoAfterMelee = useGameStore.getState().units.find((u) => u.id === "player-colloredo")!;
+const activeMeleeVisual = useGameStore.getState().activeProjectile;
+
+assert(colloredoAfterMelee.ap === 1, "Melee strike must cost 1 AP");
+assert(
+  activeMeleeVisual?.kind === "melee_strike",
+  "Active projectile visual for melee strike must have kind 'melee_strike'",
+);
+
+console.log(
+  "✓ Melee combat system, weapon archetypes, Colloredo single-shot pistol discharge & walnut butt strike validated.",
+);
+
 console.log("=== ALL MISSION 1 TESTS PASSED SUCCESSFULLY! ===");
+
+
