@@ -11,6 +11,9 @@ export default defineConfig(() => {
         '@': path.resolve(import.meta.dirname, '.'),
       },
     },
+    build: {
+      chunkSizeWarningLimit: 1800,
+    },
     optimizeDeps: {
       include: [
         'three',
