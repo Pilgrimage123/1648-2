@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 - Glossary, ADRs, and `AGENTS.md` now match the 24×28×3 map, the current names, smoke penalties, fork rules, armor crit, and indoor mask.
 
 ### Added
+- **Inspect dossier (`F1` / `0`)**: A tap opens the full sheet for the selected soldier, or for the aimed enemy while targeting. Hold either key and click a hero, enemy, door, or tile to inspect it without moving, firing, or opening the door. Fog-hidden enemies show only the sound contact. Unexplored tiles stay blank. Shot breakdown wings stay on the Rozpad button.
 - **4-State XCOM 2 Camera State Machine & Mid-Movement Event Interrupts (ADR-0009, `CameraDirector.ts`)**:
   - **Headless Camera State Machine (`CameraDirector.ts`)**: Pure TypeScript camera director managing prioritized transitions across `TACTICAL_ISO`, `ACTION_OTS_FOLLOW`, `INTERRUPT_POD_REVEAL`, `INTERRUPT_OVERWATCH_SLOWMO`, `COVER_SETTLE_RESET`, `AIM_OTS`, and `PROJECTILE_TRACK`, backed by zero-allocation 60–144 Hz `liveMovementTelemetry`.
   - **Tactical Isometric View (`TACTICAL_ISO`) & Dynamic Indoor Cutaway**: Real-time camera tracking during 1 AP (`Blue Zone`) movement and automatic roof/upper-floor cutaway (`resolveDynamicRoofCutawayFloor`) whenever the tracked soldier steps into an enclosed building (`isEnclosedRoofedCoord`).
@@ -173,7 +174,7 @@ All notable changes to this project will be documented in this file.
   - **Keyboard Shortcuts & Tactical Controls**:
     - `1`, `2`, `3`, `4`: Select actions (Move, Shoot, Overwatch, Grenade).
     - `Tab` / `Shift+Tab`: Cycle visible targets.
-    - `F1`: Toggle breakdown wings.
+    - `F1` / `0`: Open the inspect dossier. Breakdown wings stay on the Rozpad button.
     - `Enter` / `Space`: Confirm shot.
     - `Esc`: Cancel aiming / return to move mode.
     - `Q` / `E`: 90-degree camera step rotation.

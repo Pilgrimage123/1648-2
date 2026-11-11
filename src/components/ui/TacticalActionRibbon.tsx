@@ -8,7 +8,7 @@
  * 2. Stavový automat HUDu (HUD State Machine):
  *    - TACTICAL_IDLE: Zobrazuje mikro-medailon vlevo dole a tenký dok ikon uprostřed dole.
  *    - AIMING_OVER_SHOULDER: Skryje medailon střelce a promění spodní střed v nízkoprofilový zaměřovací retikul
- *      s pásem cílů (Target Ribbon) a výsuvnými matematickými křídly (F1 / hover).
+ *      s pásem cílů (Target Ribbon) a výsuvnými matematickými křídly (tlačítko Rozpad / hover).
  *    - CINEMATIC_EXECUTION (let střely / akční kamera běhu): Skryje veškeré 2D panely pro 100% filmový výhled.
  *    - ENEMY_TURN: Minimalizuje spodní dok.
  */
@@ -532,7 +532,7 @@ export function TacticalActionRibbon() {
             ) : (
               <>
                 <div className="w-full flex flex-col xl:flex-row items-center xl:items-end justify-center gap-2">
-                  {/* LEVÉ KŘÍDLO ROZPADU (pouze při F1 nebo hoveru na Rozpad) */}
+                  {/* LEVÉ KŘÍDLO ROZPADU (pouze při kliknutí nebo hoveru na Rozpad) */}
                   {showBreakdownWings && (
                     <aside className="pointer-events-auto w-full xl:w-64 baroque-cartouche baroque-border rounded-xl p-2.5 text-amber-50 shadow-2xl bg-slate-950/95 border-amber-500/60 animate-in fade-in duration-150">
                       <div className="flex items-center justify-between border-b border-amber-900/70 pb-1 mb-1.5">
@@ -553,7 +553,7 @@ export function TacticalActionRibbon() {
 
                   {/* STŘEDOVÝ KOMPAKTNÍ RETIKUL (1 tenká barokní lišta) */}
                   <div className="pointer-events-auto w-full max-w-md baroque-cartouche baroque-border rounded-xl px-3 py-2 shadow-[0_8px_32px_rgba(0,0,0,0.95)] text-amber-50 bg-slate-950/92 border-amber-500/80 backdrop-blur-md">
-                    {/* Hlavička cíle + F1 Rozpad */}
+                    {/* Hlavička cíle + Rozpad */}
                     <div
                       onPointerDown={aimDrag.onPointerDown}
                       className="flex items-center justify-between gap-2 pb-1.5 mb-1.5 border-b border-amber-900/70 cursor-grab active:cursor-grabbing"
@@ -563,7 +563,7 @@ export function TacticalActionRibbon() {
                         onClick={toggleBreakdown}
                         onMouseEnter={() => setHoverBreakdownPreview(true)}
                         onMouseLeave={() => setHoverBreakdownPreview(false)}
-                        title="Zobrazit matematický rozpad bonusů a postihů (klávesa F1)"
+                        title="Zobrazit matematický rozpad bonusů a postihů"
                         className={`flex items-center gap-1 px-2 py-0.5 rounded border text-[9px] font-cinzel font-black uppercase tracking-wider transition-all cursor-pointer ${
                           isStep2Highlight
                             ? "bg-amber-500/30 border-amber-300 text-amber-100 ring-2 ring-amber-400 animate-pulse"
@@ -573,7 +573,7 @@ export function TacticalActionRibbon() {
                         }`}
                       >
                         <ChevronLeft className="w-3 h-3 text-amber-400" />
-                        <span>Rozpad [F1]</span>
+                        <span>Rozpad</span>
                         <ChevronRight className="w-3 h-3 text-amber-400" />
                       </button>
 
@@ -658,7 +658,7 @@ export function TacticalActionRibbon() {
                     </div>
                   </div>
 
-                  {/* PRAVÉ KŘÍDLO ROZPADU (pouze při F1 nebo hoveru na Rozpad) */}
+                  {/* PRAVÉ KŘÍDLO ROZPADU (pouze při kliknutí nebo hoveru na Rozpad) */}
                   {showBreakdownWings && (
                     <aside className="pointer-events-auto w-full xl:w-64 baroque-cartouche baroque-border rounded-xl p-2.5 text-amber-50 shadow-2xl bg-slate-950/95 border-amber-500/60 animate-in fade-in duration-150">
                       <div className="flex items-center justify-between border-b border-amber-900/70 pb-1 mb-1.5">

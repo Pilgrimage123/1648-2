@@ -59,6 +59,7 @@ import {
   playRicochetSound,
   playSpecialAbilitySound,
 } from "../utils/audioSystem";
+import type { InspectPin } from "../core/inspectView";
 import type {
   AttackOutcome,
   CaptureReason,
@@ -193,7 +194,15 @@ interface GameStoreState {
   isFullscreen: boolean;
 
   actionMode: ActionMode;
-  breakdownOpen: boolean; // Rozbalení postranních křídel matematického rozpisu (F1)
+  breakdownOpen: boolean; // Rozbalení postranních křídel matematického rozpisu (tlačítko Rozpad)
+  /** Úplný přehled jednotky nebo terénu (F1 / 0). */
+  inspectOpen: boolean;
+  /** Držení F1 nebo 0. Klik v tomto stavu jen otevře přehled. */
+  inspectKeyHeld: boolean;
+  /** Klik během držení už přehled otevřel, takže puštění klávesy ho nezavře. */
+  inspectClickConsumed: boolean;
+  /** null = sledovat výběr. Jinak přichycený cíl z podrženého kliknutí. */
+  inspectPin: InspectPin;
   fogOfWarEnabled: boolean; // Barokní šerosvit a mlha války (Chiaroscuro Fog of War)
   fogSnapshot: FogOfWarSnapshot;
   reachableTiles: Map<string, ReachableTile>;
@@ -255,6 +264,10 @@ interface GameStoreState {
   rotateCamera: (dir: 1 | -1) => void;
   setActionMode: (mode: ActionMode) => void;
   toggleBreakdown: () => void;
+  beginInspectHold: () => void;
+  endInspectHold: () => void;
+  cancelInspectHold: () => void;
+  closeInspect: () => void;
   selectTarget: (targetId: string) => void;
   cycleTarget: (dir: 1 | -1) => void;
   setHoveredTile: (coord: GridCoord | null) => void;
@@ -1834,6 +1847,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
     actionMode: "move",
     breakdownOpen: false,
+    inspectOpen: false,
+    inspectKeyHeld: false,
+    inspectClickConsumed: false,
+    inspectPin: null,
     fogOfWarEnabled: true,
     fogSnapshot: derived.fogSnapshot,
     reachableTiles: derived.reachableTiles,
@@ -2317,6 +2334,38 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       set((s) => ({ breakdownOpen: !s.breakdownOpen }));
     },
 
+    beginInspectHold: () => {
+      if (get().inspectKeyHeld) return;
+      set({ inspectKeyHeld: true, inspectClickConsumed: false });
+    },
+
+    endInspectHold: () => {
+      const state = get();
+      if (!state.inspectKeyHeld) return;
+      if (state.inspectClickConsumed) {
+        set({ inspectKeyHeld: false, inspectClickConsumed: false });
+        return;
+      }
+      set({
+        inspectKeyHeld: false,
+        inspectClickConsumed: false,
+        inspectOpen: !state.inspectOpen,
+        inspectPin: null,
+      });
+    },
+
+    cancelInspectHold: () => {
+      set({ inspectKeyHeld: false, inspectClickConsumed: false });
+    },
+
+    closeInspect: () => {
+      set({
+        inspectOpen: false,
+        inspectPin: null,
+        inspectClickConsumed: true,
+      });
+    },
+
     selectTarget: (targetId: string) => {
       const state = get();
       const inVisible = state.visibleTargets.some((t) => t.targetId === targetId);
@@ -2488,6 +2537,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     },
 
     handleUnitRightClick: (unitId: string) => {
+      if (get().inspectKeyHeld) {
+        set({
+          inspectOpen: true,
+          inspectClickConsumed: true,
+          inspectPin: { kind: "unit", id: unitId },
+        });
+        return;
+      }
       const state = get();
       if (state.isBusy || state.turn !== "player" || state.outcome !== "ongoing")
         return;
@@ -2591,6 +2648,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     },
 
     handleTileRightClick: (coord: GridCoord) => {
+      if (get().inspectKeyHeld) {
+        set({
+          inspectOpen: true,
+          inspectClickConsumed: true,
+          inspectPin: { kind: "tile", coord: { ...coord } },
+        });
+        return;
+      }
       const state = get();
       if (state.isBusy || state.turn !== "player" || state.outcome !== "ongoing")
         return;
@@ -2615,6 +2680,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     },
 
     handleUnitClick: (unitId: string) => {
+      if (get().inspectKeyHeld) {
+        set({
+          inspectOpen: true,
+          inspectClickConsumed: true,
+          inspectPin: { kind: "unit", id: unitId },
+        });
+        return;
+      }
       const state = get();
       if (state.isBusy || state.turn !== "player" || state.outcome !== "ongoing")
         return;
@@ -2746,6 +2819,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     },
 
     handleTileClick: (coord: GridCoord) => {
+      if (get().inspectKeyHeld) {
+        set({
+          inspectOpen: true,
+          inspectClickConsumed: true,
+          inspectPin: { kind: "tile", coord: { ...coord } },
+        });
+        return;
+      }
       const state = get();
       if (state.isBusy || state.turn !== "player" || state.outcome !== "ongoing")
         return;
@@ -5244,6 +5325,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     },
 
     toggleDoor: (coord: GridCoord) => {
+      if (get().inspectKeyHeld) {
+        set({
+          inspectOpen: true,
+          inspectClickConsumed: true,
+          inspectPin: { kind: "tile", coord: { ...coord } },
+        });
+        return;
+      }
       const state = get();
       if (state.isBusy || state.turn !== "player" || state.outcome !== "ongoing") {
         return;
@@ -6073,6 +6162,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         selectedUnitId: firstId,
         activeFloor: 0,
         actionMode: "move",
+        inspectOpen: false,
+        inspectKeyHeld: false,
+        inspectClickConsumed: false,
+        inspectPin: null,
         fogSnapshot: nextDerived.fogSnapshot,
         reachableTiles: nextDerived.reachableTiles,
         hoveredTile: null,

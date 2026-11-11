@@ -148,7 +148,11 @@ The horizontal bar of visible enemy icons at the bottom-center of the screen in 
 - **Slate/Blue Icon**: Target is visible in **Extreme Range** (*Extrémní dostřel*) with heavy smoothbore distance falloff.
 
 **Shot Calculation Result** (`ShotCalculationResult`):
-The structured output of the 17th-century combat calculator containing final metrics (`hitChance`, `critChance`, `minDamage`, `maxDamage`, `armorPierce`, `armorShred`, `misfireChance`, `expectedHpLossMin`, `expectedHpLossMax`, `expectedArmorLoss`) and two itemized arrays of `StatModifier` entries (`hitModifiers` and `critAndArmorModifiers`) for the expandable **Breakdown Wings** (`F1`).
+The structured output of the 17th-century combat calculator containing final metrics (`hitChance`, `critChance`, `minDamage`, `maxDamage`, `armorPierce`, `armorShred`, `misfireChance`, `expectedHpLossMin`, `expectedHpLossMax`, `expectedArmorLoss`) and two itemized arrays of `StatModifier` entries (`hitModifiers` and `critAndArmorModifiers`) for the expandable **Breakdown Wings** (the Rozpad button and its hover).
+
+**Inspect Dossier** (*Úplný přehled*, `F1` / `0`):
+The full sheet for a soldier, enemy, door, or tile. A tap shows the selected soldier, or the aimed enemy while targeting. Holding `F1` or `0` and clicking inspects that hero, enemy, or terrain without spending an action or opening a door. A fog-hidden enemy shows only the sound contact. An unexplored tile stays blank.
+_Avoid_: Tooltip, breakdown wings
 
 **Black Powder Smoke** (*Kouř z černého prachu*):
 A dense cloud left on a tile after firing a black-powder weapon or detonating a grenade. A shooter standing in smoke takes `-10%` aim. A target standing in smoke takes `-15%` to hit (`+15` defense). Firing downward through ground smoke, while the shooter is not in smoke, takes only `-10%` (Smoke Horizon Piercing).

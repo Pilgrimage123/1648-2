@@ -19,9 +19,14 @@ import { CombatChronicleFeed } from "./components/ui/CombatChronicleFeed";
 import { MissionStatusChip } from "./components/ui/MissionStatusChip";
 import { TacticalActionRibbon } from "./components/ui/TacticalActionRibbon";
 import { TacticalAdvisorWidget } from "./components/ui/TacticalAdvisorWidget";
+import { InspectDossier } from "./components/ui/InspectDossier";
 import { TacticalUtilitiesCapsule } from "./components/ui/TacticalUtilitiesCapsule";
 import { TurnSplashBanner } from "./components/ui/TurnSplashBanner";
 import { useGameStore } from "./store/useGameStore";
+
+function isInspectKey(e: KeyboardEvent): boolean {
+  return e.key === "F1" || e.code === "Digit0" || e.code === "Numpad0" || e.key === "0";
+}
 
 export default function App() {
   const outcome = useGameStore((s) => s.outcome);
@@ -43,7 +48,7 @@ export default function App() {
   // - 5: Zvláštní schopnost hrdiny
   // - Q / E: Rotace kamery o 90° (vlevo / vpravo)
   // - Tab / Shift+Tab: Cyklení cílů při střelbě NEBO cyklení vojáků čety při pohybu
-  // - F1: Rozbalení / sbalení postranních křídel matematického rozpisu (Breakdown Wings)
+  // - F1 / 0: Úplný přehled vybrané postavy, nebo při podržení a kliknutí přehled kliknuté postavy či terénu
   // - Space / Enter: Potvrzení výstřelu v Režimu míření / Ukončení tahu v běžném režimu
   // - Escape: Návrat z Režimu míření nebo granátu zpět do pohybu
   // - F: Přepínání celé obrazovky (Fullscreen)
@@ -76,18 +81,26 @@ export default function App() {
         return;
       }
 
+      // F1 / 0: úplný přehled. Krátký stisk přepne list vybrané postavy.
+      // Podržení a klik prohlédne to, na co hráč klepl, a neprovede rozkaz.
+      if (isInspectKey(e) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        if (!e.repeat) state.beginInspectHold();
+        return;
+      }
+
+      if (e.key === "Escape" && state.inspectOpen) {
+        e.preventDefault();
+        state.closeInspect();
+        return;
+      }
+
       if (state.sacrificeDilemmaOpen || state.outcome !== "ongoing") {
         return;
       }
 
       if (e.key === "Escape") {
         state.setActionMode("move");
-        return;
-      }
-
-      if (e.key === "F1") {
-        e.preventDefault();
-        state.toggleBreakdown();
         return;
       }
 
@@ -232,10 +245,23 @@ export default function App() {
       }
     };
 
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (!isInspectKey(e)) return;
+      useGameStore.getState().endInspectHold();
+    };
+
+    const onBlur = () => {
+      useGameStore.getState().cancelInspectHold();
+    };
+
     window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
     document.addEventListener("fullscreenchange", onFullscreenChange);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
       document.removeEventListener("fullscreenchange", onFullscreenChange);
     };
   }, []);
@@ -263,6 +289,8 @@ export default function App() {
           </div>
         </div>
       )}
+
+      <InspectDossier />
 
       {/* 3. Plovoucí periferní HUD widgety (XCOM Architecture) */}
       {/* Levý horní roh: Stav mise, kolo, počasí a Taktický rádce (Tutorial) */}
