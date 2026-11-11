@@ -2,6 +2,11 @@
  * Úplný přehled (F1 / 0): obsah listu a to, že podržený klik nerozkazuje.
  */
 import assert from "node:assert";
+import {
+  doorMeshForwardsClick,
+  higherFloorUnitIgnoresClicks,
+  stairClickChangesFloor,
+} from "../src/core/inspectClick.ts";
 import { buildInspectView, type InspectContext } from "../src/core/inspectView.ts";
 import { coordKey, createInitialGrid, createInitialUnits } from "../src/core/GridSystem.ts";
 import type { FogOfWarSnapshot, GridCoord, UnitData } from "../src/core/types.ts";
@@ -199,5 +204,41 @@ assert.equal(useGameStore.getState().inspectPin, null);
 useGameStore.getState().beginInspectHold();
 useGameStore.getState().endInspectHold();
 assert.equal(useGameStore.getState().inspectOpen, false);
+
+assert.equal(doorMeshForwardsClick(true, false), true, "held click reaches a distant door");
+assert.equal(doorMeshForwardsClick(false, false), false);
+assert.equal(doorMeshForwardsClick(false, true), true);
+assert.equal(stairClickChangesFloor(true, "move", false), false);
+assert.equal(stairClickChangesFloor(true, "shoot", true), false);
+assert.equal(stairClickChangesFloor(false, "move", false), true);
+assert.equal(stairClickChangesFloor(false, "shoot", true), true);
+assert.equal(stairClickChangesFloor(false, "move", true), false);
+assert.equal(higherFloorUnitIgnoresClicks(true, true, "move"), false);
+assert.equal(higherFloorUnitIgnoresClicks(false, true, "move"), true);
+assert.equal(higherFloorUnitIgnoresClicks(false, true, "shoot"), false);
+assert.equal(higherFloorUnitIgnoresClicks(false, false, "move"), false);
+
+const actor = useGameStore.getState().units.find((unit) => unit.id === selectedId)!;
+const farDoor = useGameStore
+  .getState()
+  .grid.getAllDoors()
+  .find(
+    (door) =>
+      door.coord.y !== actor.pos.y ||
+      Math.abs(door.coord.x - actor.pos.x) > 1 ||
+      Math.abs(door.coord.z - actor.pos.z) > 1,
+  );
+assert.ok(farDoor, "mission has a door the soldier is not touching");
+const farDoorState = useGameStore.getState().grid.getDoor(farDoor!.coord)!.state;
+useGameStore.getState().beginInspectHold();
+useGameStore.getState().toggleDoor(farDoor!.coord);
+assert.equal(useGameStore.getState().grid.getDoor(farDoor!.coord)!.state, farDoorState);
+assert.deepEqual(useGameStore.getState().inspectPin, { kind: "tile", coord: farDoor!.coord });
+useGameStore.getState().setActionMode("shoot");
+useGameStore.getState().handleRightClickCancel();
+assert.equal(useGameStore.getState().actionMode, "shoot", "held right-click does not leave aim");
+useGameStore.getState().endInspectHold();
+useGameStore.getState().handleRightClickCancel();
+assert.equal(useGameStore.getState().actionMode, "move");
 
 console.log("Inspect dossier checks passed.");

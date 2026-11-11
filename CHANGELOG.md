@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - 2026-11-11
 
 ### Fixed
+- Holding `F1` or `0` and clicking a distant door, a stair that is not a legal move, or a soldier on a higher floor opens the dossier. Those clicks do not open the door or change the viewed floor. A held right-click stays in aim mode.
 - Tutorial step 3 now beacons the palace-side powder keg `(7, 0, 13)`. Step 4 and the advisor text beacon the Čertovka escape dock `(3, 0, 2)`, the same tile the skiff model uses. Both come from the live grid.
 - The skiff label hides only when that beacon sits on the escape tile.
 - Soldier `movePerAp` is `7 - weapon.mobilityPenalty`. The carbine penalty is 2, matching the Swedish musket (5 tiles) and the heavy musket (4 tiles). Colloredo stays at 3 from his limp.

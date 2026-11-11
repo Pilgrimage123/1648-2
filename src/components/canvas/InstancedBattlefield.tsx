@@ -30,6 +30,10 @@ import {
   resolvePreferredFloorCoord,
   sameCoord,
 } from "../../core/GridSystem";
+import {
+  doorMeshForwardsClick,
+  stairClickChangesFloor,
+} from "../../core/inspectClick";
 import type {
   CardinalDir,
   DoorData,
@@ -711,7 +715,14 @@ function BaroqueGrandDoublePortal3D({
           receiveShadow
           onClick={(e) => {
             e.stopPropagation();
-            if (isAdjacent) onToggle(door.coord);
+            if (
+              doorMeshForwardsClick(
+                useGameStore.getState().inspectKeyHeld,
+                isAdjacent,
+              )
+            ) {
+              onToggle(door.coord);
+            }
           }}
         >
           <boxGeometry args={[leafWidth, doorHeight * 0.96, leafThickness]} />
@@ -741,7 +752,14 @@ function BaroqueGrandDoublePortal3D({
           receiveShadow
           onClick={(e) => {
             e.stopPropagation();
-            if (isAdjacent) onToggle(door.coord);
+            if (
+              doorMeshForwardsClick(
+                useGameStore.getState().inspectKeyHeld,
+                isAdjacent,
+              )
+            ) {
+              onToggle(door.coord);
+            }
           }}
         >
           <boxGeometry args={[leafWidth, doorHeight * 0.96, leafThickness]} />
@@ -863,7 +881,14 @@ function BaroqueDoor3D({
           receiveShadow
           onClick={(e) => {
             e.stopPropagation();
-            if (isAdjacent) onToggle(door.coord);
+            if (
+              doorMeshForwardsClick(
+                useGameStore.getState().inspectKeyHeld,
+                isAdjacent,
+              )
+            ) {
+              onToggle(door.coord);
+            }
           }}
         >
           <boxGeometry args={[doorWidth * 0.92, doorHeight * 0.95, doorThickness]} />
@@ -2238,15 +2263,23 @@ export function InstancedBattlefield() {
     setHoveredTile(targetCoord);
   };
 
+  const commandOrInspectStair = (targetCoord: GridCoord) => {
+    const reachKey = `${targetCoord.x},${targetCoord.y},${targetCoord.z}`;
+    const changesFloor = stairClickChangesFloor(
+      useGameStore.getState().inspectKeyHeld,
+      actionMode,
+      actionMode === "move" && reachableTiles.has(reachKey),
+    );
+    if (changesFloor) {
+      setActiveFloor(targetCoord.y);
+      return;
+    }
+    handleTileClick(targetCoord);
+  };
+
   const onStairClick = (e: ThreeEvent<MouseEvent>, span: StairSpan) => {
     e.stopPropagation();
-    const targetCoord = resolveStairFloorCoord(span);
-    const reachKey = `${targetCoord.x},${targetCoord.y},${targetCoord.z}`;
-    if (actionMode === "move" && reachableTiles.has(reachKey)) {
-      handleTileClick(targetCoord);
-    } else {
-      setActiveFloor(targetCoord.y);
-    }
+    commandOrInspectStair(resolveStairFloorCoord(span));
   };
 
   const onStairContextMenu = (e: ThreeEvent<MouseEvent>, span: StairSpan) => {
@@ -2687,11 +2720,7 @@ export function InstancedBattlefield() {
                   onMouseLeave={() => setHoveredTile(null)}
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (actionMode === "move" && reachInfo) {
-                      handleTileClick(targetCoord);
-                    } else {
-                      setActiveFloor(targetCoord.y);
-                    }
+                    commandOrInspectStair(targetCoord);
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();

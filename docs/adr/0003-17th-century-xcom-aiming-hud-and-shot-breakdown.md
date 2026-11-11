@@ -5,7 +5,7 @@ Status: Accepted
 
 ## Context
 
-In a Thirty Years' War (1618–1648) tactical strategy, ranged combat involves period-authentic factors beyond modern XCOM cover: smoothbore point-blank bonuses vs. long-range falloff, matchlock vs. wheellock misfires in rain/fog, black-powder smoke clouds from previous volleys, resting heavy muskets on a fork (*furketa*), morale suppression (*Shaken*), and steel cuirasses (*armor pierce* & *armor shred*). Players need both an immediate central summary and expandable mathematical breakdown wings (`F1`) plus an over-the-shoulder camera and blinking HP/Armor loss preview on the target.
+In a Thirty Years' War (1618–1648) tactical strategy, ranged combat involves period-authentic factors beyond modern XCOM cover: smoothbore point-blank bonuses vs. long-range falloff, matchlock vs. wheellock misfires in rain/fog, black-powder smoke clouds from previous volleys, resting heavy muskets on a fork (*furketa*), morale suppression (*Shaken*), and steel cuirasses (*armor pierce* & *armor shred*). Players need both an immediate central summary and expandable mathematical breakdown wings (the Rozpad button and its hover) plus an over-the-shoulder camera and blinking HP/Armor loss preview on the target. `F1` and `0` open the inspect dossier.
 
 ## Decision
 
@@ -18,7 +18,7 @@ In a Thirty Years' War (1618–1648) tactical strategy, ranged combat involves p
 3. **Aiming UI & Over-the-Shoulder Camera (`/src/components/ui/TargetingHud.tsx`, `/src/components/canvas/TacticalCamera.tsx`, `/src/components/canvas/UnitActor.tsx`)**:
    - Bottom-center **Target Ribbon** with period helmet/skull icons colored by tactical state (`yellow` = Flanked/Exposed, `red` = Covered, `slate/blue` = Extreme Range) and `Tab` / `Shift+Tab` cycling.
    - Smooth **Over-the-Shoulder Camera** transition behind the shooter facing the active target in `shoot` mode.
-   - Expandable Left (`Hit Modifiers`) and Right (`Crit & Armor Modifiers`) **Breakdown Wings** toggled via side arrows or `F1`.
+   - Expandable Left (`Hit Modifiers`) and Right (`Crit & Armor Modifiers`) **Breakdown Wings** toggled by the Rozpad button and its hover. `F1` and `0` open the inspect dossier and leave the wings alone.
    - Blinking **HP & Armor loss preview** on the targeted enemy's overhead `<Html>` bar.
 
 ## Consequences

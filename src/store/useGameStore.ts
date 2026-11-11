@@ -2528,6 +2528,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     },
 
     handleRightClickCancel: () => {
+      if (get().inspectKeyHeld) return;
       const state = get();
       if (state.isBusy || state.turn !== "player" || state.outcome !== "ongoing")
         return;

@@ -21,7 +21,7 @@ Implement a diegetic, floating, and non-blocking tutorial architecture that inte
 1. **Tactical Advisor Widget (`TacticalAdvisorWidget.tsx`)**:
    - Anchored on the upper-left, directly beneath `MissionStatusChip`.
    - Diegetic narrative voice: Jan Matěj (step 1), Václav z Michalovic (step 2), and Bratr Bartoloměj (steps 3–4) offer urgent, in-character advice alongside clear mechanical instructions.
-   - Prominent keyboard/mouse shortcut badges (`[1]`, `[2]`, `[Tab]`, `[F1]`, `[4]`, `[R]`, `[V]`).
+   - Prominent keyboard/mouse shortcut badges (`[1]`, `[2]`, `[4]`, `[R]`, `[V]`). `F1` and `0` open the inspect dossier and are not a tutorial pulse.
    - Dismissible and togglable at any time using the `[H]` hotkey or the graduation cap icon in the `TacticalUtilitiesCapsule`.
 2. **In-World Tutorial Waypoint Beacons (`InstancedBattlefield.tsx`)**:
    - Render pulsing 3D glowing rings on the live powder keg (step 3, palace-side keg `(7, 0, 13)`) and the Čertovka escape dock (step 4, `(3, 0, 2)`). Both coordinates are read from the grid, not hardcoded.

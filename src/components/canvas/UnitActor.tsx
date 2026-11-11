@@ -28,6 +28,7 @@ import {
   isAdjacentForMelee,
 } from "../../core/CombatSystem";
 import { bestTileCover, sameCoord } from "../../core/GridSystem";
+import { higherFloorUnitIgnoresClicks } from "../../core/inspectClick";
 import type { UnitData } from "../../core/types";
 import {
   findBestMeleeChargeTile,
@@ -68,6 +69,7 @@ export function UnitActor({ unit }: UnitActorProps) {
   const units = useGameStore((s) => s.units);
   const reachableTiles = useGameStore((s) => s.reachableTiles);
   const hoveredTile = useGameStore((s) => s.hoveredTile);
+  const inspectKeyHeld = useGameStore((s) => s.inspectKeyHeld);
   const handleUnitClick = useGameStore((s) => s.handleUnitClick);
   const handleUnitRightClick = useGameStore((s) => s.handleUnitRightClick);
   const previewEnemyMeleeHover = useGameStore((s) => s.previewEnemyMeleeHover);
@@ -453,6 +455,11 @@ export function UnitActor({ unit }: UnitActorProps) {
 
   const isHigherFloor = unit.pos.y > activeFloor;
   const isLowerFloor = unit.pos.y < activeFloor;
+  const ignoreHigherFloorClicks = higherFloorUnitIgnoresClicks(
+    inspectKeyHeld,
+    isHigherFloor,
+    actionMode,
+  );
 
   // Třístupňová vertikální hierarchie (ADR-0010 Ticket 04):
   // Vyšší patro: poloprůhledný duch (0.32), nižší patro: ztmavené do hloubky šerosvitu (0.72)
@@ -641,9 +648,9 @@ export function UnitActor({ unit }: UnitActorProps) {
     <group
       ref={groupRef}
       position={gridToWorld(unit.pos)}
-      raycast={isHigherFloor && actionMode === "move" ? () => null : undefined}
+      raycast={ignoreHigherFloorClicks ? () => null : undefined}
       onPointerOver={(e) => {
-        if (isHigherFloor && actionMode === "move") return;
+        if (ignoreHigherFloorClicks) return;
         e.stopPropagation();
         setIsHovered(true);
         if (unit.faction === "enemy" && actionMode === "move") {
@@ -657,14 +664,14 @@ export function UnitActor({ unit }: UnitActorProps) {
         }
       }}
       onClick={(e) => {
-        if (isHigherFloor && actionMode === "move") return;
+        if (ignoreHigherFloorClicks) return;
         e.stopPropagation();
         handleUnitClick(unit.id);
       }}
       onContextMenu={(e) => {
         e.nativeEvent.preventDefault();
         if (wasRecentRightCameraPan()) return;
-        if (isHigherFloor && actionMode === "move") return;
+        if (ignoreHigherFloorClicks) return;
         e.stopPropagation();
         handleUnitRightClick(unit.id);
       }}
