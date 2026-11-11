@@ -5,7 +5,12 @@
 
 export type FloorLevel = 0 | 1 | 2;
 
-export type StairType = "none" | "straight_stairs" | "spiral_stairs" | "ladder";
+export type StairType =
+  | "none"
+  | "straight_stairs"
+  | "spiral_stairs"
+  | "ladder"
+  | "grand_stairs";
 
 export interface GridCoord {
   x: number;
@@ -29,6 +34,7 @@ export type DoorState = "closed" | "open";
  * - V zavřeném stavu blokují pohyb a zrakovou linii (LoS)
  * - V otevřeném stavu poskytují volný průchod a výhled
  * - Jednotka stojící na sousedním poli (Chebyshev <= 1, stejné patro) je může otevřít/zavřít jako Free Action (0 AP)
+ * - Dvoukřídlé portály synchronizují otevření obou křídel současně
  */
 export interface DoorData {
   id: string;
@@ -38,6 +44,12 @@ export interface DoorData {
   axis: "E_W" | "N_S";
   /** Historický název brány/dveří */
   label: string;
+  /** Zda jde o honosné dvoukřídlé dveře / barokní portál */
+  isDoubleLeaf?: boolean;
+  /** Souřadnice spárovaného druhého křídla */
+  pairedCoord?: GridCoord;
+  /** Role křídla v portálu: 'left' | 'right' */
+  leafRole?: "left" | "right";
 }
 
 
@@ -98,6 +110,8 @@ export type UnitArchetype = "ranger" | "sniper" | "trooper" | "sectoid" | "comma
 
 export type RenderMode = "2D_SPRITE" | "3D_MODEL";
 
+export type OverwatchMode = "full_360" | "prepared_volley_cone";
+
 export interface WeaponStats {
   id: string;
   name: string;
@@ -105,9 +119,11 @@ export interface WeaponStats {
   minDamage: number;
   maxDamage: number;
   critBonusDamage: number;
+  /** Maximální bonus kritického poškození (např. +6 až +8 HP u těžké muškety, +4 až +6 HP u švédské muškety) */
+  critBonusMaxDamage?: number;
   /** Základní šance zbraně na kritický zásah (%) */
   baseCritChance: number;
-  /** Základní přesnost zbraně (%) */
+  /** Základní přesnost zbraně (Base Aim %) */
   baseAccuracy: number;
   /** Penalizace přesnosti za každé pole nad optimální dostřel */
   falloffPerTile: number;
@@ -123,8 +139,20 @@ export interface WeaponStats {
   armorShred: number;
   /** Základní šance na selhání výstřelu (Misfire %) v běžném počasí */
   baseMisfireChance: number;
-  /** Zda lze těžkou mušketu opřít o furketu (vidlici) pro +15 % přesnosti bez pohybu */
+  /** Zda zbraň vyžaduje opěrnou vidlici (furketu) */
   supportsRestFork: boolean;
+  /** Cena standardního výstřelu v akčních bodech (2 AP u těžké muškety s furketou, 1 AP u švédské odlehčené muškety) */
+  fireApCost?: 1 | 2;
+  /** Zda lze těžkou mušketu nouzově vystřelit od boku za 1 AP (s postihem -35 % Aim a následným stavem Otřesený) */
+  allowEmergencyHipFire?: boolean;
+  /** Postih k přesnosti při nouzové střelbě od boku za 1 AP (výchozí 35 %) */
+  hipFireAimPenalty?: number;
+  /** Celková cena nabití v AP při fázovém nabíjení po 1 AP (4 AP těžká mušketa, 2 AP švédská mušketa s papírovými patronami) */
+  reloadApCost?: number;
+  /** Postih k pohybu v políčkách kvůli váze zbraně (-3 až -4 těžká mušketa, -1 až -2 švédská mušketa) */
+  mobilityPenalty?: number;
+  /** Režim hlídky: plný 360° Overwatch (kolečkový zámek) nebo Připravená salva v předním kuželu (doutnáková mušketa) */
+  overwatchMode?: OverwatchMode;
 }
 
 /** Důvod zadržení či zajetí polního maršála Colloreda */
@@ -153,7 +181,7 @@ export interface SpecialAbilityDef {
 export interface MeleeWeaponStats {
   id: string;
   name: string;
-  kind: "sword" | "dagger" | "polearm" | "pistol_butt" | "fist";
+  kind: "sword" | "dagger" | "polearm" | "pistol_butt" | "musket_butt" | "fist";
   minDamage: number;
   maxDamage: number;
   critBonusDamage: number;
@@ -161,6 +189,10 @@ export interface MeleeWeaponStats {
   baseAccuracy: number;
   armorPierce: number;
   armorShred: number;
+  /** Šance (%) na omráčení / otřesení cíle úderem těžké pažby (např. 25 % u těžké muškety) */
+  stunChance?: number;
+  /** Zda prudký úder pažbou zbraně vysype rozpracované fázové nabíjení (u těžké muškety) */
+  spillsReloadOnStrike?: boolean;
   description: string;
 }
 
@@ -185,13 +217,13 @@ export interface UnitData {
   /** Počet polí za 1 AP (Modrá zóna) */
   movePerAp: number;
   weapon: WeaponStats;
-  /** Chladná zbraň pro boj zblízka (šavle, kord, dýka, pažba pistole) */
+  /** Chladná zbraň nebo úder pažbou muškety pro boj zblízka (1 AP) */
   meleeWeapon?: MeleeWeaponStats;
   /** Zda má jednorannou pistoli/bambitku nabitou (hrabě Colloredo má pouze 1 výstřel bez možnosti přebití!) */
   pistolLoaded?: boolean;
   grenades: number;
   isOverwatch: boolean;
-  /** Zda se jednotka v aktuálním tahu již pohnula (ovlivňuje bonus za furketu) */
+  /** Zda se jednotka v aktuálním tahu již pohnula (ovlivňuje oporu furkety a střelbu z těžké muškety) */
   movedThisTurn: boolean;
   /** Zda je morálka jednotky otřesena (Suppressed / Shaken: -20 % k zásahu) */
   isShaken: boolean;
@@ -203,8 +235,10 @@ export interface UnitData {
   captureReason?: CaptureReason | null;
   /** Popisek aktivního taktického posílení (např. "Podepřen komorníkem") */
   buffTitle?: string;
-  /** Zda je palná zbraň (mušketa/karabina/arkebuza) nabitá a připravená k výstřelu */
+  /** Zda je palná zbraň (mušketa/karabina) plně nabitá a připravená k výstřelu */
   firearmLoaded?: boolean;
+  /** Postup fázového nabíjení po 1 AP (např. 0..4 u těžké muškety, 0..2 u švédské muškety) */
+  reloadProgress?: number;
   /** Unikátní aktivovaná schopnost postavy [Klávesa 5] */
   ability?: SpecialAbilityDef;
   /** Zda má postava v tomto kole aktivní posílení ze své zvláštní schopnosti */
@@ -265,6 +299,11 @@ export interface ShotCalculationResult {
   minDamage: number;
   maxDamage: number;
   critBonusDamage: number;
+  critBonusMaxDamage?: number;
+  /** Cena tohoto výstřelu v AP (2 AP z furkety, 1 AP nouzově od boku nebo ze švédské muškety) */
+  fireApCost?: 1 | 2;
+  /** Zda jde o nouzovou střelbu od boku z těžké muškety (1 AP, -35 % Aim, způsobí stav Otřesený) */
+  isHipFire?: boolean;
   /** Průraz zbroje (kolik bodů kyrysu výstřel ignoruje) */
   armorPierce: number;
   /** Zničení zbroje (kolik bodů kyrysu výstřel trvale strhne) */

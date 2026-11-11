@@ -2,11 +2,15 @@ import assert from "node:assert";
 import {
   calculateMeleeAttack,
   calculateShot,
+  checkEnemyColloredoCapture,
   checkLineOfSight3D,
   computeEnemyAiDecision,
   evaluateAdjacentMeleeTargets,
+  evaluateVisibleTargets,
   gridDistance3D,
   isAdjacentForMelee,
+  isCompanionProtectedByCount,
+  isInPreparedVolleyCone,
   resolveTargetCoverAgainstShot,
   rollMeleeAttack,
   rollRangedAttack,
@@ -57,8 +61,8 @@ console.log("=== TEST MISSION 1: ESCAPE OF MARSHAL COLLOREDO (GRAND PRIORY PALAC
 // 1. Test Grid & Expanded 3-Floor Baroque Map Setup
 const grid = createInitialGrid();
 assert(
-  grid.width === 20 && grid.depth === 24 && grid.floors === 3,
-  "Grid dimensions must be 20x24 with 3 floors (P0, P1, P2)",
+  grid.width === 24 && grid.depth === 28 && grid.floors === 3,
+  "Grid dimensions must be 24x28 with 3 floors (P0, P1, P2)",
 );
 
 // Check water tiles (Čertovka canal)
@@ -69,90 +73,90 @@ assert(
 );
 
 // Check distant dock & escape zone at Čertovka
-const dockTile1 = grid.getTile({ x: 2, y: 0, z: 2 });
-const dockTile2 = grid.getTile({ x: 3, y: 0, z: 2 });
+const dockTile1 = grid.getTile({ x: 3, y: 0, z: 2 });
+const dockTile2 = grid.getTile({ x: 4, y: 0, z: 2 });
 assert(
   dockTile1 && dockTile1.surface === "wood_dock" && dockTile1.walkable,
   "Dock tile 1 must be walkable wood dock",
 );
 assert(
   dockTile1.isEscapeZone === true,
-  "Dock tile 1 (2, 0, 2) must be marked as escape zone",
+  "Dock tile 1 (3, 0, 2) must be marked as escape zone",
 );
 assert(
   dockTile2 && dockTile2.isEscapeZone === true,
-  "Dock tile 2 (3, 0, 2) must be marked as escape zone",
+  "Dock tile 2 (4, 0, 2) must be marked as escape zone",
 );
 
 // Check 3 powder kegs in the Maltese Garden
-const keg1 = grid.getTile({ x: 6, y: 0, z: 11 });
-const keg2 = grid.getTile({ x: 13, y: 0, z: 8 });
-const keg3 = grid.getTile({ x: 8, y: 0, z: 5 });
-assert(keg1 && keg1.obstacle === "powder_keg", "Powder keg 1 must be at (6, 0, 11)");
-assert(keg2 && keg2.obstacle === "powder_keg", "Powder keg 2 must be at (13, 0, 8)");
-assert(keg3 && keg3.obstacle === "powder_keg", "Powder keg 3 must be at (8, 0, 5)");
+const keg1 = grid.getTile({ x: 7, y: 0, z: 13 });
+const keg2 = grid.getTile({ x: 16, y: 0, z: 9 });
+const keg3 = grid.getTile({ x: 10, y: 0, z: 6 });
+assert(keg1 && keg1.obstacle === "powder_keg", "Powder keg 1 must be at (7, 0, 13)");
+assert(keg2 && keg2.obstacle === "powder_keg", "Powder keg 2 must be at (16, 0, 9)");
+assert(keg3 && keg3.obstacle === "powder_keg", "Powder keg 3 must be at (10, 0, 6)");
 
 // Check Piano Nobile (P1) and Maltese Watchtower (P2)
-const pianoNobileTile = grid.getTile({ x: 10, y: 1, z: 20 });
+const pianoNobileTile = grid.getTile({ x: 11, y: 1, z: 23 });
 assert(
   pianoNobileTile && pianoNobileTile.hasFloor && pianoNobileTile.walkable,
   "Grand Priory Palace Piano Nobile (1st floor) must be walkable",
 );
-const watchtowerTile = grid.getTile({ x: 6, y: 2, z: 16 });
+const watchtowerTile = grid.getTile({ x: 6, y: 2, z: 18 });
 assert(
   watchtowerTile && watchtowerTile.hasFloor && watchtowerTile.walkable,
   "Maltese Watchtower (2nd floor) must be walkable",
 );
 
 console.log(
-  "✓ 20x24x3 Map, Grand Priory Palace (P0, P1 Piano Nobile, P2 Watchtower), Čertovka dock, and powder kegs validated.",
+  "✓ 24x28x3 Map, Grand Priory Palace (P0, P1 Piano Nobile, P2 Watchtower), Čertovka dock, and powder kegs validated.",
 );
 
-// 1b. Test Straight and Spiral Staircases Walkability (Up & Down across P0, P1, P2)
-const grandStairP0 = grid.getTile({ x: 9, y: 0, z: 19 });
+// 1b. Test Straight, Grand and Spiral Staircases Walkability (Up & Down across P0, P1, P2)
+const grandStairP0 = grid.getTile({ x: 11, y: 0, z: 22 });
 assert(
-  grandStairP0?.stairType === "straight_stairs",
-  "Grand Palace Staircase at (9, 19) must be straight_stairs",
+  grandStairP0?.stairType === "grand_stairs",
+  "Grand Palace Staircase at (11, 22) must be grand_stairs",
 );
-const westSpiralP0 = grid.getTile({ x: 4, y: 0, z: 17 });
+const westStraightP0 = grid.getTile({ x: 4, y: 0, z: 20 });
 assert(
-  westSpiralP0?.stairType === "spiral_stairs",
-  "West Convent Staircase at (4, 17) must be spiral_stairs",
+  westStraightP0?.stairType === "straight_stairs",
+  "West Convent Staircase at (4, 20) must be straight_stairs",
 );
-const towerSpiralP1 = grid.getTile({ x: 5, y: 1, z: 16 });
+const towerSpiralP1 = grid.getTile({ x: 5, y: 1, z: 18 });
 assert(
   towerSpiralP1?.stairType === "spiral_stairs",
-  "Watchtower Staircase at (5, 16) must be spiral_stairs",
+  "Watchtower Staircase at (5, 18) must be spiral_stairs",
 );
 
-// Pathfinding across straight staircase (P0 -> P1 and P1 -> P0)
+// Pathfinding across grand staircase (P0 -> P1 and P1 -> P0)
 const pathStraightUp = findPathAStar(
   grid,
-  { x: 10, y: 0, z: 18 },
-  { x: 10, y: 1, z: 21 },
+  { x: 11, y: 0, z: 21 },
+  { x: 11, y: 1, z: 24 },
   [],
 );
 assert(
   pathStraightUp.length > 0 && pathStraightUp[pathStraightUp.length - 1]!.y === 1,
-  "Unit must walk smoothly up the Grand Palace Straight Staircase from P0 to P1",
+  "Unit must walk smoothly up the Grand Palace Imperial Staircase from P0 to P1",
 );
 const pathStraightDown = findPathAStar(
   grid,
-  { x: 10, y: 1, z: 21 },
-  { x: 10, y: 0, z: 18 },
+  { x: 11, y: 1, z: 24 },
+  { x: 11, y: 0, z: 21 },
   [],
 );
 assert(
   pathStraightDown.length > 0 &&
     pathStraightDown[pathStraightDown.length - 1]!.y === 0,
-  "Unit must walk smoothly down the Grand Palace Straight Staircase from P1 to P0",
+  "Unit must walk smoothly down the Grand Palace Imperial Staircase from P1 to P0",
 );
 
 // Pathfinding across spiral staircase from P0 all the way to P2 (Maltese Watchtower) and back down
 const pathSpiralToTower = findPathAStar(
   grid,
-  { x: 4, y: 0, z: 18 },
-  { x: 6, y: 2, z: 16 },
+  { x: 5, y: 0, z: 19 },
+  { x: 6, y: 2, z: 18 },
   [],
 );
 assert(
@@ -162,8 +166,8 @@ assert(
 );
 const pathFromTowerToGround = findPathAStar(
   grid,
-  { x: 7, y: 2, z: 16 },
-  { x: 9, y: 0, z: 17 },
+  { x: 6, y: 2, z: 18 },
+  { x: 5, y: 0, z: 19 },
   [],
 );
 assert(
@@ -175,12 +179,12 @@ assert(
 // Anti-deadlock test on Garden Belvedere staircase when upper landing is occupied by another unit
 const dummyBlocker = createInitialUnits()[0]!;
 const occupiedLandingUnits = [
-  { ...dummyBlocker, id: "blocker-unit", pos: { x: 8, y: 1 as const, z: 10 } },
+  { ...dummyBlocker, id: "blocker-unit", pos: { x: 10, y: 1 as const, z: 12 } },
 ];
 const pathPastOccupiedLanding = findPathAStar(
   grid,
-  { x: 8, y: 0, z: 11 },
-  { x: 9, y: 1, z: 10 },
+  { x: 10, y: 0, z: 13 },
+  { x: 11, y: 1, z: 12 },
   occupiedLandingUnits,
   "moving-unit",
 );
@@ -216,22 +220,25 @@ assert(
   "Václav starts on the 1st-floor Piano Nobile Arcade Gallery (y = 1)",
 );
 assert(odowalsky && odowalsky.faction === "enemy", "Odowalsky must be an enemy");
-
-console.log(
-  "✓ Initial roster (Colloredo, Jan Matěj, Václav z Michalovic on P1, Bratr Bartoloměj, Odowalsky) validated.",
+assert(
+  units.filter((u) => u.faction === "enemy").every((e) => e.archetype === "trooper"),
+  "All initial enemies must be musketeers (archetype trooper)",
 );
 
-// 3. Test Assisted Movement Mechanic (Podepření komorníkem)
-// Initially Jan Matěj is at (9, 0, 19) and Colloredo is at (10, 0, 19) -> distance 1 -> Assisted!
+console.log(
+  "✓ Initial roster (Colloredo, Jan Matěj, Václav z Michalovic on P1, Bratr Bartoloměj, all enemies musketeers) validated.",
+);
+
+// 3. Test Colloredo Mobility & Detainment State (Těžké kulhání)
 let synced = syncColloredoMobility(units);
 let syncedColloredo = synced.find((u) => u.id === "player-colloredo")!;
 assert(
-  syncedColloredo.movePerAp === 5,
-  "Colloredo should have 5 movePerAp when assisted by Jan Matěj",
+  syncedColloredo.movePerAp === 3,
+  "Colloredo must have 3 movePerAp due to Těžké kulhání postih",
 );
 assert(
-  syncedColloredo.buffTitle?.includes("Podepřen"),
-  "Colloredo should have assisted buff title",
+  syncedColloredo.buffTitle?.includes("kulhání"),
+  "Colloredo must have Těžké kulhání buff title",
 );
 
 // Move ALL allies far away to (3, 0, 8)
@@ -244,14 +251,14 @@ synced = syncColloredoMobility(separatedUnits);
 syncedColloredo = synced.find((u) => u.id === "player-colloredo")!;
 assert(
   syncedColloredo.movePerAp === 3,
-  "Colloredo must have only 3 movePerAp when limping alone",
+  "Colloredo persistently has 3 movePerAp handicap",
 );
 assert(
   syncedColloredo.buffTitle?.includes("kulhání"),
-  "Colloredo should have limping title when alone",
+  "Colloredo retains Těžké kulhání status",
 );
 
-console.log("✓ Assisted mobility mechanic (Jan Matěj supporting Colloredo) validated.");
+console.log("✓ Colloredo postih Těžké kulhání (3 movePerAp) validated.");
 
 // 4. Test Marshal Aura in Combat
 const shotCalcWithMarshal = calculateShot(
@@ -439,10 +446,14 @@ assert(
 
 console.log("✓ Paradoxical Martyrdom and Iron Vigil induction state machine validated.");
 
-// 9. Test Swedish Capture & Ransom Directive (AI priority for Colloredo)
+// 9. Test Swedish Capture & Protection Directives
+// 9a. Swedish AI captures Colloredo by spending 1 AP (adjacent or within 3 tiles with loaded firearm)
 const testUnitsWithColloredoInSight = units.map((u) => {
   if (u.id === "enemy-odowalsky") {
-    return { ...u, pos: { x: 10, y: 0 as const, z: 12 }, ap: 2 };
+    return { ...u, pos: { x: 10, y: 0 as const, z: 12 }, ap: 2, firearmLoaded: true };
+  }
+  if (u.id === "player-colloredo") {
+    return { ...u, pos: { x: 10, y: 0 as const, z: 16 }, ap: 2 };
   }
   return u;
 });
@@ -454,11 +465,127 @@ const aiDecision = computeEnemyAiDecision(
 );
 assert(
   aiDecision.targetId === "player-colloredo",
-  "Swedish AI must prioritize subduing Marshal Colloredo for ransom",
+  "Swedish AI must prioritize moving to capture Marshal Colloredo",
+);
+assert(
+  aiDecision.isCaptureAction === true,
+  "Enemy AI decision must mark isCaptureAction as true for Colloredo capture",
+);
+
+// 9b. Swedes NEVER shoot at Count Colloredo in evaluateVisibleTargets
+const odowalskyUnit = testUnitsWithColloredoInSight.find((u) => u.id === "enemy-odowalsky")!;
+const enemyTargets = evaluateVisibleTargets(
+  grid,
+  odowalskyUnit,
+  testUnitsWithColloredoInSight,
+  "clear",
+);
+assert(
+  !enemyTargets.some((t) => t.targetId === "player-colloredo"),
+  "Swedes must NEVER have Count Colloredo in evaluateVisibleTargets for shooting",
+);
+
+// 9c. checkEnemyColloredoCapture unit tests
+const countUnit = testUnitsWithColloredoInSight.find((u) => u.id === "player-colloredo")!;
+
+// Adjacent enemy: can capture regardless of firearm
+const adjacentEnemy = { ...odowalskyUnit, pos: { x: 10, y: 0 as const, z: 15 }, firearmLoaded: false };
+const capAdj = checkEnemyColloredoCapture(grid, adjacentEnemy, countUnit);
+assert(capAdj.canCapture === true && capAdj.isAdjacent === true, "Adjacent enemy must be able to capture");
+
+// 2-3 tiles away with loaded firearm and clear LOS: can capture
+const gunpointEnemy = { ...odowalskyUnit, pos: { x: 10, y: 0 as const, z: 13 }, firearmLoaded: true };
+const capGunpoint = checkEnemyColloredoCapture(grid, gunpointEnemy, countUnit);
+assert(capGunpoint.canCapture === true && capGunpoint.isGunpoint === true, "Enemy within 3 tiles with loaded firearm must be able to capture");
+
+// 2-3 tiles away with UNLOADED firearm: CANNOT capture
+const unloadedGunEnemy = { ...odowalskyUnit, pos: { x: 10, y: 0 as const, z: 13 }, firearmLoaded: false };
+const capUnloaded = checkEnemyColloredoCapture(grid, unloadedGunEnemy, countUnit);
+assert(capUnloaded.canCapture === false, "Enemy within 3 tiles with unloaded firearm CANNOT capture");
+
+// 4 tiles away: CANNOT capture
+const farEnemy = { ...odowalskyUnit, pos: { x: 10, y: 0 as const, z: 12 }, firearmLoaded: true };
+const capFar = checkEnemyColloredoCapture(grid, farEnemy, countUnit);
+assert(capFar.canCapture === false, "Enemy 4 tiles away cannot capture without moving closer");
+
+// 9d. Companion protection: Swedes do not shoot at companion within 3 tiles of Count when Count is seen
+const testUnitsWithCompanionNearCount = units.map((u) => {
+  if (u.id === "enemy-odowalsky") {
+    return { ...u, pos: { x: 10, y: 0 as const, z: 10 }, ap: 2, firearmLoaded: true };
+  }
+  if (u.id === "player-colloredo") {
+    return { ...u, pos: { x: 10, y: 0 as const, z: 16 }, ap: 2 };
+  }
+  if (u.id === "player-jan-matej") {
+    // Companion is 2 tiles from Colloredo (z: 14 vs 16)
+    return { ...u, pos: { x: 10, y: 0 as const, z: 14 }, ap: 2 };
+  }
+  return u;
+});
+
+const matejNear = testUnitsWithCompanionNearCount.find((u) => u.id === "player-jan-matej")!;
+const shooterAt10 = testUnitsWithCompanionNearCount.find((u) => u.id === "enemy-odowalsky")!;
+const isProtected = isCompanionProtectedByCount(
+  grid,
+  shooterAt10.pos,
+  matejNear,
+  testUnitsWithCompanionNearCount,
+);
+assert(
+  isProtected === true,
+  "Companion within 3 tiles of Count when shooter sees Count must be protected",
+);
+
+const targetsWithMatejNear = evaluateVisibleTargets(
+  grid,
+  shooterAt10,
+  testUnitsWithCompanionNearCount,
+  "clear",
+);
+assert(
+  !targetsWithMatejNear.some((t) => t.targetId === "player-jan-matej"),
+  "Swedes must NOT target companion within 3 tiles of Count when shooter sees Count",
+);
+
+// 9e. Companion away from Count (4+ tiles): Swedes CAN shoot at companion
+const testUnitsWithCompanionFarFromCount = units.map((u) => {
+  if (u.id === "enemy-odowalsky") {
+    return { ...u, pos: { x: 10, y: 0 as const, z: 8 }, ap: 2, firearmLoaded: true };
+  }
+  if (u.id === "player-colloredo") {
+    return { ...u, pos: { x: 10, y: 0 as const, z: 18 }, ap: 2 };
+  }
+  if (u.id === "player-jan-matej") {
+    // Companion is 5 tiles from Colloredo (z: 13 vs 18)
+    return { ...u, pos: { x: 10, y: 0 as const, z: 13 }, ap: 2 };
+  }
+  return u;
+});
+const matejFar = testUnitsWithCompanionFarFromCount.find((u) => u.id === "player-jan-matej")!;
+const shooterAt8 = testUnitsWithCompanionFarFromCount.find((u) => u.id === "enemy-odowalsky")!;
+const isFarProtected = isCompanionProtectedByCount(
+  grid,
+  shooterAt8.pos,
+  matejFar,
+  testUnitsWithCompanionFarFromCount,
+);
+assert(
+  isFarProtected === false,
+  "Companion 5 tiles away from Count must NOT be protected",
+);
+const targetsWithMatejFar = evaluateVisibleTargets(
+  grid,
+  shooterAt8,
+  testUnitsWithCompanionFarFromCount,
+  "clear",
+);
+assert(
+  targetsWithMatejFar.some((t) => t.targetId === "player-jan-matej"),
+  "Swedes CAN target companion when companion is not within 3 tiles of Count",
 );
 
 console.log(
-  "✓ Swedish Capture & Ransom directive validated (Colloredo targeted for high-value capture).",
+  "✓ Swedish Capture & Companion Protection Directives (Count not shot at, 1 AP capture, 3-tile protection) validated.",
 );
 
 // 10. Test 2-Turn Marshal Colloredo Detention, Rescue, and Capture (Game Over) Mechanics
@@ -487,7 +614,7 @@ const rescuedInput = syncDowned.units.map((u) =>
   u.id === "player-jan-matej"
     ? {
         ...u,
-        pos: { x: downedMarshal.pos.x - 1, y: 0 as const, z: downedMarshal.pos.z },
+        pos: { x: downedMarshal.pos.x - 1, y: downedMarshal.pos.y, z: downedMarshal.pos.z },
       }
     : u,
 );
@@ -508,7 +635,7 @@ assert(
 
 const surroundedInput = separatedUnits.map((u) =>
   u.id === "enemy-odowalsky"
-    ? { ...u, pos: { x: colloredo!.pos.x, y: 0 as const, z: colloredo!.pos.z - 1 } }
+    ? { ...u, pos: { x: colloredo!.pos.x, y: colloredo!.pos.y, z: colloredo!.pos.z - 1 } }
     : u,
 );
 const syncSurrounded = syncColloredoCaptureState(surroundedInput);
@@ -553,141 +680,23 @@ console.log(
   "✓ 2-turn Marshal Colloredo detention (1/2), companion rescue, and capture Game Over (2/2) validated.",
 );
 
-// 11. Test All 3 Playable Characters' Special Abilities & Smart Tutorial Demonstration
+// 11. Test That No Player Character Has Special Abilities in Mission 1
 const abilityStore = useGameStore.getState();
 abilityStore.resetGame();
 
-// 11a: Jan Matěj — Přísaha komorníka
-useGameStore.getState().activateSpecialAbility("player-jan-matej");
-const afterJan = useGameStore.getState();
-const janAfter = afterJan.units.find((u) => u.id === "player-jan-matej")!;
-const colloredoAfterJan = afterJan.units.find((u) => u.id === "player-colloredo")!;
-assert(
-  afterJan.demonstratedAbilities["player-jan-matej"] === true,
-  "Jan Matěj ability must be marked as demonstrated",
-);
-assert(
-  janAfter.ability?.currentCooldown === 2,
-  "Jan Matěj ability must enter 2-turn cooldown",
-);
-assert(
-  janAfter.ap === 3,
-  "Jan Matěj gains +1 AP bonus from hero rush (2 + 1 = 3 AP)",
-);
-assert(
-  colloredoAfterJan.armor === 2 && colloredoAfterJan.maxArmor === 2,
-  "Colloredo must gain +2 armor cloak from Jan Matěj",
-);
-assert(colloredoAfterJan.ap === 3, "Colloredo must gain +1 AP from Jan Matěj");
+const playerUnitsWithNoAbilities = useGameStore
+  .getState()
+  .units.filter((u) => u.faction === "player");
 
-// 11b: Václav z Michalovic — Svatováclavské soustředění
-const vaclavBeforeCalc = calculateShot(
-  afterJan.grid,
-  afterJan.units.find((u) => u.id === "player-vaclav-michalovic")!,
-  odowalsky!,
-  "rain",
-  vaclav!.pos,
-  afterJan.units,
-);
-useGameStore.getState().activateSpecialAbility("player-vaclav-michalovic");
-const afterVaclav = useGameStore.getState();
-const vaclavAfter = afterVaclav.units.find(
-  (u) => u.id === "player-vaclav-michalovic",
-)!;
-assert(
-  afterVaclav.demonstratedAbilities["player-vaclav-michalovic"] === true,
-  "Václav ability must be marked as demonstrated",
-);
-assert(
-  vaclavAfter.abilityBuffActive === true,
-  "Václav must have abilityBuffActive === true",
-);
-assert(
-  vaclavAfter.ap === 3,
-  "Václav gains +1 AP tactical focus (2 + 1 = 3 AP)",
-);
-const vaclavAfterCalc = calculateShot(
-  afterVaclav.grid,
-  vaclavAfter,
-  odowalsky!,
-  "rain",
-  vaclavAfter.pos,
-  afterVaclav.units,
-);
-assert(
-  vaclavAfterCalc.misfireChance === 0,
-  `Václav misfire chance in rain must drop from ${vaclavBeforeCalc.misfireChance}% to 0%`,
-);
-const verdictMod = vaclavAfterCalc.hitModifiers.find(
-  (m) => m.id === "ability-klementinum-verdict",
-);
-assert(
-  verdictMod && verdictMod.value === 35,
-  "Václav shot breakdown must include Svatováclavské soustředění (+35 % hit modifier)",
-);
-assert(
-  vaclavAfterCalc.critChance > vaclavBeforeCalc.critChance,
-  "Václav crit chance must increase with Svatováclavské soustředění (+45 % crit)",
-);
-assert(
-  vaclavAfterCalc.armorPierce === vaclavAfter.weapon.armorPierce + 2,
-  "Václav armor pierce must increase by +2",
-);
-
-// 11c: Bratr Bartoloměj — Maltézská šrapnelová salva
-useGameStore.getState().activateSpecialAbility("player-bartolomej");
-const afterBart = useGameStore.getState();
-const bartAfter = afterBart.units.find((u) => u.id === "player-bartolomej")!;
-assert(
-  afterBart.demonstratedAbilities["player-bartolomej"] === true,
-  "Bartoloměj ability must be marked as demonstrated",
-);
-assert(bartAfter.ap === 1, "Bartoloměj ability costs 1 AP (2 -> 1 AP)");
-assert(
-  bartAfter.ability?.currentCooldown === 2,
-  "Bartoloměj ability must enter 2-turn cooldown",
-);
-assert(
-  bartAfter.grenades === 3,
-  "Bartoloměj restocks petard on ability (2 + 1 = 3)",
-);
-const bartTile = afterBart.grid.getTile(bartAfter.pos);
-assert(
-  bartTile && bartTile.smokeTurns > 0,
-  "Bartoloměj ability must deploy protective smoke screen around him",
-);
-const damagedEnemies = afterBart.units.filter(
-  (u) => u.faction === "enemy" && (u.hp < u.maxHp || u.isShaken),
-);
-assert(
-  damagedEnemies.length >= 1,
-  "Bartoloměj shrapnel volley must damage and shake at least 1 enemy",
-);
-
-// 11d: Hrabě Colloredo — Rozkaz maršála
-const alliesBeforeCmd = afterBart.units.filter(
-  (u) => u.faction === "player" && u.id !== "player-colloredo",
-);
-useGameStore.getState().activateSpecialAbility("player-colloredo");
-const afterCmd = useGameStore.getState();
-const colloredoAfterCmd = afterCmd.units.find((u) => u.id === "player-colloredo")!;
-assert(
-  colloredoAfterCmd.ap === 2,
-  "Colloredo used 1 AP for command (3 -> 2 AP)",
-);
-const alliesAfterCmd = afterCmd.units.filter(
-  (u) => u.faction === "player" && u.id !== "player-colloredo",
-);
-alliesAfterCmd.forEach((ally) => {
-  const prev = alliesBeforeCmd.find((a) => a.id === ally.id)!;
+playerUnitsWithNoAbilities.forEach((u) => {
   assert(
-    ally.ap === Math.min(ally.maxAp + 2, prev.ap + 2),
-    `${ally.name} should receive up to +2 AP from marshal command`,
+    u.ability === undefined,
+    `${u.name} must have no special ability in mission 1`,
   );
 });
 
 console.log(
-  "✓ All 4 characters' special abilities (Jan Matěj, Václav, Bratr Bartoloměj, Hrabě Colloredo) validated.",
+  "✓ Confirmed no player character has special abilities in Mission 1.",
 );
 
 // 12. Test Baroque Chiaroscuro Fog of War (3-state visibility, elevation/weather/smoke sight, sound/matchcord contacts)
@@ -700,12 +709,12 @@ assert(
 
 const initialExplored = createInitialExploredCoords(fogState.grid);
 assert(
-  initialExplored.has("9,0,20"),
-  "Grand Priory Palace interior (9,0,20) must start in explored memory",
+  initialExplored.has("11,0,22"),
+  "Grand Priory Palace interior (11,0,22) must start in explored memory",
 );
 assert(
-  initialExplored.has("2,0,2"),
-  "Čertovka fisherman skiff dock (2,0,2) must start in explored memory",
+  initialExplored.has("3,0,2"),
+  "Čertovka fisherman skiff dock (3,0,2) must start in explored memory",
 );
 
 // Verify dynamic sight radius across floors and weather
@@ -716,19 +725,19 @@ const vaclavSightP1Rain = computeUnitSightRadius(
   fogState.grid,
   vaclavFogUnit,
   "rain",
-  { x: 11, y: 1, z: 16 },
+  { x: 14, y: 1, z: 16 },
 );
 const vaclavSightP2Clear = computeUnitSightRadius(
   fogState.grid,
   vaclavFogUnit,
   "clear",
-  { x: 10, y: 2, z: 16 },
+  { x: 6, y: 2, z: 18 },
 );
 const vaclavSightP0Fog = computeUnitSightRadius(
   fogState.grid,
   vaclavFogUnit,
   "fog",
-  { x: 11, y: 0, z: 16 },
+  { x: 14, y: 0, z: 16 },
 );
 assert(
   vaclavSightP2Clear > vaclavSightP1Rain && vaclavSightP1Rain > vaclavSightP0Fog,
@@ -738,11 +747,11 @@ assert(
 // Verify initial spotted vs. shrouded enemies & 17th-century Sound/Matchcord Contacts
 assert(
   fogState.fogSnapshot.visibleEnemyIds.has("enemy-sniper-roof"),
-  "Swedish sharpshooter on garden belvedere (10,1,9) must be spotted at start from Piano Nobile",
+  "Swedish sharpshooter on garden belvedere (12,1,10) must be spotted at start from Piano Nobile",
 );
 assert(
   !fogState.fogSnapshot.visibleEnemyIds.has("enemy-dragoon"),
-  "Swedish dragoon in western garden (5,0,7) must start shrouded in Fog of War",
+  "Swedish dragoon in western garden (6,0,8) must start shrouded in Fog of War",
 );
 assert(
   fogState.fogSnapshot.soundContacts.some((c) => c.unitId === "enemy-dragoon"),
@@ -751,11 +760,11 @@ assert(
 
 // Verify black-powder smoke LoS occlusion on same floor vs. high-ground overlook
 const smokeTestGrid = createInitialGrid();
-smokeTestGrid.addSmoke({ x: 9, y: 0, z: 12 }, 0, 2);
+smokeTestGrid.addSmoke({ x: 11, y: 0, z: 12 }, 0, 2);
 const losBlockedBySmoke = checkFogLineOfSight3D(
   smokeTestGrid,
-  { x: 9, y: 0, z: 15 },
-  { x: 9, y: 0, z: 9 },
+  { x: 11, y: 0, z: 16 },
+  { x: 11, y: 0, z: 9 },
   false,
 );
 assert(
@@ -764,8 +773,8 @@ assert(
 );
 const losOverSmokeFromTower = checkFogLineOfSight3D(
   smokeTestGrid,
-  { x: 9, y: 2, z: 16 },
-  { x: 9, y: 0, z: 9 },
+  { x: 6, y: 2, z: 18 },
+  { x: 6, y: 0, z: 9 },
   false,
 );
 assert(
@@ -774,7 +783,7 @@ assert(
 );
 
 // Verify tile visibility helper and toggleFogOfWar
-const farNorthCorner = { x: 18, y: 0 as const, z: 5 };
+const farNorthCorner = { x: 20, y: 0 as const, z: 3 };
 assert(
   getTileVisibility(farNorthCorner, fogState.fogSnapshot, true) === "unexplored",
   "Far northern garden corner outside sight radius must start unexplored",
@@ -796,7 +805,7 @@ assert(
 const reconPreview = previewReconFromTile(
   fogState.grid,
   vaclavFogUnit,
-  { x: 5, y: 0, z: 8 },
+  { x: 6, y: 0, z: 9 },
   fogState.units,
   "rain",
   fogState.fogSnapshot.visibleEnemyIds,
@@ -831,15 +840,19 @@ assert(
 const reinforcementUnits = createReinforcementUnits();
 assert(
   reinforcementUnits.length === 2,
-  "Reinforcements must consist of 2 units (Dragoon and Cuirassier)",
+  "Reinforcements must consist of 2 units (Swedish Musketeer reinforcements)",
 );
 assert(
-  reinforcementUnits.some((u) => u.id === "enemy-reinforcement-dragoon" && u.faction === "enemy" && u.pos.z === 4),
-  "Reinforcement dragoon must arrive at northern garden gate (z: 4)",
+  reinforcementUnits.every((u) => u.archetype === "trooper"),
+  "All reinforcement units must be musketeers (archetype trooper)",
 );
 assert(
-  reinforcementUnits.some((u) => u.id === "enemy-reinforcement-cuirassier" && u.faction === "enemy" && u.pos.z === 4),
-  "Reinforcement cuirassier must arrive at northern garden gate (z: 4)",
+  reinforcementUnits.some((u) => u.id === "enemy-reinforcement-dragoon" && u.faction === "enemy" && u.pos.z === 5),
+  "Reinforcement musketeer 1 must arrive at northern garden gate (z: 5)",
+);
+assert(
+  reinforcementUnits.some((u) => u.id === "enemy-reinforcement-cuirassier" && u.faction === "enemy" && u.pos.z === 5),
+  "Reinforcement musketeer 2 must arrive at northern garden gate (z: 5)",
 );
 
 // Fast-forward rounds to Round 4: verify warnings in combat log
@@ -888,13 +901,13 @@ assert(
 const escapeOutcome = checkMissionOutcome(
   round5State.grid,
   round5State.units.map((u) =>
-    u.id === "player-colloredo" ? { ...u, pos: { x: 2, y: 0, z: 2 } } : u,
+    u.id === "player-colloredo" ? { ...u, pos: { x: 3, y: 0, z: 2 } } : u,
   ),
 );
 assert(
   escapeOutcome.outcome === "victory" &&
     escapeOutcome.victoryReason === "boat_escape",
-  "Colloredo reaching the dock at (2,0,2) must result in boat_escape victory even with reinforcements on map",
+  "Colloredo reaching the dock at (3,0,2) must result in boat_escape victory even with reinforcements on map",
 );
 
 console.log(
@@ -971,7 +984,7 @@ useGameStore.getState().resetGame();
 const initialDoors = useGameStore.getState().grid.getAllDoors();
 assert(initialDoors.length >= 4, "Must have at least 4 doors on the map");
 
-const armoryDoorCoord = { x: 4, y: 0 as const, z: 18 };
+const armoryDoorCoord = { x: 5, y: 0 as const, z: 17 };
 const armoryDoor = useGameStore.getState().grid.getDoor(armoryDoorCoord);
 assert(armoryDoor && armoryDoor.state === "closed", "Armory door must initially be closed");
 assert(
@@ -1042,9 +1055,9 @@ console.log(
 );
 
 // 18. Test Multi-Floor Combat, Edge Peeking & High Ground Advantage (ADR-0010)
-// Václav is on P1 loggia ({ x: 8, y: 1, z: 15 }) with balustrade and Swedish patrol is below on P0 ({ x: 8, y: 0, z: 13 })
-const p1EdgeCoord: GridCoord = { x: 8, y: 1, z: 15 };
-const p0CourtyardCoord: GridCoord = { x: 8, y: 0, z: 13 };
+// Václav is on P1 loggia ({ x: 14, y: 1, z: 16 }) with balustrade and Swedish patrol is below on P0 ({ x: 14, y: 0, z: 13 })
+const p1EdgeCoord: GridCoord = { x: 14, y: 1, z: 16 };
+const p0CourtyardCoord: GridCoord = { x: 14, y: 0, z: 13 };
 const losDown = checkLineOfSight3D(grid, p1EdgeCoord, p0CourtyardCoord);
 assert(
   losDown.clear,
@@ -1071,7 +1084,7 @@ assert(
 );
 
 // Downward fire bypasses low half-cover
-const lowObstacleCoord: GridCoord = { x: 7, y: 0, z: 15 };
+const lowObstacleCoord: GridCoord = { x: 15, y: 0, z: 14 };
 const coverDown = resolveTargetCoverAgainstShot(grid, p1EdgeCoord, lowObstacleCoord);
 assert(
   coverDown.cover === "none",
@@ -1093,7 +1106,7 @@ console.log(
 const stairHoverRecon = previewReconFromTile(
   grid,
   janMatej!,
-  { x: 6, y: 1, z: 19 },
+  { x: 11, y: 1, z: 22 },
   units,
   "rain",
   new Set(),
@@ -1110,7 +1123,7 @@ assert(
 // Verify store setHoveredTile populates hoveredSpottedEnemyIds
 useGameStore.getState().selectUnit(janMatej!.id);
 useGameStore.getState().setActionMode("move");
-const candidateTile: GridCoord = { x: 9, y: 0, z: 17 };
+const candidateTile: GridCoord = { x: 11, y: 0, z: 18 };
 useGameStore.getState().setHoveredTile(candidateTile);
 assert(
   Array.isArray(useGameStore.getState().hoveredSpottedEnemyIds),
@@ -1128,8 +1141,8 @@ console.log(
 
 // 20. Test Multi-Floor Fog of War & Smoke Horizon Piercing (ADR-0010 Ticket 03)
 // A) Smoke Horizon Piercing: Elevated shooter from P1 shooting at P0 target in smoke
-const smokyP0TargetCoord: GridCoord = { x: 8, y: 0, z: 13 };
-grid.addSmoke(smokyP0TargetCoord, 2);
+const smokyP0TargetCoord: GridCoord = { x: 14, y: 0, z: 13 };
+grid.addSmoke(smokyP0TargetCoord, 0, 2);
 const smokeTarget = { ...odowalsky!, pos: smokyP0TargetCoord };
 const smokePiercingShot = calculateShot(
   grid,
@@ -1149,8 +1162,8 @@ assert(
 
 // B) Per-floor Fog of War separation (ADR-0010)
 const fogSnap = computeFogOfWar(grid, units, "rain");
-const p0Key = coordKey({ x: 8, y: 0, z: 13 });
-const p2Key = coordKey({ x: 8, y: 2, z: 13 });
+const p0Key = coordKey({ x: 14, y: 0, z: 13 });
+const p2Key = coordKey({ x: 14, y: 2, z: 13 });
 assert(
   fogSnap.visibleCoords.has(p0Key) !== fogSnap.visibleCoords.has(p2Key),
   "Fog of War visible coordinates must be strictly partitioned by floor level",
@@ -1179,35 +1192,35 @@ assert(
 // Verify resolvePreferredFloorCoord strongly prioritizes activeFloor when floor exists
 const resolvedOnP1 = resolvePreferredFloorCoord(
   vaclavStoreState.grid,
-  { x: 12, y: 0, z: 15 },
+  { x: 12, y: 0, z: 16 },
   1,
 );
 assert(
-  resolvedOnP1.x === 12 && resolvedOnP1.y === 1 && resolvedOnP1.z === 15,
-  "When activeFloor=1 and [12, 15] has a P1 floor, resolvePreferredFloorCoord must return P1 (y=1)",
+  resolvedOnP1.x === 12 && resolvedOnP1.y === 1 && resolvedOnP1.z === 16,
+  "When activeFloor=1 and [12, 16] has a P1 floor, resolvePreferredFloorCoord must return P1 (y=1)",
 );
 
 const resolvedOnP2 = resolvePreferredFloorCoord(
   vaclavStoreState.grid,
-  { x: 6, y: 0, z: 16 },
+  { x: 6, y: 0, z: 18 },
   2,
 );
 assert(
-  resolvedOnP2.x === 6 && resolvedOnP2.y === 2 && resolvedOnP2.z === 16,
-  "When activeFloor=2 and [6, 16] has a P2 watchtower floor, resolvePreferredFloorCoord must return P2 (y=2)",
+  resolvedOnP2.x === 6 && resolvedOnP2.y === 2 && resolvedOnP2.z === 18,
+  "When activeFloor=2 and [6, 18] has a P2 watchtower floor, resolvePreferredFloorCoord must return P2 (y=2)",
 );
 
 // Verify fallback to P0 ONLY in single-story garden / courtyard locations where P1 does not exist
 const resolvedGardenFallback = resolvePreferredFloorCoord(
   vaclavStoreState.grid,
-  { x: 10, y: 0, z: 12 },
+  { x: 10, y: 0, z: 8 },
   1,
 );
 assert(
   resolvedGardenFallback.x === 10 &&
     resolvedGardenFallback.y === 0 &&
-    resolvedGardenFallback.z === 12,
-  "When activeFloor=1 and [10, 12] is in the single-story garden (no P1 floor), resolvePreferredFloorCoord must fall back to P0 (y=0)",
+    resolvedGardenFallback.z === 8,
+  "When activeFloor=1 and [10, 8] is in the single-story garden (no P1 floor), resolvePreferredFloorCoord must fall back to P0 (y=0)",
 );
 
 // Verify Václav's A* path across P1 stays strictly on P1
@@ -1217,7 +1230,7 @@ const vaclavUnitNow = vaclavStoreState.units.find(
 const p1GalleryPath = findPathAStar(
   vaclavStoreState.grid,
   vaclavUnitNow.pos,
-  { x: 8, y: 1, z: 15 },
+  { x: 10, y: 1, z: 16 },
   vaclavStoreState.units,
   vaclavUnitNow.id,
 );
@@ -1318,8 +1331,8 @@ assert(
 // 22e: Missed shot inside palace striking furniture/wall obstacle -> bloodSeverity = 0 & material-specific impactObstacle
 const palaceMissMeta = resolveShotImpactMetadata(
   impactTestGrid,
-  { x: 9, y: 0, z: 20 },
-  { x: 9, y: 0, z: 18 },
+  { x: 10, y: 0, z: 19 },
+  { x: 10, y: 0, z: 17 },
   {
     hit: false,
     critical: false,
@@ -1333,7 +1346,8 @@ const palaceMissMeta = resolveShotImpactMetadata(
 assert(
   palaceMissMeta.bloodSeverity === 0 &&
     (palaceMissMeta.impactObstacle === "palace_wood" ||
-      palaceMissMeta.impactObstacle === "palace_stucco"),
+      palaceMissMeta.impactObstacle === "palace_stucco" ||
+      palaceMissMeta.impactObstacle === "pillar"),
   `Missed shot in palace interior must classify obstacle as palace_wood or palace_stucco (got ${palaceMissMeta.impactObstacle})`,
 );
 
@@ -1603,12 +1617,12 @@ assert(
   "Jan Matěj must be equipped with valet hunting cleaver",
 );
 assert(
-  bartolomejUnit?.meleeWeapon?.id === "maltese_broadsword",
-  "Bartoloměj must be equipped with Maltese broadsword (4-6 HP)",
+  bartolomejUnit?.meleeWeapon?.id === "heavy_musket_butt",
+  "Bartoloměj must be equipped with heavy musket butt (6-8 HP, 25% stun, spills reload)",
 );
 assert(
-  vaclavUnit?.meleeWeapon?.id === "cleric_dagger",
-  "Václav must be equipped with cleric dagger / furketa point",
+  vaclavUnit?.meleeWeapon?.id === "swedish_musket_butt",
+  "Václav must be equipped with Swedish musket butt (4-6 HP)",
 );
 
 // 25b: Adjacency Test for Melee Combat
@@ -1636,12 +1650,12 @@ assert(
 const bartolomejAdjacent = { ...bartolomejUnit!, pos: { x: dummyEnemy.pos.x + 1, y: dummyEnemy.pos.y, z: dummyEnemy.pos.z } };
 const bartolomejMeleeCalc = calculateMeleeAttack(grid, bartolomejAdjacent, dummyEnemy);
 assert(
-  bartolomejMeleeCalc.minDamage === 4 && bartolomejMeleeCalc.maxDamage === 6,
-  "Bartoloměj broadsword melee preview must show 4-6 HP damage",
+  bartolomejMeleeCalc.minDamage === 6 && bartolomejMeleeCalc.maxDamage === 8,
+  "Bartoloměj heavy musket butt melee preview must show 6-8 HP damage",
 );
 assert(
   bartolomejMeleeCalc.armorPierce === 1,
-  "Maltese broadsword must pierce 1 point of cuirass armor",
+  "Heavy musket butt must pierce 1 point of cuirass armor",
 );
 
 // 25d: Melee Roll Resolution (No misfire, proper damage)
@@ -1791,11 +1805,11 @@ assert(
   "2 AP Yellow Zone Sprint (Dash) must trigger ACTION_OTS_FOLLOW Action Cam",
 );
 
-// Door breach path (crossing closed armory door at x:4, y:0, z:18)
+// Door breach path (crossing closed armory door at x:5, y:0, z:17)
 const doorBreachStart: GridCoord = { x: 5, y: 0, z: 18 };
 const doorBreachPath: GridCoord[] = [
-  { x: 4, y: 0, z: 18 },
-  { x: 3, y: 0, z: 18 },
+  { x: 5, y: 0, z: 17 },
+  { x: 5, y: 0, z: 16 },
 ];
 const doorInteractions = detectPathInteractions(camGrid, doorBreachStart, doorBreachPath);
 assert(
@@ -1962,6 +1976,166 @@ console.log(
   "✓ 4-State XCOM 2 Camera State Machine (TACTICAL_ISO, ACTION_OTS_FOLLOW, INTERRUPT_POD_REVEAL, INTERRUPT_OVERWATCH_SLOWMO, COVER_SETTLE_RESET) validated.",
 );
 
+// 27. Baroque Firearm System: Heavy Musket vs. Swedish M1624, Segmented Reload, Hip-Fire, Smoke & Prepared Volley Cone
+console.log("--- 27. Baroque Firearm System (Heavy vs. Swedish Musket, Segmented Reload, Hip-Fire, Smoke, Prepared Volley) ---");
+
+const heavyMusket = WEAPON_CATALOG.matchlock_musket_fork!;
+const swedishMusket = WEAPON_CATALOG.swedish_musket!;
+assert(
+  heavyMusket.minDamage === 12 &&
+    heavyMusket.maxDamage === 16 &&
+    heavyMusket.critBonusDamage === 6 &&
+    heavyMusket.critBonusMaxDamage === 8 &&
+    heavyMusket.baseCritChance === 15 &&
+    heavyMusket.armorPierce === 4 &&
+    heavyMusket.armorShred === 4 &&
+    heavyMusket.baseAccuracy === 65 &&
+    heavyMusket.fireApCost === 2 &&
+    heavyMusket.reloadApCost === 4 &&
+    heavyMusket.allowEmergencyHipFire === true &&
+    heavyMusket.hipFireAimPenalty === 35 &&
+    heavyMusket.overwatchMode === "prepared_volley_cone",
+  "Heavy Musket (matchlock_musket_fork) must match all 17th-century Spanish heavy musket rules",
+);
+assert(
+  swedishMusket.minDamage === 8 &&
+    swedishMusket.maxDamage === 12 &&
+    swedishMusket.critBonusDamage === 4 &&
+    swedishMusket.critBonusMaxDamage === 6 &&
+    swedishMusket.baseCritChance === 10 &&
+    swedishMusket.armorPierce === 2 &&
+    swedishMusket.armorShred === 2 &&
+    swedishMusket.baseAccuracy === 55 &&
+    swedishMusket.fireApCost === 1 &&
+    swedishMusket.reloadApCost === 2 &&
+    swedishMusket.supportsRestFork === false &&
+    swedishMusket.overwatchMode === "prepared_volley_cone",
+  "Swedish Lightened Musket M1624 (swedish_musket) must match all Gustavian musket rules",
+);
+
+// Verify Bartoloměj carries matchlock_musket_fork and Václav + all enemies carry swedish_musket
+const firearmTestUnits = createInitialUnits();
+const bartoUnit = firearmTestUnits.find((u) => u.id === "player-bartolomej")!;
+const vacUnit = firearmTestUnits.find((u) => u.id === "player-vaclav-michalovic")!;
+assert(
+  bartoUnit.weapon.id === "matchlock_musket_fork" && bartoUnit.movePerAp === 4,
+  "Bratr Bartoloměj must carry his sentimental Heavy Musket with rest fork and movePerAp=4",
+);
+assert(
+  vacUnit.weapon.id === "swedish_musket" && vacUnit.movePerAp === 5,
+  "Václav z Michalovic must carry the Swedish Lightened Musket M1624 and movePerAp=5",
+);
+assert(
+  firearmTestUnits
+    .filter((u) => u.faction === "enemy")
+    .every((e) => e.weapon.id === "swedish_musket" && e.meleeWeapon?.id === "swedish_musket_butt"),
+  "All Swedish musketeers in Mission 1 must carry Swedish Lightened Musket M1624 and musket butt",
+);
+
+// Verify 2 AP stationary fork shot vs 1 AP emergency hip-fire (-35% Aim)
+const stationaryBarto = { ...bartoUnit, pos: { x: 8, y: 0 as const, z: 14 }, ap: 2, movedThisTurn: false };
+const hipFireBarto = { ...bartoUnit, pos: { x: 8, y: 0 as const, z: 14 }, ap: 1, movedThisTurn: true };
+const targetForBarto = { ...dummyEnemy, pos: { x: 8, y: 0 as const, z: 10 } };
+const forkShotCalc = calculateShot(camGrid, stationaryBarto, targetForBarto, "clear");
+const hipShotCalc = calculateShot(camGrid, hipFireBarto, targetForBarto, "clear");
+assert(
+  forkShotCalc.isHipFire === false && forkShotCalc.fireApCost === 2,
+  "Stationary 2 AP Bartoloměj shot must use rest fork (2 AP, isHipFire=false)",
+);
+assert(
+  hipShotCalc.isHipFire === true &&
+    hipShotCalc.fireApCost === 1 &&
+    hipShotCalc.hitModifiers.some((m) => m.id === "emergency-hip-fire" && m.value === -35),
+  "Moved/1 AP Bartoloměj shot must trigger Emergency Hip-Fire (1 AP, -35% Aim)",
+);
+
+// Verify 20% Rain Misfire on Matchlocks & Smoke (-10 Aim for shooter, +15 Defense for target)
+const rainShotCalc = calculateShot(camGrid, stationaryBarto, targetForBarto, "rain");
+assert(
+  rainShotCalc.misfireChance === 20,
+  `Matchlock misfire chance in rain must be 20% (got ${rainShotCalc.misfireChance}%)`,
+);
+const musketSmokeGrid = createInitialGrid();
+musketSmokeGrid.addSmoke(stationaryBarto.pos, 0, 2);
+musketSmokeGrid.addSmoke(targetForBarto.pos, 0, 2);
+const smokeShotCalc = calculateShot(musketSmokeGrid, stationaryBarto, targetForBarto, "clear");
+assert(
+  smokeShotCalc.hitModifiers.some((m) => m.id === "shooter-smoke-aim" && m.value === -10),
+  "Shooter standing in black powder smoke must suffer -10% Aim penalty",
+);
+assert(
+  smokeShotCalc.hitModifiers.some((m) => m.id === "black-powder-smoke" && m.value === -15),
+  "Target standing in black powder smoke must gain +15 Defense (-15% to hit)",
+);
+
+// Verify Prepared Volley 90° frontal cone (isInPreparedVolleyCone)
+const watcherOrigin: GridCoord = { x: 8, y: 0, z: 12 };
+assert(
+  isInPreparedVolleyCone(watcherOrigin, "N", { x: 8, y: 0, z: 9 }) === true &&
+    isInPreparedVolleyCone(watcherOrigin, "N", { x: 10, y: 0, z: 9 }) === true &&
+    isInPreparedVolleyCone(watcherOrigin, "N", { x: 8, y: 0, z: 15 }) === false &&
+    isInPreparedVolleyCone(watcherOrigin, "N", { x: 12, y: 0, z: 12 }) === false,
+  "isInPreparedVolleyCone must strictly enforce a 90° forward cone in the direction of facing",
+);
+
+// Verify Segmented Reload (1 AP per step: 0/4 -> 4/4 for Heavy Musket, 0/2 -> 2/2 for Swedish Musket)
+useGameStore.getState().resetGame();
+useGameStore.setState((s) => ({
+  ...s,
+  isBusy: false,
+  turn: "player",
+  selectedUnitId: "player-bartolomej",
+  units: s.units.map((u) =>
+    u.id === "player-bartolomej"
+      ? { ...u, ap: 4, firearmLoaded: false, reloadProgress: 0 }
+      : u.id === "player-vaclav-michalovic"
+        ? { ...u, ap: 2, firearmLoaded: false, reloadProgress: 0 }
+        : u,
+  ),
+}));
+useGameStore.getState().selectUnit("player-bartolomej");
+useGameStore.getState().executeReload(); // Step 1/4
+let bartoReloadState = useGameStore.getState().units.find((u) => u.id === "player-bartolomej")!;
+assert(
+  bartoReloadState.reloadProgress === 1 &&
+    bartoReloadState.firearmLoaded === false &&
+    bartoReloadState.ap === 3,
+  "1st reload step on Heavy Musket must advance reloadProgress to 1/4 and spend 1 AP",
+);
+useGameStore.getState().executeReload(); // Step 2/4
+useGameStore.getState().executeReload(); // Step 3/4
+bartoReloadState = useGameStore.getState().units.find((u) => u.id === "player-bartolomej")!;
+assert(
+  bartoReloadState.reloadProgress === 3 && bartoReloadState.firearmLoaded === false,
+  "3rd reload step on Heavy Musket must advance reloadProgress to 3/4",
+);
+useGameStore.getState().executeReload(); // Step 4/4 -> Loaded!
+bartoReloadState = useGameStore.getState().units.find((u) => u.id === "player-bartolomej")!;
+assert(
+  bartoReloadState.firearmLoaded === true && bartoReloadState.reloadProgress === 0,
+  "4th reload step on Heavy Musket must complete reload (firearmLoaded=true, reloadProgress=0)",
+);
+
+// Test Václav 2-step segmented reload (0/2 -> 1/2 -> 2/2)
+useGameStore.getState().selectUnit("player-vaclav-michalovic");
+useGameStore.getState().executeReload(); // Step 1/2
+let vacReloadState = useGameStore.getState().units.find((u) => u.id === "player-vaclav-michalovic")!;
+assert(
+  vacReloadState.reloadProgress === 1 && vacReloadState.firearmLoaded === false && vacReloadState.ap === 1,
+  "1st reload step on Swedish Musket must advance reloadProgress to 1/2 and leave 1 AP",
+);
+useGameStore.getState().executeReload(); // Step 2/2 -> Loaded!
+vacReloadState = useGameStore.getState().units.find((u) => u.id === "player-vaclav-michalovic")!;
+assert(
+  vacReloadState.firearmLoaded === true && vacReloadState.reloadProgress === 0,
+  "2nd reload step on Swedish Musket must complete reload (firearmLoaded=true)",
+);
+
+console.log(
+  "✓ Baroque Firearm System (Heavy Musket 4 AP vs. Swedish M1624 2 AP Segmented Reload, Hip-Fire, Smoke, 20% Rain Misfire & Prepared Volley Cone) validated.",
+);
+
 console.log("=== ALL MISSION 1 TESTS PASSED SUCCESSFULLY! ===");
+
 
 

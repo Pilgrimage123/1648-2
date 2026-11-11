@@ -208,6 +208,16 @@ function chooseSmartSprintCamRig(
   return best;
 }
 
+let lastRightCameraPanTimestamp = 0;
+
+/**
+ * Vrací true, pokud hráč právě dokončil tažení kamery pravým tlačítkem myši (> 6 px),
+ * aby se po uvolnění tlačítka nespustil nechtěný rozkaz pohybu na dlaždici.
+ */
+export function wasRecentRightCameraPan(): boolean {
+  return performance.now() - lastRightCameraPanTimestamp < 180;
+}
+
 export function TacticalCamera() {
   const { camera, gl } = useThree();
   const grid = useGameStore((s) => s.grid);
@@ -229,6 +239,8 @@ export function TacticalCamera() {
   const distanceRef = useRef(24);
   const keysPressedRef = useRef<Set<string>>(new Set());
   const isRightDraggingRef = useRef(false);
+  const rightDragExceededThresholdRef = useRef(false);
+  const rightDownOriginRef = useRef({ x: 0, y: 0 });
   const lastPointerRef = useRef({ x: 0, y: 0 });
   const lockedProjectileRigRef = useRef<{
     id: number;
@@ -269,12 +281,28 @@ export function TacticalCamera() {
     const onPointerDown = (e: PointerEvent) => {
       if (e.button === 2 || e.button === 1) {
         isRightDraggingRef.current = true;
+        rightDragExceededThresholdRef.current = e.button === 1;
+        rightDownOriginRef.current = { x: e.clientX, y: e.clientY };
         lastPointerRef.current = { x: e.clientX, y: e.clientY };
       }
     };
 
     const onPointerMove = (e: PointerEvent) => {
       if (!isRightDraggingRef.current) return;
+
+      if (!rightDragExceededThresholdRef.current) {
+        const totalDist = Math.hypot(
+          e.clientX - rightDownOriginRef.current.x,
+          e.clientY - rightDownOriginRef.current.y,
+        );
+        if (totalDist <= 6) {
+          return;
+        }
+        rightDragExceededThresholdRef.current = true;
+        lastPointerRef.current = { x: e.clientX, y: e.clientY };
+      }
+
+      lastRightCameraPanTimestamp = performance.now();
       const dx = e.clientX - lastPointerRef.current.x;
       const dy = e.clientY - lastPointerRef.current.y;
       lastPointerRef.current = { x: e.clientX, y: e.clientY };
@@ -300,7 +328,11 @@ export function TacticalCamera() {
 
     const onPointerUp = (e: PointerEvent) => {
       if (e.button === 2 || e.button === 1) {
+        if (rightDragExceededThresholdRef.current) {
+          lastRightCameraPanTimestamp = performance.now();
+        }
         isRightDraggingRef.current = false;
+        rightDragExceededThresholdRef.current = false;
       }
     };
 
@@ -325,7 +357,14 @@ export function TacticalCamera() {
       );
     };
 
-    const onContextMenu = (e: Event) => e.preventDefault();
+    const onContextMenu = (e: Event) => {
+      e.preventDefault();
+      if (wasRecentRightCameraPan()) return;
+      const st = useGameStore.getState();
+      if (st.actionMode === "shoot" || st.actionMode === "grenade") {
+        st.handleRightClickCancel();
+      }
+    };
 
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);

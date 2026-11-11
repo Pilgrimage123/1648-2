@@ -1,14 +1,12 @@
 /**
  * Tactical Advisor Widget (/src/components/ui/TacticalAdvisorWidget.tsx).
- * Plovoucí taktický rádce a diegetický tutoriál pro 1. misi ("Útěk maršála Colloreda").
- * - Lze libovolně odsunout stranou přetažením za záhlaví (useDraggableHud)
- * - Lze sbalit do kompaktního jednořádkového režimu nebo zcela minimalizovat klávesou [H]
- * - Při přechodu do Režimu míření se automaticky přepne do kompaktního náhledu,
- *   aby nikdy nepřekrýval panel šancí zásahu a postranní křídla rozpisu (F1)
+ * Kontextový taktický rádce (Pilíře 1 & 4):
+ * - Ve výchozím stavu je sbalený do ultratenkého jednořádkového čipu (Progressive Disclosure),
+ *   aby nikdy nezakrýval postavy na levé straně bojiště. Kliknutím na "Detail" se rozbalí.
+ * - V režimu míření přes rameno a při letu projektilu se automaticky skryje (HUD State Machine).
  */
 
 import {
-  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -16,13 +14,11 @@ import {
   GraduationCap,
   GripHorizontal,
   RotateCcw,
-  Sparkles,
-  UserCheck,
-  Wrench,
   X,
 } from "lucide-react";
 import { useState } from "react";
 import { useGameStore } from "../../store/useGameStore";
+import { UnitPortrait } from "./UnitPortrait";
 import { useDraggableHud } from "./useDraggableHud";
 
 interface TutorialStepData {
@@ -33,101 +29,67 @@ interface TutorialStepData {
   avatarIcon: "jan" | "bartolomej";
   dialogue: string;
   tactics: string[];
-  keyBadges: { key: string; label: string }[];
-  beaconLabel?: string;
   beaconCoord?: string;
 }
-
-const PLAYABLE_HERO_IDS = [
-  "player-jan-matej",
-  "player-vaclav-michalovic",
-  "player-bartolomej",
-] as const;
 
 const TUTORIAL_STEPS: TutorialStepData[] = [
   {
     step: 1,
-    title: "Pohyb, Eskorta & Přísaha komorníka",
+    title: "Ovládání XCOM 2: LKM Výběr · PKM Pohyb",
     speaker: "Jan Matěj",
     role: "Osobní komorník velkopřevora",
     avatarIcon: "jan",
     dialogue:
-      "Vaše Excelence! Po těch sedmi střelných ranách u Lützenu sotva stojíte na nohou! Opřete se o mě — přehodím přes vás svůj plášť [5], posunu se vedle vás a pomohu vám utíkat zahradou k Čertovce!",
+      "Vaše Excelence! Po těch sedmi střelných ranách u Lützenu těžce kulháte a sotva stojíte na nohou! Zůstanu při vás a budeme se krýt za zídkami zahradou k Čertovce!",
     tactics: [
-      "Modrá zóna (1 AP): Běžný přesun, po němž můžete ještě střílet nebo hodit petardu.",
-      "Handicap maršála: Zraněný Colloredo ujde sám jen 3 pole za AP. S doprovodem spojence získá plných 5 polí/AP!",
-      "Schopnost Jana Matěje [5] — Přísaha komorníka (0 AP): Přiskočí k maršálovi, přehodí přes něj plášť (+2 Zbroj, +3 HP, +1 AP, kouřová clona 3×3 a vyproštění ze zadržení) a sám získá +1 Zbroj a +1 AP!",
-      "Taktický tlak (Kolo 5): V 5. kole vtrhnou z Mostecké ulice těžké švédské posily! Pospěšte přes zahradu k pramici, zbytečně neotálejte v paláci.",
+      "Levé tlačítko (LKM): Kliknutím na vojáka jej aktivujete a ovládáte ikony schopností ve spodní liště.",
+      "Pravé tlačítko (PKM — Move / Dash): Umístěte kurzor na políčko v modré (1 AP) nebo žluté (2 AP) zóně a klikněte pravým tlačítkem — voják se okamžitě vydá na cestu.",
+      "Postih „Těžké kulhání“: Zraněný maršál Colloredo ujde kvůli starým zraněním z Lützenu jen 3 pole za 1 AP.",
+      "Ochrana maršála & Zajetí: Švédové po hraběti nikdy nestřílí (chtějí jej živého pro výkupné), ale zajmou jej za 1 AP těsně vedle něj nebo do 3 polí s nabitou zbraní! Na družinu nebudou střílet, pokud stojí do 3 polí od hraběte a střelec hraběte vidí.",
+      "Cíl eskorty: Probojujte se s maršálem Colloredem skrz zahradu plnou švédských hlídek k rybářské pramici na Čertovce!",
     ],
-    keyBadges: [
-      { key: "5", label: "Zvláštní schopnost" },
-      { key: "1", label: "Režim pohybu" },
-      { key: "Tab", label: "Výběr vojáka" },
-    ],
-    beaconLabel: "Pozice pro podporu maršála",
-    beaconCoord: "[9, 0, 19]",
   },
   {
     step: 2,
-    title: "Krytí, Míření & Svatováclavské soustředění",
+    title: "Střelba, Hlavy cílů & Zteč zblízka (PKM)",
     speaker: "Václav z Michalovic",
     role: "Klementinský klerik & písař",
     avatarIcon: "jan",
     dialogue:
-      "Pozor, pane! Švédští jezdci generála Königsmarcka vpadli do zahrady! Ukryji doutnák své muškety pod klobouk [5] — ani v tomhle lijáku mi prach na pánvičce neselže!",
+      "Pozor, pane! Švédští mušketýři mají odlehčené gustaviánské muškety M1624, zatímco naši obránci mohou nepřítele ztečovat i chladnou zbraní!",
     tactics: [
-      "Kryt (−20 / −40): Barokní štít s číslem udává snížení šance nepřítele na zásah (20 % poloviční kryt, 40 % plný kryt).",
-      "Obchvat (Flanking): Útok ze strany ruší soupeřův kryt a přidává +40 % ke kritickému zásahu!",
-      "Schopnost Václava [5] — Svatováclavské soustředění (0 AP): Zruší selhání doutnáku (0 % Misfire), ignoruje kryt zídek, přidá +35 % Zásah, +45 % Krit, +3 DMG, +2 Průraz zbroje a vrátí +1 AP!",
+      "Výběr cíle (LKM): V režimu střelby [2] levým kliknutím na ikonu hlavy nepřítele v pravém dolním rohu přepínáte mezi viditelnými cíli.",
+      "Útok zblízka (XCOM 2 — PKM): Pravým kliknutím přímo na nepřítele v dosahu provedete okamžitý přesun spojený se seknutím — samotný útok už nestojí další AP navíc!",
+      "Zrušení akce (PKM): Pravé tlačítko v menu střelby či granátu akci zruší a vrátí vás na bojiště.",
     ],
-    keyBadges: [
-      { key: "5", label: "Soustředění (0 AP)" },
-      { key: "2", label: "Míření na cíl" },
-      { key: "F1", label: "Rozpis šancí" },
-    ],
-    beaconLabel: "Krytí a palebný úhel na nepřítele",
   },
   {
     step: 3,
-    title: "Počasí, Sudy & Maltézská šrapnelová salva",
+    title: "Fázové nabíjení, Petardy (LKM) & Sudy",
     speaker: "Bratr Bartoloměj",
     role: "Maltézský zbrojmistr",
     avatarIcon: "bartolomej",
     dialogue:
-      "Milostivý pane! Mám v brašně speciální šrapnelové patrony z naší maltézské zbrojnice [5]! Jedním výstřelem zahalím naše pozice dýmem a zasypu Švédy sekaným olovem!",
+      "Moje těžká mušketa potřebuje na nabití 4 AP, švédská s papírovými patronami jen 2 AP — nabíjet však můžeme postupně po 1 AP mezi přesuny!",
     tactics: [
-      "Noční liják: Doutnákové muškety mají až 35% šanci na selhání zápalu (misfire). Kolečkové zbraně fungují spolehlivě!",
-      "Prachové sudy (Powder Kegs): Exploze na ploše 3×3 zničí nízké zdi a způsobí masivní poškození (5 HP a -2 zbroj).",
-      "Schopnost Bartoloměje [5] — Maltézská šrapnelová salva (1 AP): Zasáhne nepřátele v okruhu (3 HP, -2 zbroj, omráčení), vytvoří clonu dýmu (3×3), odpálí sudy a doplní si +1 granát!",
+      "Fázové nabíjení po 1 AP [R]: Investujte 1 AP do kroku nabíjení a za druhý AP ustupte pravým tlačítkem do krytu.",
+      "Házení granátů / petard [4]: Po zvolení petardy v liště zamíříte a levým kliknutím (LKM) hod potvrdíte (pravým kliknutím zrušíte).",
+      "Prachové sudy: Trefa nebo petarda odpálí sud na ploše 3×3.",
     ],
-    keyBadges: [
-      { key: "5", label: "Šrapnelová salva" },
-      { key: "4", label: "Hod petardou" },
-      { key: "3", label: "Hlídka (Overwatch)" },
-    ],
-    beaconLabel: "Prachový sud k odpálení",
     beaconCoord: "[6, 0, 11]",
   },
   {
     step: 4,
-    title: "Schodiště, Patra paláce & Únik k Čertovce",
+    title: "Schodiště, Patra paláce & Pramice",
     speaker: "Bratr Bartoloměj",
     role: "Maltézský zbrojmistr",
     avatarIcon: "bartolomej",
     dialogue:
-      "Za zahradou teče mlýnská stoka Čertovka! Rybář čeká s pramicí u vzdáleného dřevěného mola. Můžete využít přímá i točitá schodiště do 1. patra (Piano Nobile) a na Maltézskou věž (2. patro) pro palebnou převahu!",
+      "Za zahradou teče Čertovka! Rybář čeká s pramicí u dřevěného mola. Využijte schodiště do 1. patra i na Maltézskou věž pro palebnou převahu!",
     tactics: [
-      "Přímá a točitá schodiště [V / PgUp / PgDn]: Vystoupejte po kamenných schodištích do 1. patra paláce či zahradního belvederu (P1) nebo až na Maltézskou strážní věž (P2) pro bonus +15 % k zásahu z výšky!",
-      "Celá obrazovka [F]: Stiskněte klávesu F pro pohlcující zobrazení bitvy přes celou obrazovku.",
-      "Cíl mise: Doveďte maršála Colloreda přes Velkopřevorskou zahradu na molo [2, 0, 2] k pramici na Čertovce a zvolte hrdinu, který zůstane krýt ústup!",
-      "Vyhnutí se posilám: Pokud dorazíte k pramici do 4. kola, maršál unikne dříve, než dorazí švédská jízda z Mostecké ulice!",
+      "Schodiště [V / PgUp / PgDn]: Výšková převaha z 1. a 2. patra přidává +15 % k zásahu a rozšiřuje dohled.",
+      "Cíl mise: Doveďte maršála Colloreda na molo [2, 0, 2] k pramici na Čertovce!",
     ],
-    keyBadges: [
-      { key: "V", label: "Patra P0/P1/P2" },
-      { key: "F", label: "Celá obrazovka" },
-      { key: "⎵", label: "Ukončení tahu" },
-    ],
-    beaconLabel: "Rybářská pramice na Čertovce",
     beaconCoord: "[2, 0, 2]",
   },
 ];
@@ -135,355 +97,167 @@ const TUTORIAL_STEPS: TutorialStepData[] = [
 export function TacticalAdvisorWidget() {
   const tutorialStep = useGameStore((s) => s.tutorialStep);
   const tutorialDismissed = useGameStore((s) => s.tutorialDismissed);
-  const units = useGameStore((s) => s.units);
-  const selectedUnitId = useGameStore((s) => s.selectedUnitId);
-  const turn = useGameStore((s) => s.turn);
-  const isBusy = useGameStore((s) => s.isBusy);
   const actionMode = useGameStore((s) => s.actionMode);
   const activeProjectile = useGameStore((s) => s.activeProjectile);
-  const demonstratedAbilities = useGameStore((s) => s.demonstratedAbilities);
+  const isBusy = useGameStore((s) => s.isBusy);
+  const activeMovement = useGameStore((s) => s.activeMovement);
 
   const setTutorialStep = useGameStore((s) => s.setTutorialStep);
   const advanceTutorialStep = useGameStore((s) => s.advanceTutorialStep);
   const toggleTutorial = useGameStore((s) => s.toggleTutorial);
-  const selectUnit = useGameStore((s) => s.selectUnit);
-  const activateSpecialAbility = useGameStore((s) => s.activateSpecialAbility);
 
-  const [manualCollapsed, setManualCollapsed] = useState(false);
-  const [forceExpandedInAim, setForceExpandedInAim] = useState(false);
+  // Kontextové vrstvení (Pillar 1): Ve výchozím stavu kompaktní jednořádková stužka, rozbalí se na kliknutí
+  const [expanded, setExpanded] = useState(false);
   const { dragStyle, onPointerDown, hasMoved, resetOffset } = useDraggableHud();
 
-  const isAiming = actionMode === "shoot" || activeProjectile !== null;
-  // Během míření a střelby se rádce automaticky skryje, aby vůbec nezakrýval střeleckou kameru
-  if (isAiming && !forceExpandedInAim) {
+  // Stavový automat HUDu (Pillar 4): Skrýt v akční kameře přes rameno a při střelbě
+  const isHiddenInActionCam =
+    actionMode === "shoot" ||
+    actionMode === "melee" ||
+    activeProjectile !== null ||
+    Boolean(isBusy && activeMovement?.isActionCam);
+
+  if (isHiddenInActionCam || tutorialDismissed || tutorialStep === null) {
     return null;
   }
 
-  const isCompact = manualCollapsed;
-
-  const handleToggleCompact = () => {
-    if (isAiming) {
-      setForceExpandedInAim((prev) => !prev);
-      setManualCollapsed(false);
-    } else {
-      setManualCollapsed((prev) => !prev);
-    }
-  };
-
-  if (tutorialDismissed) {
-    return (
-      <div style={dragStyle} className="pointer-events-auto flex items-center gap-1">
-        <button
-          type="button"
-          onClick={toggleTutorial}
-          title="Otevřít taktického rádce (klávesa H)"
-          className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950/95 hover:bg-slate-900 border border-amber-500/80 hover:border-amber-400 text-amber-200 shadow-2xl backdrop-blur-md text-xs font-cinzel font-black transition-all select-none cursor-pointer"
-        >
-          <GraduationCap className="w-4 h-4 text-amber-400" />
-          <span>Rádce</span>
-          <span className="px-1.5 py-0.2 rounded bg-slate-900 text-[10px] font-cinzel font-black text-amber-300 border border-amber-500/50">
-            H
-          </span>
-        </button>
-      </div>
-    );
-  }
-
-  if (tutorialStep === null) return null;
-
   const currentData =
     TUTORIAL_STEPS.find((t) => t.step === tutorialStep) ?? TUTORIAL_STEPS[0]!;
-
-  const playableHeroes = PLAYABLE_HERO_IDS.map((id) =>
-    units.find((u) => u.id === id),
-  ).filter((u): u is NonNullable<typeof u> => !!u);
-
-  const stepPreferredHeroId =
-    tutorialStep === 1
-      ? "player-jan-matej"
-      : tutorialStep === 2
-        ? "player-vaclav-michalovic"
-        : "player-bartolomej";
-
-  const selectedPlayableHero = playableHeroes.find(
-    (h) => h.id === selectedUnitId,
-  );
-  const showcaseHero =
-    selectedPlayableHero ??
-    playableHeroes.find((h) => h.id === stepPreferredHeroId) ??
-    playableHeroes[0] ??
-    null;
-
-  const showcaseAbility = showcaseHero?.ability;
-  const canDemonstrateNow =
-    turn === "player" &&
-    !isBusy &&
-    !!showcaseHero &&
-    showcaseHero.alive &&
-    showcaseHero.hp > 0 &&
-    !!showcaseAbility &&
-    showcaseAbility.currentCooldown === 0 &&
-    showcaseHero.ap >= showcaseAbility.apCost;
-
-  const demonstratedCount = playableHeroes.filter(
-    (h) => demonstratedAbilities[h.id],
-  ).length;
 
   return (
     <aside
       aria-label="Taktický rádce"
       style={dragStyle}
-      className="pointer-events-auto w-80 md:w-96 flex flex-col gap-2 baroque-cartouche baroque-border rounded-xl p-3 shadow-[0_8px_32px_rgba(0,0,0,0.95)] text-amber-50 select-none bg-slate-950/95 border-amber-500/80 max-h-[calc(100dvh-230px)] overflow-y-auto"
+      className={`pointer-events-auto flex flex-col gap-2 baroque-cartouche baroque-border rounded-xl px-2.5 py-1.5 shadow-[0_6px_24px_rgba(0,0,0,0.9)] text-amber-50 select-none bg-slate-950/88 border-amber-500/65 backdrop-blur-md transition-all ${
+        expanded ? "w-80 md:w-96 p-3" : "w-fit"
+      }`}
     >
-      {/* 1. Přetahovatelné záhlaví (Drag Handle) + přepínač kroků + sbalení / zavření */}
+      {/* Kompaktní jednořádková hlavička */}
       <div
         onPointerDown={onPointerDown}
-        title="Tažením myší můžete kartu rádce odsunout kamkoliv na obrazovce"
-        className="flex items-center justify-between gap-1.5 border-b border-amber-900/80 pb-1.5 cursor-grab active:cursor-grabbing"
+        title="Tažením lze rádce posunout"
+        className="flex items-center justify-between gap-2 cursor-grab active:cursor-grabbing"
       >
         <div className="flex items-center gap-1.5 min-w-0">
-          <GripHorizontal className="w-4 h-4 text-amber-400/70 shrink-0" />
-          <span className="font-cinzel font-black text-xs uppercase tracking-wider text-amber-200 truncate">
-            Rádce · Krok {currentData.step}/4
+          <GripHorizontal className="w-3.5 h-3.5 text-amber-400/60 shrink-0" />
+          <GraduationCap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span className="font-cinzel font-black text-[11px] text-amber-200 whitespace-nowrap">
+            Rádce {currentData.step}/4:
+          </span>
+          <span className="font-literata text-[11px] text-amber-100/90 truncate max-w-[175px]">
+            {currentData.title}
           </span>
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
-          {/* Přepínání 4 kroků */}
-          <div className="flex items-center gap-0.5 bg-slate-900 p-0.5 rounded-md border border-amber-900/80">
-            {TUTORIAL_STEPS.map((s) => {
-              const isActive = s.step === tutorialStep;
-              return (
-                <button
-                  key={s.step}
-                  type="button"
-                  onClick={() => setTutorialStep(s.step)}
-                  title={`Krok ${s.step}: ${s.title}`}
-                  className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-cinzel font-black transition-all cursor-pointer ${
-                    isActive
-                      ? "bg-amber-500 text-stone-950 shadow-[0_0_8px_rgba(245,158,11,0.5)]"
-                      : "text-amber-300/80 hover:text-amber-100 hover:bg-amber-950/80"
-                  }`}
-                >
-                  {s.step}
-                </button>
-              );
-            })}
-          </div>
+          <button
+            type="button"
+            onClick={() => setExpanded((p) => !p)}
+            title={expanded ? "Sbalit rádce" : "Rozbalit rady pro tento krok"}
+            className="flex items-center gap-0.5 px-1.5 py-0.5 rounded baroque-bronze-btn text-[9px] font-cinzel font-black text-amber-200 hover:text-amber-100 cursor-pointer"
+          >
+            <span>{expanded ? "Sbalit" : "Detail"}</span>
+            {expanded ? (
+              <ChevronUp className="w-3 h-3 text-amber-300" />
+            ) : (
+              <ChevronDown className="w-3 h-3 text-amber-300" />
+            )}
+          </button>
 
           {hasMoved && (
             <button
               type="button"
               onClick={resetOffset}
-              title="Vrátit kartu na výchozí místo"
-              className="p-1 rounded text-amber-400 hover:text-amber-100 hover:bg-amber-950/80 transition-colors cursor-pointer"
+              title="Vrátit na výchozí místo"
+              className="p-0.5 rounded text-amber-400 hover:text-amber-100 cursor-pointer"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
+              <RotateCcw className="w-3 h-3" />
             </button>
           )}
 
-          {/* Sbalit / rozbalit obsah karty */}
-          <button
-            type="button"
-            onClick={handleToggleCompact}
-            title={isCompact ? "Rozbalit podrobnosti rádce" : "Sbalit do kompaktní lišty"}
-            className="p-1 rounded text-amber-400 hover:text-amber-100 hover:bg-amber-950/80 transition-colors cursor-pointer"
-          >
-            {isCompact ? (
-              <ChevronDown className="w-4 h-4" />
-            ) : (
-              <ChevronUp className="w-4 h-4" />
-            )}
-          </button>
-
-          {/* Úplné skrytí do tlačítka (H) */}
           <button
             type="button"
             onClick={toggleTutorial}
-            title="Skrýt rádce (klávesa H)"
-            className="p-1 rounded text-amber-400 hover:text-amber-100 hover:bg-amber-950/80 transition-colors cursor-pointer"
+            title="Zavřít rádce [H]"
+            className="p-0.5 rounded text-amber-400 hover:text-amber-100 cursor-pointer"
           >
-            <X className="w-4 h-4" />
+            <X className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
-      {isCompact ? (
-        /* KOMPAKTNÍ REŽIM: Pouze název kroku a rychlá navigace (žádné překrývání s bojištěm či mířením) */
-        <div className="flex items-center justify-between gap-2 text-xs">
-          <span className="font-cinzel font-bold text-amber-300 truncate">
-            {currentData.title}
-          </span>
-          <button
-            type="button"
-            onClick={handleToggleCompact}
-            className="px-2 py-0.5 rounded baroque-bronze-btn text-[10px] font-cinzel font-bold text-amber-200 hover:text-amber-100 shrink-0 cursor-pointer"
-          >
-            Detail
-          </button>
-        </div>
-      ) : (
-        <>
-          {/* 2. Diegetický řečník */}
-          <div className="flex items-start gap-2.5 bg-slate-900/90 rounded-lg p-2 border border-amber-900/80">
-            <div className="w-8 h-8 rounded-lg bg-amber-950/80 border border-amber-500/60 flex items-center justify-center shrink-0 text-amber-300">
-              {currentData.avatarIcon === "jan" ? (
-                <UserCheck className="w-4 h-4" />
-              ) : (
-                <Wrench className="w-4 h-4" />
-              )}
-            </div>
+      {/* Rozbalený detail na vyžádání */}
+      {expanded && (
+        <div className="space-y-2 pt-1.5 border-t border-amber-900/70 animate-in fade-in duration-150">
+          <div className="flex items-start gap-2 bg-slate-900/85 rounded-lg p-2 border border-amber-900/60">
+            <UnitPortrait
+              archetype="ranger"
+              faction="player"
+              name={currentData.speaker}
+              size="xs"
+            />
             <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className="font-cinzel font-black text-xs text-amber-300 leading-tight">
-                  {currentData.speaker}
-                </span>
-                <span className="text-[10px] text-amber-400/90 font-literata truncate font-medium">
+              <div className="font-cinzel font-black text-[11px] text-amber-300">
+                {currentData.speaker}{" "}
+                <span className="font-literata font-normal text-[10px] text-amber-400/80">
                   · {currentData.role}
                 </span>
               </div>
-              <p className="font-literata italic text-[11px] text-amber-100 mt-0.5 leading-snug font-medium">
+              <p className="font-literata italic text-[11px] text-amber-100 mt-0.5 leading-snug">
                 „{currentData.dialogue}“
               </p>
             </div>
           </div>
 
-          {/* 3. INTERAKTIVNÍ UKÁZKA SCHOPNOSTÍ 3 HRDINŮ */}
-          {showcaseHero && showcaseAbility && (
-            <div className="rounded-lg bg-amber-950/50 border border-amber-500/60 p-2 space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                  <span className="font-cinzel text-[10px] font-black uppercase tracking-wider text-amber-300">
-                    Zvláštní schopnosti ({demonstratedCount}/3)
-                  </span>
-                </div>
-                <span className="text-[10px] font-cinzel font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-200 border border-amber-400/50">
-                  Klávesa [5]
-                </span>
-              </div>
+          <ul className="space-y-1 font-literata text-[11px] text-amber-100/95 leading-snug">
+            {currentData.tactics.map((point, idx) => (
+              <li key={idx} className="flex items-start gap-1.5">
+                <span className="text-amber-400 font-bold shrink-0">·</span>
+                <span>{point}</span>
+              </li>
+            ))}
+          </ul>
 
-              <div className="grid grid-cols-3 gap-1">
-                {playableHeroes.map((hero) => {
-                  const isSelected = hero.id === showcaseHero.id;
-                  const isDone = !!demonstratedAbilities[hero.id];
-                  return (
-                    <button
-                      key={hero.id}
-                      type="button"
-                      onClick={() => selectUnit(hero.id)}
-                      className={`flex items-center justify-between gap-1 px-2 py-1 rounded border text-[10px] font-cinzel font-bold transition-all cursor-pointer ${
-                        isSelected
-                          ? "bg-amber-600/40 border-amber-400 text-amber-100 shadow-[0_0_8px_rgba(245,158,11,0.4)]"
-                          : "baroque-bronze-btn text-amber-200 hover:text-amber-100"
-                      }`}
-                    >
-                      <span className="truncate">{hero.name}</span>
-                      {isDone ? (
-                        <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
-                      ) : (
-                        <span className="text-[9px] font-cinzel text-amber-400 shrink-0 font-black">
-                          [5]
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="bg-slate-900/90 rounded p-2 border border-amber-900/80 space-y-1">
-                <div className="flex items-center justify-between gap-1">
-                  <span className="font-cinzel font-black text-xs text-amber-200">
-                    {showcaseAbility.name}
-                  </span>
-                  <span className="text-[9px] font-cinzel font-bold px-1.5 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-600/60">
-                    {showcaseAbility.apCost} AP · CD {showcaseAbility.cooldownTurns}
-                  </span>
-                </div>
-                <p className="font-literata text-[10px] text-amber-100/90 leading-snug font-medium">
-                  {showcaseAbility.description}
-                </p>
-                <div className="flex items-center justify-between gap-2 pt-0.5">
-                  <span className="font-literata text-[10px] italic text-amber-300 font-medium">
-                    {demonstratedAbilities[showcaseHero.id]
-                      ? "✓ Osvojeno v boji"
-                      : "Vyzkoušejte schopnost:"}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={!canDemonstrateNow}
-                    onClick={() => activateSpecialAbility(showcaseHero.id)}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-400 disabled:bg-slate-800 text-stone-950 disabled:text-slate-500 text-[10px] font-cinzel font-black uppercase tracking-wider transition-all cursor-pointer disabled:cursor-not-allowed shadow-[0_2px_8px_rgba(0,0,0,0.6)]"
-                  >
-                    <Sparkles className="w-3 h-3" />
-                    <span>
-                      {showcaseAbility.currentCooldown > 0
-                        ? `Obnova (${showcaseAbility.currentCooldown} k.)`
-                        : `Demonstrovat [5]`}
-                    </span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 4. Taktické instrukce a mechaniky */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-xs text-amber-100">
-              <span className="font-cinzel font-black text-amber-300">
-                {currentData.title}
-              </span>
-              {currentData.beaconCoord && (
-                <span className="text-[10px] font-cinzel font-bold text-amber-300 bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-600/50">
-                  Maják: {currentData.beaconCoord}
-                </span>
-              )}
-            </div>
-
-            <ul className="space-y-1 font-literata text-[11px] text-amber-100 leading-snug font-medium">
-              {currentData.tactics.map((point, idx) => (
-                <li key={idx} className="flex items-start gap-1.5">
-                  <span className="text-amber-400 font-extrabold shrink-0">❖</span>
-                  <span>{point}</span>
-                </li>
+          <div className="flex items-center justify-between gap-2 pt-1 border-t border-amber-900/60 text-[10px]">
+            <div className="flex items-center gap-1">
+              {TUTORIAL_STEPS.map((s) => (
+                <button
+                  key={s.step}
+                  type="button"
+                  onClick={() => setTutorialStep(s.step)}
+                  className={`w-5 h-5 rounded font-cinzel font-black text-[10px] cursor-pointer ${
+                    s.step === tutorialStep
+                      ? "bg-amber-500 text-stone-950"
+                      : "bg-slate-900 text-amber-300 hover:bg-amber-950"
+                  }`}
+                >
+                  {s.step}
+                </button>
               ))}
-            </ul>
-          </div>
+            </div>
 
-          {/* 5. Navigační patka */}
-          <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-amber-900/80 text-[10px]">
             <div className="flex items-center gap-1">
               <button
                 type="button"
                 disabled={tutorialStep <= 1}
                 onClick={() =>
-                  setTutorialStep(
-                    (Math.max(1, tutorialStep - 1) as 1 | 2 | 3 | 4),
-                  )
+                  setTutorialStep(Math.max(1, tutorialStep - 1) as 1 | 2 | 3 | 4)
                 }
-                className="flex items-center gap-1 px-2 py-1 rounded baroque-bronze-btn text-amber-200 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer font-cinzel font-bold"
+                className="p-1 rounded baroque-bronze-btn text-amber-200 disabled:opacity-30 cursor-pointer"
               >
-                <ChevronLeft className="w-3 h-3 text-amber-400" />
-                <span>Zpět</span>
+                <ChevronLeft className="w-3 h-3" />
               </button>
-
               <button
                 type="button"
                 onClick={advanceTutorialStep}
-                className="flex items-center gap-1 px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-400 text-stone-950 font-cinzel font-black transition-colors cursor-pointer shadow-[0_2px_8px_rgba(0,0,0,0.6)]"
+                className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-stone-950 font-cinzel font-black cursor-pointer"
               >
-                <span>
-                  {tutorialStep < 4 ? "Další krok" : "Rozumím"}
-                </span>
+                <span>{tutorialStep < 4 ? "Další" : "Hotovo"}</span>
                 <ChevronRight className="w-3 h-3" />
               </button>
             </div>
-
-            <span className="text-amber-400 font-literata text-[10px] font-medium">
-              Skrýt: <span className="text-amber-300 font-cinzel font-black">[H]</span>
-            </span>
           </div>
-        </>
+        </div>
       )}
     </aside>
   );

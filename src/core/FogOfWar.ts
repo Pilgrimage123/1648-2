@@ -131,7 +131,7 @@ export function createInitialExploredCoords(grid: GridSystem): Set<string> {
       continue;
     }
     // Přístaviště s lucernou na rybářské pramici na Čertovce
-    if (y === 0 && x >= 1 && x <= 4 && z >= 1 && z <= 3) {
+    if (y === 0 && x >= 1 && x <= 5 && z >= 1 && z <= 4) {
       explored.add(coordKey(tile.coord));
     }
   }

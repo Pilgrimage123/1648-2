@@ -24,7 +24,6 @@ import {
   previewReconFromTile,
 } from "../../core/FogOfWar";
 import {
-  bestTileCover,
   coordKey,
   resolvePreferredFloorCoord,
 } from "../../core/GridSystem";
@@ -39,6 +38,7 @@ import type {
 } from "../../core/types";
 import { useGameStore } from "../../store/useGameStore";
 import { BaroqueCoverBadge } from "../ui/BaroqueCoverBadge";
+import { wasRecentRightCameraPan } from "./TacticalCamera";
 import { WorldHtml } from "./WorldHtml";
 import { continuousGridToWorld, FLOOR_HEIGHT, gridToWorld, TILE_SIZE } from "./worldCoords";
 
@@ -229,6 +229,133 @@ function CreepingSmokeTile({
 }
 
 /**
+ * 3D Monumentální císařské schodiště (Imperial Grand Staircase - `grand_stairs`)
+ * Zabírá více polí (x: 11..12, z: 22..24) a propojuje P0 s Piano Nobile (P1).
+ * Obsahuje 14 pískovcových stupňů, kardinálský sametový běhoun se zlatým kováním,
+ * masivní boční poprsnice a profilované balustrády s kuželkami a zlacenými koulemi na patkách.
+ */
+function BaroqueImperialGrandStaircase({
+  span,
+  opacity,
+  isHighlighted,
+  onHover,
+  onClick,
+  onContextMenu,
+}: {
+  span: StairSpan;
+  opacity: number;
+  isHighlighted: boolean;
+  onHover: (e: ThreeEvent<PointerEvent>, span: StairSpan) => void;
+  onClick: (e: ThreeEvent<MouseEvent>, span: StairSpan) => void;
+  onContextMenu: (e: ThreeEvent<MouseEvent>, span: StairSpan) => void;
+}) {
+  const [wx1, wy] = gridToWorld({ x: 11, y: span.fromFloor, z: 22 });
+  const [wx2, , wz2] = gridToWorld({ x: 12, y: span.fromFloor, z: 23 });
+  const centerX = (wx1 + wx2) * 0.5;
+  const centerZ = wz2;
+  const isTransparent = opacity < 0.99;
+  const stepCount = 14;
+  const stairWidth = TILE_SIZE * 2.15;
+  const stairLength = TILE_SIZE * 2.2;
+  const stoneColor = isHighlighted ? "#a89882" : "#7d7267";
+  const railColor = "#9c8b7a";
+  const accentColor = isHighlighted ? "#facc15" : "#d4a73f";
+
+  return (
+    <group
+      position={[centerX, wy, centerZ]}
+      onPointerMove={(e) => onHover(e, span)}
+      onClick={(e) => onClick(e, span)}
+      onContextMenu={(e) => onContextMenu(e, span)}
+    >
+      {/* Masivní pískovcový sokl pod schodištěm */}
+      <mesh position={[0, 0.04, 0]} castShadow={!isTransparent} receiveShadow raycast={() => null}>
+        <boxGeometry args={[stairWidth + 0.3, 0.08, stairLength + 0.25]} />
+        <meshStandardMaterial color="#5e554d" roughness={0.78} transparent={isTransparent} opacity={opacity} />
+      </mesh>
+
+      {/* Boční pískovcové poprsnice s balustrádami a patkami */}
+      {[-stairWidth * 0.51, stairWidth * 0.51].map((sx, idx) => (
+        <group key={`imp-stringer-${idx}`}>
+          <mesh
+            position={[sx, FLOOR_HEIGHT * 0.48, 0]}
+            rotation={[Math.PI * 0.34, 0, 0]}
+            castShadow={!isTransparent}
+            raycast={() => null}
+          >
+            <boxGeometry args={[0.18, 0.28, FLOOR_HEIGHT * 1.25]} />
+            <meshStandardMaterial color={railColor} roughness={0.65} transparent={isTransparent} opacity={opacity} />
+          </mesh>
+          <mesh
+            position={[sx, FLOOR_HEIGHT * 0.72, 0]}
+            rotation={[Math.PI * 0.34, 0, 0]}
+            castShadow={!isTransparent}
+            raycast={() => null}
+          >
+            <boxGeometry args={[0.16, 0.12, FLOOR_HEIGHT * 1.25]} />
+            <meshStandardMaterial
+              color={accentColor}
+              metalness={0.55}
+              roughness={0.4}
+              transparent={isTransparent}
+              opacity={opacity}
+            />
+          </mesh>
+
+          {/* Sloupek u nástupu v přízemí */}
+          <mesh position={[sx, 0.48, stairLength * 0.48]} castShadow={!isTransparent} raycast={() => null}>
+            <boxGeometry args={[0.26, 0.88, 0.26]} />
+            <meshStandardMaterial color={railColor} roughness={0.6} transparent={isTransparent} opacity={opacity} />
+          </mesh>
+          <mesh position={[sx, 0.98, stairLength * 0.48]} castShadow={!isTransparent} raycast={() => null}>
+            <sphereGeometry args={[0.15, 12, 12]} />
+            <meshStandardMaterial color={accentColor} metalness={0.7} roughness={0.28} transparent={isTransparent} opacity={opacity} />
+          </mesh>
+
+          {/* Sloupek u výstupu v Piano Nobile */}
+          <mesh position={[sx, FLOOR_HEIGHT + 0.45, -stairLength * 0.48]} castShadow={!isTransparent} raycast={() => null}>
+            <boxGeometry args={[0.24, 0.82, 0.24]} />
+            <meshStandardMaterial color={railColor} roughness={0.6} transparent={isTransparent} opacity={opacity} />
+          </mesh>
+          <mesh position={[sx, FLOOR_HEIGHT + 0.92, -stairLength * 0.48]} castShadow={!isTransparent} raycast={() => null}>
+            <sphereGeometry args={[0.13, 12, 12]} />
+            <meshStandardMaterial color={accentColor} metalness={0.7} roughness={0.28} transparent={isTransparent} opacity={opacity} />
+          </mesh>
+        </group>
+      ))}
+
+      {/* 14 pískovcových stupňů stoupajících z přízemí nahoru */}
+      {Array.from({ length: stepCount }, (_, i) => {
+        const frac = (i + 0.5) / stepCount;
+        const sy = frac * (FLOOR_HEIGHT - 0.1) + 0.08;
+        const sz = stairLength * 0.48 - frac * (stairLength * 0.96);
+        return (
+          <group key={`imp-step-${i}`} position={[0, sy, sz]}>
+            {/* Kamenný stupeň */}
+            <mesh castShadow={!isTransparent} receiveShadow raycast={() => null}>
+              <boxGeometry args={[stairWidth, 0.16, stairLength / stepCount + 0.05]} />
+              <meshStandardMaterial color={stoneColor} roughness={0.7} transparent={isTransparent} opacity={opacity} />
+            </mesh>
+
+            {/* Královský kardinálský sametový běhoun */}
+            <mesh position={[0, 0.085, 0]} raycast={() => null}>
+              <boxGeometry args={[stairWidth * 0.62, 0.025, stairLength / stepCount + 0.06]} />
+              <meshStandardMaterial color="#6b1d24" roughness={0.85} transparent={isTransparent} opacity={opacity} />
+            </mesh>
+
+            {/* Zlacená mosazná kobercová tyč */}
+            <mesh position={[0, 0.092, (stairLength / stepCount) * 0.42]} rotation={[0, 0, Math.PI * 0.5]} raycast={() => null}>
+              <cylinderGeometry args={[0.016, 0.016, stairWidth * 0.65, 8]} />
+              <meshStandardMaterial color="#d4a73f" metalness={0.85} roughness={0.22} transparent={isTransparent} opacity={opacity} />
+            </mesh>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+/**
  * 3D Baroque Straight Staircase (`straight_stairs`) with 8 carved stone steps,
  * twin diagonal stringer beams, side balustrades, newel spheres, and cardinal carpet runner in the palace.
  */
@@ -238,12 +365,14 @@ function BaroqueStraightStaircase({
   isHighlighted,
   onHover,
   onClick,
+  onContextMenu,
 }: {
   span: StairSpan;
   opacity: number;
   isHighlighted: boolean;
   onHover: (e: ThreeEvent<PointerEvent>, span: StairSpan) => void;
   onClick: (e: ThreeEvent<MouseEvent>, span: StairSpan) => void;
+  onContextMenu: (e: ThreeEvent<MouseEvent>, span: StairSpan) => void;
 }) {
   const [wx, wy, wz] = gridToWorld({
     x: span.x,
@@ -271,6 +400,7 @@ function BaroqueStraightStaircase({
       rotation={[0, rotY, 0]}
       onPointerMove={(e) => onHover(e, span)}
       onClick={(e) => onClick(e, span)}
+      onContextMenu={(e) => onContextMenu(e, span)}
     >
       {/* Twin diagonal stone stringers */}
       {[-0.44, 0.44].map((sx, idx) => (
@@ -384,12 +514,14 @@ function BaroqueSpiralStaircase({
   isHighlighted,
   onHover,
   onClick,
+  onContextMenu,
 }: {
   span: StairSpan;
   opacity: number;
   isHighlighted: boolean;
   onHover: (e: ThreeEvent<PointerEvent>, span: StairSpan) => void;
   onClick: (e: ThreeEvent<MouseEvent>, span: StairSpan) => void;
+  onContextMenu: (e: ThreeEvent<MouseEvent>, span: StairSpan) => void;
 }) {
   const [wx, wy, wz] = gridToWorld({
     x: span.x,
@@ -417,6 +549,7 @@ function BaroqueSpiralStaircase({
       rotation={[0, baseRotY, 0]}
       onPointerMove={(e) => onHover(e, span)}
       onClick={(e) => onClick(e, span)}
+      onContextMenu={(e) => onContextMenu(e, span)}
     >
       <mesh position={[0, FLOOR_HEIGHT * 0.52, 0]} castShadow={!isTransparent}>
         <cylinderGeometry args={[0.13, 0.16, FLOOR_HEIGHT + 0.18, 12]} />
@@ -492,6 +625,171 @@ function BaroqueSpiralStaircase({
           </group>
         );
       })}
+    </group>
+  );
+}
+
+/**
+ * 3D Honosný dvoukřídlý barokní portál (`isDoubleLeaf`)
+ * Spojuje dvě dlaždice do jednoho monumentálního portálu se zdobeným kamenným ostěním (Luragův styl),
+ * rozeklaným štítem (frontonem) se zlaceným maltézským křížem a dvěma protiběžně otevíratelnými dubovými křídly.
+ */
+function BaroqueGrandDoublePortal3D({
+  door,
+  pairedDoor,
+  isAdjacent,
+  opacity,
+  onToggle,
+}: {
+  door: DoorData;
+  pairedDoor?: DoorData;
+  isAdjacent: boolean;
+  opacity: number;
+  onToggle: (coord: GridCoord) => void;
+}) {
+  const [wx1, wy, wz1] = gridToWorld(door.coord);
+  const [wx2, , wz2] = pairedDoor ? gridToWorld(pairedDoor.coord) : [wx1, wy, wz1];
+  const centerX = (wx1 + wx2) * 0.5;
+  const centerZ = (wz1 + wz2) * 0.5;
+  const isOpen = door.state === "open";
+  const isTransparent = opacity < 0.99;
+  const isEW = door.axis === "E_W";
+
+  const openAngle = isOpen ? 1.4 : 0;
+  const portalWidth = TILE_SIZE * 2;
+  const doorHeight = FLOOR_HEIGHT * 0.88;
+  const leafWidth = TILE_SIZE * 0.94;
+  const leafThickness = 0.09;
+
+  return (
+    <group position={[centerX, wy, centerZ]} rotation={[0, isEW ? 0 : Math.PI * 0.5, 0]}>
+      {/* Profilované kamenné ostění portálu */}
+      <mesh position={[-portalWidth * 0.51, doorHeight * 0.5, 0]} castShadow={!isTransparent}>
+        <boxGeometry args={[0.24, doorHeight + 0.16, 0.34]} />
+        <meshStandardMaterial color="#575049" roughness={0.8} transparent={isTransparent} opacity={opacity} />
+      </mesh>
+      <mesh position={[portalWidth * 0.51, doorHeight * 0.5, 0]} castShadow={!isTransparent}>
+        <boxGeometry args={[0.24, doorHeight + 0.16, 0.34]} />
+        <meshStandardMaterial color="#575049" roughness={0.8} transparent={isTransparent} opacity={opacity} />
+      </mesh>
+      {/* Masivní profilovaný kamenný překlad */}
+      <mesh position={[0, doorHeight + 0.08, 0]} castShadow={!isTransparent}>
+        <boxGeometry args={[portalWidth + 0.48, 0.22, 0.36]} />
+        <meshStandardMaterial color="#695e54" roughness={0.75} transparent={isTransparent} opacity={opacity} />
+      </mesh>
+
+      {/* Rozeklaný barokní fronton s maltézským erbem */}
+      <group position={[0, doorHeight + 0.28, 0]}>
+        <mesh position={[-portalWidth * 0.28, 0.06, 0]} rotation={[0, 0, 0.16]} castShadow={!isTransparent}>
+          <boxGeometry args={[portalWidth * 0.52, 0.12, 0.34]} />
+          <meshStandardMaterial color="#786c62" roughness={0.7} transparent={isTransparent} opacity={opacity} />
+        </mesh>
+        <mesh position={[portalWidth * 0.28, 0.06, 0]} rotation={[0, 0, -0.16]} castShadow={!isTransparent}>
+          <boxGeometry args={[portalWidth * 0.52, 0.12, 0.34]} />
+          <meshStandardMaterial color="#786c62" roughness={0.7} transparent={isTransparent} opacity={opacity} />
+        </mesh>
+        {/* Kamenná kartuše */}
+        <mesh position={[0, 0.08, 0.04]} castShadow={!isTransparent}>
+          <boxGeometry args={[0.44, 0.38, 0.12]} />
+          <meshStandardMaterial color="#8a7c70" roughness={0.65} transparent={isTransparent} opacity={opacity} />
+        </mesh>
+        {/* Zlacený maltézský kříž */}
+        <mesh position={[0, 0.08, 0.11]}>
+          <boxGeometry args={[0.22, 0.22, 0.04]} />
+          <meshStandardMaterial color="#d4a73f" metalness={0.85} roughness={0.25} />
+        </mesh>
+      </group>
+
+      {/* Levé otočné křídlo (pant u levého pilíře) */}
+      <group position={[-portalWidth * 0.48, 0, 0]} rotation={[0, openAngle, 0]}>
+        <mesh
+          position={[leafWidth * 0.5, doorHeight * 0.5, 0]}
+          castShadow={!isTransparent}
+          receiveShadow
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isAdjacent) onToggle(door.coord);
+          }}
+        >
+          <boxGeometry args={[leafWidth, doorHeight * 0.96, leafThickness]} />
+          <meshStandardMaterial color={isOpen ? "#453229" : "#38271e"} roughness={0.85} transparent={isTransparent} opacity={opacity} />
+        </mesh>
+        {/* Kované pásy pantů */}
+        <mesh position={[leafWidth * 0.5, doorHeight * 0.25, leafThickness * 0.52]}>
+          <boxGeometry args={[leafWidth * 0.85, 0.05, 0.02]} />
+          <meshStandardMaterial color="#1c1917" metalness={0.85} roughness={0.3} />
+        </mesh>
+        <mesh position={[leafWidth * 0.5, doorHeight * 0.75, leafThickness * 0.52]}>
+          <boxGeometry args={[leafWidth * 0.85, 0.05, 0.02]} />
+          <meshStandardMaterial color="#1c1917" metalness={0.85} roughness={0.3} />
+        </mesh>
+        {/* Mosazné lví klepadlo */}
+        <mesh position={[leafWidth * 0.82, doorHeight * 0.52, leafThickness * 0.55]}>
+          <sphereGeometry args={[0.045, 10, 10]} />
+          <meshStandardMaterial color="#d4a73f" metalness={0.85} roughness={0.25} />
+        </mesh>
+      </group>
+
+      {/* Pravé otočné křídlo (pant u pravého pilíře) */}
+      <group position={[portalWidth * 0.48, 0, 0]} rotation={[0, -openAngle, 0]}>
+        <mesh
+          position={[-leafWidth * 0.5, doorHeight * 0.5, 0]}
+          castShadow={!isTransparent}
+          receiveShadow
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isAdjacent) onToggle(door.coord);
+          }}
+        >
+          <boxGeometry args={[leafWidth, doorHeight * 0.96, leafThickness]} />
+          <meshStandardMaterial color={isOpen ? "#453229" : "#38271e"} roughness={0.85} transparent={isTransparent} opacity={opacity} />
+        </mesh>
+        {/* Kované pásy pantů */}
+        <mesh position={[-leafWidth * 0.5, doorHeight * 0.25, leafThickness * 0.52]}>
+          <boxGeometry args={[leafWidth * 0.85, 0.05, 0.02]} />
+          <meshStandardMaterial color="#1c1917" metalness={0.85} roughness={0.3} />
+        </mesh>
+        <mesh position={[-leafWidth * 0.5, doorHeight * 0.75, leafThickness * 0.52]}>
+          <boxGeometry args={[leafWidth * 0.85, 0.05, 0.02]} />
+          <meshStandardMaterial color="#1c1917" metalness={0.85} roughness={0.3} />
+        </mesh>
+        {/* Mosazné lví klepadlo */}
+        <mesh position={[-leafWidth * 0.82, doorHeight * 0.52, leafThickness * 0.55]}>
+          <sphereGeometry args={[0.045, 10, 10]} />
+          <meshStandardMaterial color="#d4a73f" metalness={0.85} roughness={0.25} />
+        </mesh>
+      </group>
+
+      {/* Plovoucí interaktivní štítek portálu */}
+      {isAdjacent && (
+        <WorldHtml center position={[0, doorHeight + 0.65, 0]} distanceFactor={18} zIndexRange={[12, 0]}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle(door.coord);
+            }}
+            title={`${door.label}: Kliknutím ${isOpen ? "zavřete" : "otevřete"} dvoukřídlý portál (Free action 0 AP)`}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg backdrop-blur-md shadow-xl border text-[10px] font-cinzel font-black tracking-wide cursor-pointer transition-all uppercase ${
+              isOpen
+                ? "bg-slate-950/90 border-amber-500/70 text-amber-200 hover:bg-amber-950/80 hover:border-amber-300"
+                : "bg-amber-500/95 border-amber-300 text-slate-950 hover:bg-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.7)]"
+            }`}
+          >
+            {isOpen ? (
+              <>
+                <DoorOpen className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span>Zavřít portál (0 AP)</span>
+              </>
+            ) : (
+              <>
+                <DoorClosed className="w-3.5 h-3.5 text-slate-950 shrink-0" />
+                <span>Otevřít dvoukřídlý portál (0 AP)</span>
+              </>
+            )}
+          </button>
+        </WorldHtml>
+      )}
     </group>
   );
 }
@@ -1097,6 +1395,7 @@ export function InstancedBattlefield() {
   const units = useGameStore((s) => s.units);
   const setHoveredTile = useGameStore((s) => s.setHoveredTile);
   const handleTileClick = useGameStore((s) => s.handleTileClick);
+  const handleTileRightClick = useGameStore((s) => s.handleTileRightClick);
   const setActiveFloor = useGameStore((s) => s.setActiveFloor);
   const tutorialStep = useGameStore((s) => s.tutorialStep);
   const tutorialDismissed = useGameStore((s) => s.tutorialDismissed);
@@ -1127,13 +1426,6 @@ export function InstancedBattlefield() {
     color: string;
   } | null>(() => {
     if (isShootingView || tutorialDismissed || tutorialStep === null) return null;
-    if (tutorialStep === 1) {
-      return {
-        coord: { x: 9, y: 0, z: 19 },
-        label: "Podepřít maršála (+2 AP)",
-        color: "#fbbf24",
-      };
-    }
     if (tutorialStep === 3) {
       return {
         coord: { x: 6, y: 0, z: 11 },
@@ -1239,51 +1531,59 @@ export function InstancedBattlefield() {
     };
   }, [grid, gridVersion]);
 
-  // Kontextové barokní ikony krytu
+  // Diegetické ikony krytu přilepené přímo na stěnách a překážkách (Pillar 3 - XCOM 2 Wall Shields)
   const contextualCoverObstacles = useMemo(() => {
-    const list: { coord: GridCoord; type: "full" | "half" }[] = [];
+    const list: {
+      key: string;
+      worldPos: [number, number, number];
+      type: "full" | "half";
+      isHoveredFocus: boolean;
+    }[] = [];
     if (isShootingView) return list;
-    const focusCoords: GridCoord[] = [];
-    if (hoveredTile) focusCoords.push(hoveredTile);
-    if (selectedUnit?.alive) focusCoords.push(selectedUnit.pos);
-    if (focusCoords.length === 0) return list;
 
-    const isNearFocus = (c: GridCoord) =>
-      focusCoords.some(
-        (f) =>
-          f.y === c.y &&
-          Math.abs(f.x - c.x) <= 1 &&
-          Math.abs(f.z - c.z) <= 1 &&
-          (f.x === c.x || f.z === c.z),
-      );
+    const addTileWallCovers = (coord: GridCoord, isHoveredFocus: boolean) => {
+      if (coord.y > effectiveViewFloor) return;
+      const t = grid.getTile(coord);
+      if (!t || !t.hasFloor) return;
+      const [wx, wy, wz] = gridToWorld(coord);
+      const dirs: { dir: CardinalDir; dx: number; dz: number }[] = [
+        { dir: "N", dx: 0, dz: -0.42 },
+        { dir: "S", dx: 0, dz: 0.42 },
+        { dir: "E", dx: 0.42, dz: 0 },
+        { dir: "W", dx: -0.42, dz: 0 },
+      ];
+      for (const { dir, dx, dz } of dirs) {
+        const cov = t.cover[dir];
+        if (cov === "half" || cov === "full") {
+          const key = `${coord.x},${coord.y},${coord.z}-${dir}`;
+          if (!list.some((item) => item.key === key)) {
+            list.push({
+              key,
+              worldPos: [wx + dx, wy + 0.56, wz + dz],
+              type: cov,
+              isHoveredFocus,
+            });
+          }
+        }
+      }
+    };
 
-    for (const t of obstacles.low0) {
-      if (isNearFocus(t.coord)) list.push({ coord: t.coord, type: "half" });
+    if (hoveredTile && hoveredReachable) {
+      addTileWallCovers(hoveredTile, true);
     }
-    for (const t of obstacles.high0) {
-      if (isNearFocus(t.coord)) list.push({ coord: t.coord, type: "full" });
-    }
-    for (const t of obstacles.pillar0) {
-      if (isNearFocus(t.coord)) list.push({ coord: t.coord, type: "full" });
-    }
-    if (effectiveViewFloor >= 1) {
-      for (const t of obstacles.low1) {
-        if (isNearFocus(t.coord)) list.push({ coord: t.coord, type: "half" });
-      }
-      for (const t of obstacles.pillar1) {
-        if (isNearFocus(t.coord)) list.push({ coord: t.coord, type: "full" });
-      }
-    }
-    if (effectiveViewFloor >= 2) {
-      for (const t of obstacles.low2) {
-        if (isNearFocus(t.coord)) list.push({ coord: t.coord, type: "half" });
-      }
-      for (const t of obstacles.pillar2) {
-        if (isNearFocus(t.coord)) list.push({ coord: t.coord, type: "full" });
-      }
+    if (selectedUnit?.alive) {
+      addTileWallCovers(selectedUnit.pos, false);
     }
     return list;
-  }, [obstacles, hoveredTile, selectedUnit, effectiveViewFloor, isShootingView]);
+  }, [
+    grid,
+    gridVersion,
+    hoveredTile,
+    hoveredReachable,
+    selectedUnit,
+    effectiveViewFloor,
+    isShootingView,
+  ]);
 
   // Refs for InstancedMeshes
   const groundMeshRef = useRef<THREE.InstancedMesh>(null);
@@ -1870,6 +2170,28 @@ export function InstancedBattlefield() {
     }
   };
 
+  const onFloorContextMenu = (
+    e: ThreeEvent<MouseEvent>,
+    tiles: TileData[],
+    floor: FloorLevel,
+  ) => {
+    e.nativeEvent.preventDefault();
+    if (wasRecentRightCameraPan()) return;
+    if (floor > activeFloor) return;
+    e.stopPropagation();
+    const idx = e.instanceId;
+    if (idx === undefined) return;
+    const tile = tiles[idx];
+    if (tile) {
+      const preferredCoord = resolvePreferredFloorCoord(
+        grid,
+        tile.coord,
+        activeFloor,
+      );
+      handleTileRightClick(preferredCoord);
+    }
+  };
+
   // Cíl pro portálový štítek schodiště (P0↔P1 / P1↔P2): explicitně přepíná / přesouvá do sousedního patra
   const resolveStairPortalTargetCoord = (span: StairSpan): GridCoord => {
     const unitFloor = selectedUnit?.pos.y ?? activeFloor;
@@ -1938,6 +2260,14 @@ export function InstancedBattlefield() {
     }
   };
 
+  const onStairContextMenu = (e: ThreeEvent<MouseEvent>, span: StairSpan) => {
+    e.nativeEvent.preventDefault();
+    if (wasRecentRightCameraPan()) return;
+    e.stopPropagation();
+    const targetCoord = resolveStairFloorCoord(span);
+    handleTileRightClick(targetCoord);
+  };
+
   // A* Path Preview Points se zalomením podél schodišť (ADR-0010 Ticket 05)
   const pathPoints = useMemo(() => {
     if (!selectedUnit || hoveredPath.length === 0) return null;
@@ -1959,12 +2289,6 @@ export function InstancedBattlefield() {
     }
     return pts;
   }, [selectedUnit, hoveredPath]);
-
-  const hoveredTileCover = useMemo(() => {
-    if (!hoveredTile) return "none";
-    const t = grid.getTile(hoveredTile);
-    return t ? bestTileCover(t.cover) : "none";
-  }, [grid, hoveredTile, gridVersion]);
 
   const hoveredReconPreview = useMemo(() => {
     if (
@@ -2015,6 +2339,7 @@ export function InstancedBattlefield() {
         receiveShadow
         onPointerMove={(e) => onFloorPointerMove(e, groundFloorTiles, 0)}
         onClick={(e) => onFloorClick(e, groundFloorTiles, 0)}
+        onContextMenu={(e) => onFloorContextMenu(e, groundFloorTiles, 0)}
       >
         <boxGeometry args={[TILE_SIZE * 0.96, 0.16, TILE_SIZE * 0.96]} />
         <meshStandardMaterial roughness={0.86} metalness={0.08} />
@@ -2031,6 +2356,7 @@ export function InstancedBattlefield() {
         }
         onPointerMove={(e) => onFloorPointerMove(e, upperFloorTiles, 1)}
         onClick={(e) => onFloorClick(e, upperFloorTiles, 1)}
+        onContextMenu={(e) => onFloorContextMenu(e, upperFloorTiles, 1)}
       >
         <boxGeometry args={[TILE_SIZE * 0.96, 0.16, TILE_SIZE * 0.96]} />
         <meshStandardMaterial
@@ -2054,6 +2380,7 @@ export function InstancedBattlefield() {
         }
         onPointerMove={(e) => onFloorPointerMove(e, watchtowerFloorTiles, 2)}
         onClick={(e) => onFloorClick(e, watchtowerFloorTiles, 2)}
+        onContextMenu={(e) => onFloorContextMenu(e, watchtowerFloorTiles, 2)}
       >
         <boxGeometry args={[TILE_SIZE * 0.96, 0.16, TILE_SIZE * 0.96]} />
         <meshStandardMaterial
@@ -2263,23 +2590,32 @@ export function InstancedBattlefield() {
         />
       </instancedMesh>
 
-      {/* 7b. Kontextové barokní ikony krytu */}
-      {contextualCoverObstacles.map(({ coord, type }) => {
-        const [wx, wy, wz] = gridToWorld(coord);
-        const yOffset = type === "full" ? FLOOR_HEIGHT * 0.65 : 0.95;
-        return (
-          <WorldHtml
-            key={`cover-${coord.x}-${coord.y}-${coord.z}`}
-            position={[wx, wy + yOffset, wz]}
-            center
-            distanceFactor={20}
-            zIndexRange={[6, 0]}
-            style={{ pointerEvents: "none" }}
+      {/* 7b. Diegetické barokní štíty krytu přilepené přímo na zdech a překážkách (Pillar 3) */}
+      {contextualCoverObstacles.map(({ key, worldPos, type, isHoveredFocus }) => (
+        <WorldHtml
+          key={`wall-cover-${key}`}
+          position={worldPos}
+          center
+          distanceFactor={16.5}
+          minScale={0.6}
+          maxScale={1.1}
+          zIndexRange={[8, 0]}
+          style={{
+            pointerEvents: "none",
+            opacity: isHoveredFocus ? 0.96 : 0.72,
+          }}
+        >
+          <div
+            className={`rounded-md p-0.5 backdrop-blur-sm shadow-lg transition-transform ${
+              isHoveredFocus
+                ? "bg-slate-950/85 ring-1 ring-amber-400/70 scale-105"
+                : "bg-slate-950/65"
+            }`}
           >
             <BaroqueCoverBadge cover={type} size="sm" />
-          </WorldHtml>
-        );
-      })}
+          </div>
+        </WorldHtml>
+      ))}
 
       {/* 8. 3D Baroque Straight & Spiral Staircases + Interactive Diegetic Staircase Portal Badges */}
       {obstacles.stairs.map((span) => {
@@ -2306,7 +2642,12 @@ export function InstancedBattlefield() {
           y: span.fromFloor,
           z: span.z,
         });
-        const badgeX = span.x === 9 && span.z === 19 ? sx + TILE_SIZE * 0.5 : sx;
+        const badgeX =
+          span.stairType === "grand_stairs"
+            ? sx + TILE_SIZE * 0.5
+            : span.x === 9 && span.z === 19
+              ? sx + TILE_SIZE * 0.5
+              : sx;
 
         return (
           <group
@@ -2319,7 +2660,19 @@ export function InstancedBattlefield() {
                 isHighlighted={isHoveredStair || Boolean(reachInfo)}
                 onHover={onStairPointerMove}
                 onClick={onStairClick}
+                onContextMenu={onStairContextMenu}
               />
+            ) : span.stairType === "grand_stairs" ? (
+              span.x === 11 && span.z === 22 ? (
+                <BaroqueImperialGrandStaircase
+                  span={span}
+                  opacity={spanOpacity}
+                  isHighlighted={isHoveredStair || Boolean(reachInfo)}
+                  onHover={onStairPointerMove}
+                  onClick={onStairClick}
+                  onContextMenu={onStairContextMenu}
+                />
+              ) : null
             ) : (
               <BaroqueStraightStaircase
                 span={span}
@@ -2327,10 +2680,11 @@ export function InstancedBattlefield() {
                 isHighlighted={isHoveredStair || Boolean(reachInfo)}
                 onHover={onStairPointerMove}
                 onClick={onStairClick}
+                onContextMenu={onStairContextMenu}
               />
             )}
 
-            {showPortalBadge && (
+            {showPortalBadge && (span.stairType !== "grand_stairs" || (span.x === 11 && span.z === 22)) && (
               <WorldHtml
                 position={[badgeX, sy + FLOOR_HEIGHT * 0.58, sz]}
                 center
@@ -2349,10 +2703,16 @@ export function InstancedBattlefield() {
                       setActiveFloor(targetCoord.y);
                     }
                   }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (wasRecentRightCameraPan()) return;
+                    handleTileRightClick(targetCoord);
+                  }}
                   style={{ pointerEvents: "auto", cursor: "pointer" }}
                   title={
                     reachInfo
-                      ? `Kliknutím vyběhnout/seběhnout po schodišti do patra P${targetCoord.y} (${reachInfo.apCost} AP)`
+                      ? `Pravým/levým kliknutím vyběhnout/seběhnout po schodišti do patra P${targetCoord.y} (${reachInfo.apCost} AP)`
                       : `Kliknutím přepnout pohled kamery do patra P${targetCoord.y}`
                   }
                   className={`select-none flex items-center gap-1 px-2 py-0.5 rounded-lg border backdrop-blur-md shadow-xl transition-all whitespace-nowrap ${
@@ -2395,13 +2755,36 @@ export function InstancedBattlefield() {
 
       {/* 8a. 3D Barokní dveře a kované brány (Free Action 0 AP) */}
       {obstacles.doors.map((door) => {
+        // U dvoukřídlých dveří vykreslí pravé křídlo přímo levé křídlo (BaroqueGrandDoublePortal3D),
+        // takže přeskočíme samostatné renderování pro leafRole === 'right'
+        if (door.isDoubleLeaf && door.leafRole === "right") {
+          return null;
+        }
+
         const doorOpacity = door.coord.y > effectiveViewFloor ? 0.08 : 1.0;
         const isAdjacentToSelected =
           selectedUnit &&
           selectedUnit.alive &&
           selectedUnit.pos.y === door.coord.y &&
-          Math.abs(selectedUnit.pos.x - door.coord.x) <= 1 &&
-          Math.abs(selectedUnit.pos.z - door.coord.z) <= 1;
+          ((Math.abs(selectedUnit.pos.x - door.coord.x) <= 1 &&
+            Math.abs(selectedUnit.pos.z - door.coord.z) <= 1) ||
+            (door.pairedCoord &&
+              Math.abs(selectedUnit.pos.x - door.pairedCoord.x) <= 1 &&
+              Math.abs(selectedUnit.pos.z - door.pairedCoord.z) <= 1));
+
+        if (door.isDoubleLeaf && door.pairedCoord) {
+          const pairedDoor = grid.getDoor(door.pairedCoord);
+          return (
+            <BaroqueGrandDoublePortal3D
+              key={`double-door-${door.id}`}
+              door={door}
+              pairedDoor={pairedDoor}
+              isAdjacent={Boolean(isAdjacentToSelected && !isShootingView)}
+              opacity={doorOpacity}
+              onToggle={toggleDoor}
+            />
+          );
+        }
 
         return (
           <BaroqueDoor3D
@@ -2545,31 +2928,26 @@ export function InstancedBattlefield() {
 
           {actionMode === "move" && hoveredReachable && (
             <WorldHtml
-              center
-              position={[0, 0.55, 0]}
-              distanceFactor={18}
+              anchor="bottom"
+              position={[0, 0.38, 0]}
+              distanceFactor={16}
+              minScale={0.68}
+              maxScale={1.1}
               zIndexRange={[10, 0]}
               style={{ pointerEvents: "none" }}
               className="pointer-events-none select-none"
             >
-              <div className="pointer-events-none select-none flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-950/95 border border-amber-400/80 backdrop-blur-md shadow-2xl text-slate-100 whitespace-nowrap">
-                <BaroqueCoverBadge
-                  cover={hoveredTileCover}
-                  size="sm"
-                  showZero
-                  showPercentSign
-                />
-
+              <div className="pointer-events-none select-none flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-950/90 border border-amber-400/70 backdrop-blur-md shadow-xl text-slate-100 whitespace-nowrap">
                 {selectedUnit && hoveredTile.y !== selectedUnit.pos.y && (
-                  <span className="px-1.5 py-0.2 rounded bg-amber-500/30 border border-amber-400 text-[10px] font-cinzel font-black text-amber-200">
+                  <span className="px-1 rounded bg-amber-500/30 text-[9px] font-cinzel font-black text-amber-200 tabular-nums">
                     {hoveredTile.y > selectedUnit.pos.y
-                      ? `↑ Patro P${hoveredTile.y}`
-                      : `↓ Patro P${hoveredTile.y}`}
+                      ? `↑P${hoveredTile.y}`
+                      : `↓P${hoveredTile.y}`}
                   </span>
                 )}
 
                 <span
-                  className={`text-[11px] font-cinzel font-black tabular-nums ${
+                  className={`text-[10px] font-cinzel font-black tabular-nums ${
                     hoveredReachable.zone === "yellow"
                       ? "text-amber-300"
                       : "text-sky-300"
@@ -2578,28 +2956,62 @@ export function InstancedBattlefield() {
                   {hoveredReachable.zone === "yellow" ? "2 AP" : "1 AP"}
                 </span>
 
-                {fogOfWarEnabled &&
-                  hoveredReconPreview &&
-                  hoveredReconPreview.newlyRevealedCount > 0 && (
-                    <span className="px-1.5 py-0.2 rounded bg-amber-500/30 border border-amber-300 text-[10px] font-cinzel font-black text-amber-200 shadow-[0_0_8px_rgba(251,191,36,0.4)]">
-                      👁️ +{hoveredReconPreview.newlyRevealedCount} odhalí
-                    </span>
-                  )}
-
-                {fogOfWarEnabled &&
-                  hoveredReconPreview &&
-                  hoveredReconPreview.newlyRevealedTilesCount > 0 && (
-                    <span className="px-1.5 py-0.2 rounded bg-amber-500/30 border border-amber-300 text-[10px] font-cinzel font-black text-amber-200 shadow-[0_0_8px_rgba(251,191,36,0.4)]">
-                      🪜 +{hoveredReconPreview.newlyRevealedTilesCount} polí patra
-                    </span>
-                  )}
+                <span className="text-[8px] font-cinzel font-bold text-amber-200/75 uppercase tracking-tight">
+                  [PKM]
+                </span>
 
                 {hoveredReconPreview &&
                   hoveredReconPreview.spottedEnemyIds.length > 0 && (
-                    <span className="px-1.5 py-0.2 rounded bg-red-950/85 border border-red-500/70 text-[10px] font-cinzel font-black text-red-200 shadow-[0_0_8px_rgba(239,68,68,0.5)]">
-                      🎯 {hoveredReconPreview.spottedEnemyIds.length} v muškách
+                    <span
+                      title="Počet nepřátel v přímé palebné linii z této dlaždice"
+                      className="flex items-center gap-0.5 pl-1 border-l border-amber-500/30 text-[9px] font-cinzel font-black text-rose-300 tabular-nums"
+                    >
+                      <span>🎯</span>
+                      <span>{hoveredReconPreview.spottedEnemyIds.length}</span>
                     </span>
                   )}
+
+                {fogOfWarEnabled &&
+                  hoveredReconPreview &&
+                  hoveredReconPreview.newlyRevealedCount > 0 && (
+                    <span
+                      title="Nově odhalení nepřátelé v šerosvitu"
+                      className="flex items-center gap-0.5 pl-1 border-l border-amber-500/30 text-[9px] font-cinzel font-black text-amber-300 tabular-nums"
+                    >
+                      <span>👁️</span>
+                      <span>+{hoveredReconPreview.newlyRevealedCount}</span>
+                    </span>
+                  )}
+              </div>
+            </WorldHtml>
+          )}
+
+          {actionMode === "grenade" && (
+            <WorldHtml
+              anchor="bottom"
+              position={[0, 0.38, 0]}
+              distanceFactor={16}
+              minScale={0.68}
+              maxScale={1.1}
+              zIndexRange={[10, 0]}
+              style={{ pointerEvents: "none" }}
+              className="pointer-events-none select-none"
+            >
+              <div
+                className={`pointer-events-none select-none flex items-center gap-1 px-1.5 py-0.5 rounded-md border backdrop-blur-md shadow-xl text-[9px] font-cinzel font-black whitespace-nowrap ${
+                  canThrowGrenadeHere
+                    ? "bg-orange-950/90 border-orange-400 text-amber-100"
+                    : "bg-red-950/90 border-red-400 text-rose-200"
+                }`}
+              >
+                <span>
+                  {canThrowGrenadeHere
+                    ? "💥 LKM: Hodit petardu (3×3)"
+                    : "Mimo dosah hodu (>8m)"}
+                </span>
+                <span className="text-amber-300/80 pl-1 border-l border-amber-500/30">
+                  PKM: Zpět
+                </span>
               </div>
             </WorldHtml>
           )}

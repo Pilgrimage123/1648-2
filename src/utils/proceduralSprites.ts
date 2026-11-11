@@ -450,6 +450,40 @@ export function getProceduralSpriteDataUri(archetype: UnitArchetype): string {
   return dataUri;
 }
 
+const PORTRAIT_CACHE: Partial<Record<UnitArchetype, string>> = {};
+
+/**
+ * Returns a Data URI for a close-up portrait (head, hat/helmet, collar/pauldrons)
+ * cropped directly from the unit's 2D figurine sprite.
+ */
+export function getProceduralPortraitDataUri(
+  archetype: UnitArchetype,
+): string {
+  const cached = PORTRAIT_CACHE[archetype];
+  if (cached) return cached;
+
+  let viewBox = "44 8 168 140";
+  if (archetype === "commander") {
+    viewBox = "48 30 160 128";
+  } else if (archetype === "ranger") {
+    viewBox = "46 18 164 132";
+  } else if (archetype === "trooper") {
+    viewBox = "50 12 156 128";
+  } else if (archetype === "sniper") {
+    viewBox = "44 8 168 136";
+  } else if (archetype === "sectoid") {
+    viewBox = "46 6 164 134";
+  }
+
+  const svg = buildSvgMarkup(archetype)
+    .trim()
+    .replace('viewBox="0 0 256 320"', `viewBox="${viewBox}"`);
+
+  const dataUri = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  PORTRAIT_CACHE[archetype] = dataUri;
+  return dataUri;
+}
+
 /**
  * Returns a cached, shared THREE.Texture for the requested archetype to prevent WebGL memory leaks.
  */

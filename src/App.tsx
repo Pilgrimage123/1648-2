@@ -187,18 +187,25 @@ export default function App() {
             state.cycleTarget(e.shiftKey ? -1 : 1);
           }
         } else {
-          // Cyklení živých vojáků hráče
-          const playerUnits = state.units.filter(
-            (u) => u.faction === "player" && u.alive,
+          // Cyklení živých vojáků hráče, kteří ještě neukončili tah (ap > 0 a nejsou zadrženi)
+          const activeSquad = state.units.filter(
+            (u) =>
+              u.faction === "player" &&
+              u.alive &&
+              u.hp > 0 &&
+              u.ap > 0 &&
+              (u.detainedTurns ?? 0) === 0,
           );
-          if (playerUnits.length > 1) {
-            const currentIdx = playerUnits.findIndex(
+          if (activeSquad.length > 0) {
+            const currentIdx = activeSquad.findIndex(
               (u) => u.id === state.selectedUnitId,
             );
             const delta = e.shiftKey ? -1 : 1;
             const nextIdx =
-              (currentIdx + delta + playerUnits.length) % playerUnits.length;
-            const nextUnit = playerUnits[nextIdx];
+              currentIdx < 0
+                ? 0
+                : (currentIdx + delta + activeSquad.length) % activeSquad.length;
+            const nextUnit = activeSquad[nextIdx];
             if (nextUnit) state.selectUnit(nextUnit.id);
           }
         }

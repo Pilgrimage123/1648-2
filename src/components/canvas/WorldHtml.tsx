@@ -86,7 +86,10 @@ export interface WorldHtmlProps {
   children?: ReactNode;
   position?: [number, number, number];
   center?: boolean;
+  anchor?: "center" | "bottom" | "none";
   distanceFactor?: number;
+  minScale?: number;
+  maxScale?: number;
   zIndexRange?: [number, number];
   style?: CSSProperties;
   className?: string;
@@ -97,7 +100,10 @@ export function WorldHtml({
   children,
   position = [0, 0, 0],
   center = false,
+  anchor,
   distanceFactor,
+  minScale = 0.55,
+  maxScale = 1.25,
   zIndexRange = [16777271, 0],
   style,
   className,
@@ -108,6 +114,7 @@ export function WorldHtml({
   const rootRef = useRef<Root | null>(null);
   const groupRef = useRef<THREE.Group>(null);
   const oldZoomRef = useRef(0);
+  const oldScaleRef = useRef(0);
   const oldPositionRef = useRef<[number, number]>([0, 0]);
   const visibleRef = useRef(true);
 
@@ -115,13 +122,20 @@ export function WorldHtml({
 
   const initializedRef = useRef(false);
 
+  const resolvedAnchor = anchor ?? (center ? "center" : "none");
+
   const innerStyle = useMemo<CSSProperties>(
     () => ({
       position: "absolute",
-      transform: center ? "translate3d(-50%,-50%,0)" : "none",
+      transform:
+        resolvedAnchor === "bottom"
+          ? "translate3d(-50%,-100%,0)"
+          : resolvedAnchor === "center"
+            ? "translate3d(-50%,-50%,0)"
+            : "none",
       ...style,
     }),
-    [center, style],
+    [resolvedAnchor, style],
   );
 
   useEffect(() => {
@@ -129,10 +143,14 @@ export function WorldHtml({
 
     scene.updateMatrixWorld();
     const vec = calculateScreenPosition(groupRef.current, camera, size);
-    const scale =
+    const rawScale =
       distanceFactor === undefined
         ? 1
         : computeObjectScale(groupRef.current, camera) * distanceFactor;
+    const scale =
+      distanceFactor === undefined
+        ? 1
+        : THREE.MathUtils.clamp(rawScale, minScale, maxScale);
     el.style.cssText = `position:absolute;top:0;left:0;transform:translate3d(${vec[0]}px,${vec[1]}px,0) scale(${scale});transform-origin:0 0;pointer-events:none;`;
     target.appendChild(el);
 
@@ -176,9 +194,19 @@ export function WorldHtml({
     grp.updateWorldMatrix(true, false);
 
     const vec = calculateScreenPosition(grp, camera, size);
+    const rawScale =
+      distanceFactor === undefined
+        ? 1
+        : computeObjectScale(grp, camera) * distanceFactor;
+    const scale =
+      distanceFactor === undefined
+        ? 1
+        : THREE.MathUtils.clamp(rawScale, minScale, maxScale);
+
     if (
       !initializedRef.current ||
       Math.abs(oldZoomRef.current - camera.zoom) > eps ||
+      Math.abs(oldScaleRef.current - scale) > eps ||
       Math.abs(oldPositionRef.current[0] - vec[0]) > eps ||
       Math.abs(oldPositionRef.current[1] - vec[1]) > eps
     ) {
@@ -195,14 +223,11 @@ export function WorldHtml({
         el.style.zIndex = `${zIdx}`;
       }
 
-      const scale =
-        distanceFactor === undefined
-          ? 1
-          : computeObjectScale(grp, camera) * distanceFactor;
       el.style.transform = `translate3d(${vec[0]}px,${vec[1]}px,0) scale(${scale})`;
 
       oldPositionRef.current = vec;
       oldZoomRef.current = camera.zoom;
+      oldScaleRef.current = scale;
     }
   });
 

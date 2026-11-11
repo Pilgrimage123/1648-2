@@ -8,6 +8,7 @@ import { create } from "zustand";
 import {
   calculateMeleeAttack,
   calculateShot,
+  checkEnemyColloredoCapture,
   checkLineOfSight3D,
   computeEnemyAiDecision,
   evaluateAdjacentMeleeTargets,
@@ -15,6 +16,8 @@ import {
   facingFromDelta,
   gridDistance3D,
   isAdjacentForMelee,
+  isCompanionProtectedByCount,
+  isInPreparedVolleyCone,
   resolveTargetCoverAgainstShot,
   rollMeleeAttack,
   rollRangedAttack,
@@ -255,12 +258,16 @@ interface GameStoreState {
   selectTarget: (targetId: string) => void;
   cycleTarget: (dir: 1 | -1) => void;
   setHoveredTile: (coord: GridCoord | null) => void;
+  previewEnemyMeleeHover: (enemyId: string | null) => void;
   handleTileClick: (coord: GridCoord) => void;
+  handleTileRightClick: (coord: GridCoord) => void;
   handleUnitClick: (unitId: string) => void;
+  handleUnitRightClick: (unitId: string) => void;
+  handleRightClickCancel: () => void;
   completeUnitMovement: () => void;
   executeShoot: (targetId?: string) => void;
   executeReload: () => void;
-  executeMelee: (targetId?: string) => void;
+  executeMelee: (targetId?: string, options?: { freeChainAp?: boolean }) => void;
   activateOverwatch: () => void;
   executeGrenade: (targetCoord: GridCoord) => void;
   toggleDoor: (coord: GridCoord) => void;
@@ -292,6 +299,59 @@ function delay(ms: number): Promise<void> {
     return Promise.resolve();
   }
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Najde nejvýhodnější dosažitelnou dlaždici sousedící s nepřítelem pro XCOM 2 Zteč zblízka (Run & Slash).
+ * Upřednostňuje:
+ * 1. Aktuálně najetou dlaždici (`preferredCoord`), pokud již sousedí s cílem a je dosažitelná,
+ * 2. Modrou zónu (1 AP) před žlutým sprintem (2 AP),
+ * 3. Ortogonální sousedství (1m) a vyšší kvalitu krytu v cíli,
+ * 4. Nejkratší vzdálenost od výchozí pozice útočníka.
+ */
+export function findBestMeleeChargeTile(
+  grid: GridSystem,
+  attacker: UnitData,
+  enemy: UnitData,
+  reachableTiles: Map<string, ReachableTile>,
+  preferredCoord?: GridCoord | null,
+): ReachableTile | null {
+  if (!attacker.alive || !enemy.alive) return null;
+
+  if (preferredCoord && isAdjacentForMelee(preferredCoord, enemy.pos)) {
+    const prefReach = reachableTiles.get(coordKey(preferredCoord));
+    if (prefReach) return prefReach;
+  }
+
+  let best: ReachableTile | null = null;
+  let bestScore = -Infinity;
+
+  for (const reach of reachableTiles.values()) {
+    if (!isAdjacentForMelee(reach.coord, enemy.pos)) continue;
+
+    const manhattan =
+      Math.abs(reach.coord.x - enemy.pos.x) +
+      Math.abs(reach.coord.z - enemy.pos.z);
+    const cov = resolvePrimaryCoverDirection(grid, reach.coord).level;
+    const covBonus = cov === "full" ? 15 : cov === "half" ? 8 : 0;
+    const distFromAttacker = Math.hypot(
+      reach.coord.x - attacker.pos.x,
+      reach.coord.z - attacker.pos.z,
+    );
+
+    const score =
+      -reach.apCost * 100 +
+      (manhattan === 1 ? 20 : 0) +
+      covBonus -
+      distFromAttacker;
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = reach;
+    }
+  }
+
+  return best;
 }
 
 /**
@@ -653,10 +713,10 @@ export function advanceColloredoDetentionTurn(units: UnitData[]): {
 }
 
 /**
- * Synchronizuje pohybovou schopnost a stav zadržení maršála Colloreda podle blízkosti sloužících a nepřátel.
+ * Synchronizuje stav zadržení a postih těžkého kulhání maršála Colloreda.
  * Zranění z Lützenu 1632 (7 střelných ran, zmrzačená noha) omezuje maršála na 3 pole/AP.
- * Pokud vedle něj (okruh 1 pole) stojí věrný sloužící, podepřou jej a Colloredo získává plných 5 polí za AP!
- * Pokud je však zadržen Švédy (detainedTurns >= 1), nemůže se sám pohybovat (movePerAp = 0), dokud jej družina nevyprostí.
+ * Pokud je maršál zadržen Švédy (detainedTurns >= 1), nemůže se sám pohybovat (movePerAp = 0), dokud jej družina nevyprostí.
+ * Za běžného stavu má trvalý postih „Těžké kulhání (zranění z Lützenu)“ s rychlostí 3 pole/AP.
  */
 export function syncColloredoMobility(units: UnitData[]): UnitData[] {
   const captureSynced = syncColloredoCaptureState(units).units;
@@ -681,32 +741,15 @@ export function syncColloredoMobility(units: UnitData[]): UnitData[] {
     );
   }
 
-  const hasAllyNearby = captureSynced.some(
-    (u) =>
-      u.faction === "player" &&
-      u.alive &&
-      u.hp > 0 &&
-      u.id !== colloredo.id &&
-      Math.abs(u.pos.x - colloredo.pos.x) <= 1 &&
-      Math.abs(u.pos.z - colloredo.pos.z) <= 1 &&
-      u.pos.y === colloredo.pos.y,
-  );
+  const limpingTitle = "Těžké kulhání (zranění z Lützenu)";
 
-  const desiredMove = hasAllyNearby ? 5 : 3;
-  const desiredBuff = hasAllyNearby
-    ? "Podepřen komorníkem (+2 k pohybu)"
-    : "Těžké kulhání (zranění z Lützenu)";
-
-  if (
-    colloredo.movePerAp === desiredMove &&
-    colloredo.buffTitle === desiredBuff
-  ) {
+  if (colloredo.movePerAp === 3 && colloredo.buffTitle === limpingTitle) {
     return captureSynced;
   }
 
   return captureSynced.map((u) =>
     u.id === colloredo.id
-      ? { ...u, movePerAp: desiredMove, buffTitle: desiredBuff }
+      ? { ...u, movePerAp: 3, buffTitle: limpingTitle }
       : u,
   );
 }
@@ -1316,13 +1359,15 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     const evaluatedPath =
       movementPath && movementPath.length > 0 ? movementPath : [destCoord];
 
-    // Najdeme hlídkující vojáky opačné frakce
+    // Najdeme hlídkující vojáky opačné frakce s nabitou zbraní
     const potentialWatchers = state.units.filter(
       (u) =>
         u.alive &&
         u.hp > 0 &&
         u.faction !== movedUnit.faction &&
-        u.isOverwatch,
+        u.isOverwatch &&
+        u.firearmLoaded !== false &&
+        (u.id !== "player-colloredo" || u.pistolLoaded !== false),
     );
 
     if (potentialWatchers.length === 0) return;
@@ -1331,19 +1376,28 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       const currentMoved = get().units.find((u) => u.id === movedUnitId);
       if (!currentMoved || !currentMoved.alive || currentMoved.hp <= 0) break;
 
-      // Zkontrolujeme, zda střelec má stále aktivní hlídku (nebyl mezitím vyřazen či zrušen)
+      // Zkontrolujeme, zda střelec má stále aktivní hlídku a nabitou zbraň
       const freshWatcher = get().units.find((u) => u.id === watcher.id);
       if (
         !freshWatcher ||
         !freshWatcher.alive ||
         freshWatcher.hp <= 0 ||
-        !freshWatcher.isOverwatch
+        !freshWatcher.isOverwatch ||
+        freshWatcher.firearmLoaded === false
       ) {
         continue;
       }
 
+      // Švédové po hraběti nikdy nestřílí (ani v reakční palbě / Overwatch)!
+      if (freshWatcher.faction === "enemy" && movedUnitId === "player-colloredo") {
+        continue;
+      }
+
+      const isConeMode =
+        freshWatcher.weapon.overwatchMode === "prepared_volley_cone";
+
       // XCOM taktika: Hlídkující hledá moment na trase, kdy nepřítel běží
-      // ZÁROVEŇ: 1) pohybuje se, 2) NENÍ v krytu (cover !== 'full', ideálně cover === 'none'), 3) je plně viditelný
+      // U doutnákových mušket (Připravená salva) musí cíl vstoupit do předního kuželu (90°)
       type CandidateStep = {
         coord: GridCoord;
         cover: CoverLevel;
@@ -1358,6 +1412,32 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         const step = evaluatedPath[i]!;
         const dist = gridDistance3D(freshWatcher.pos, step);
         if (dist > freshWatcher.weapon.maxRange) continue;
+
+        if (
+          isConeMode &&
+          !isInPreparedVolleyCone(freshWatcher.pos, freshWatcher.facing, step)
+        ) {
+          continue;
+        }
+
+        // Kontrola ochrany hrabětem: Švédové nebudou střílet na hráčskou postavu,
+        // pokud je do tří políček od hraběte a střelec vidí hraběte
+        if (freshWatcher.faction === "enemy") {
+          const simulatedTarget: UnitData = {
+            ...currentMoved,
+            pos: step,
+          };
+          if (
+            isCompanionProtectedByCount(
+              get().grid,
+              freshWatcher.pos,
+              simulatedTarget,
+              get().units,
+            )
+          ) {
+            continue;
+          }
+        }
 
         // Kontrola 3D přímé viditelnosti
         const los = checkLineOfSight3D(get().grid, freshWatcher.pos, step);
@@ -1407,7 +1487,18 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       } else {
         const distToDest = gridDistance3D(freshWatcher.pos, destCoord);
         const losDest = checkLineOfSight3D(get().grid, freshWatcher.pos, destCoord);
-        if (distToDest <= freshWatcher.weapon.maxRange && losDest.clear) {
+        const inDestCone =
+          !isConeMode ||
+          isInPreparedVolleyCone(
+            freshWatcher.pos,
+            freshWatcher.facing,
+            destCoord,
+          );
+        if (
+          inDestCone &&
+          distToDest <= freshWatcher.weapon.maxRange &&
+          losDest.clear
+        ) {
           const destCover = resolveTargetCoverAgainstShot(
             get().grid,
             freshWatcher.pos,
@@ -1556,6 +1647,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             ? {
                 ...u,
                 isOverwatch: false,
+                firearmLoaded: false,
+                reloadProgress: 0,
+                pistolLoaded:
+                  freshWatcher.id === "player-colloredo" ? false : u.pistolLoaded,
                 facing: facingFromDelta(u.pos, ambushCoord, u.facing),
               }
             : u,
@@ -2310,6 +2405,215 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       });
     },
 
+    previewEnemyMeleeHover: (enemyId: string | null) => {
+      const state = get();
+      if (!enemyId) {
+        if (
+          state.hoveredTile !== null ||
+          state.hoveredPath.length > 0 ||
+          state.hoveredSpottedEnemyIds.length > 0
+        ) {
+          set({ hoveredTile: null, hoveredPath: [], hoveredSpottedEnemyIds: [] });
+        }
+        return;
+      }
+
+      if (
+        state.isBusy ||
+        state.turn !== "player" ||
+        state.actionMode !== "move" ||
+        !state.selectedUnitId
+      ) {
+        return;
+      }
+
+      const unit = state.units.find((u) => u.id === state.selectedUnitId);
+      const enemy = state.units.find(
+        (u) => u.id === enemyId && u.alive && u.faction === "enemy",
+      );
+      if (
+        !unit ||
+        !unit.alive ||
+        unit.ap <= 0 ||
+        (unit.detainedTurns ?? 0) > 0 ||
+        !enemy
+      ) {
+        return;
+      }
+
+      if (
+        state.fogOfWarEnabled &&
+        !state.fogSnapshot.visibleEnemyIds.has(enemy.id)
+      ) {
+        return;
+      }
+
+      if (isAdjacentForMelee(unit.pos, enemy.pos)) {
+        set({ hoveredTile: null, hoveredPath: [], hoveredSpottedEnemyIds: [] });
+        return;
+      }
+
+      const chargeReach = findBestMeleeChargeTile(
+        state.grid,
+        unit,
+        enemy,
+        state.reachableTiles,
+        state.hoveredTile,
+      );
+      if (!chargeReach) {
+        return;
+      }
+
+      const path = findPathAStar(
+        state.grid,
+        unit.pos,
+        chargeReach.coord,
+        state.units,
+        unit.id,
+      );
+      set({
+        hoveredTile: chargeReach.coord,
+        hoveredPath: path,
+        hoveredSpottedEnemyIds: [enemy.id],
+      });
+    },
+
+    handleRightClickCancel: () => {
+      const state = get();
+      if (state.isBusy || state.turn !== "player" || state.outcome !== "ongoing")
+        return;
+      if (state.actionMode !== "move") {
+        get().setActionMode("move");
+      }
+    },
+
+    handleUnitRightClick: (unitId: string) => {
+      const state = get();
+      if (state.isBusy || state.turn !== "player" || state.outcome !== "ongoing")
+        return;
+
+      // Pokud je otevřena střelba nebo chystán granát, pravé tlačítko akci zruší a vrátí hráče do základního pohledu
+      if (state.actionMode === "shoot" || state.actionMode === "grenade") {
+        get().setActionMode("move");
+        return;
+      }
+
+      const clickedUnit = state.units.find((u) => u.id === unitId);
+      if (!clickedUnit || !clickedUnit.alive) return;
+
+      if (clickedUnit.faction === "player") {
+        if (state.actionMode !== "move") {
+          get().setActionMode("move");
+        } else {
+          get().selectUnit(unitId);
+        }
+        return;
+      }
+
+      // Pravé kliknutí na nepřítele: XCOM 2 Útok zblízka (okamžitý přesun spojený se seknutím, útok nestojí další AP navíc)
+      if (
+        state.fogOfWarEnabled &&
+        !state.fogSnapshot.visibleEnemyIds.has(clickedUnit.id)
+      ) {
+        set({ activeFloor: clickedUnit.pos.y });
+        triggerUnitFx(clickedUnit.id, {
+          banner: { text: "SKRYT V ŠEROSVITU", tone: "miss" },
+        });
+        return;
+      }
+
+      const currentUnit = state.units.find((u) => u.id === state.selectedUnitId);
+      if (
+        !currentUnit ||
+        !currentUnit.alive ||
+        currentUnit.ap <= 0 ||
+        (currentUnit.detainedTurns ?? 0) > 0 ||
+        currentUnit.hp <= 0
+      ) {
+        if (state.actionMode === "melee") {
+          get().setActionMode("move");
+        }
+        return;
+      }
+
+      // 1. Pokud voják již stojí na sousedním poli u nepřítele, provede okamžitý sek zblízka
+      if (isAdjacentForMelee(currentUnit.pos, clickedUnit.pos)) {
+        get().executeMelee(clickedUnit.id);
+        return;
+      }
+
+      // 2. Pokud byl v režimu melee a klikl pravým na vzdáleného nepřítele mimo dosah
+      const chargeReach = findBestMeleeChargeTile(
+        state.grid,
+        currentUnit,
+        clickedUnit,
+        state.reachableTiles,
+        state.hoveredTile,
+      );
+
+      if (!chargeReach) {
+        if (state.actionMode === "melee") {
+          get().setActionMode("move");
+          return;
+        }
+        triggerUnitFx(clickedUnit.id, {
+          banner: { text: "MIMO DOSAH ZTEČE", tone: "miss" },
+        });
+        return;
+      }
+
+      // Uložíme cíl zteče na začátek přesunu a spustíme pohyb na sousední dlaždici `chargeReach.coord`
+      if (state.actionMode !== "move") {
+        set({ actionMode: "move" });
+      }
+      set({ selectedTargetId: clickedUnit.id });
+      // Spustíme přesun s navázaným bezplatným útokem zblízka po doběhu
+      const path = findPathAStar(
+        state.grid,
+        currentUnit.pos,
+        chargeReach.coord,
+        state.units,
+        currentUnit.id,
+      );
+      if (path.length === 0) return;
+
+      triggerUnitFx(currentUnit.id, {
+        banner: { text: "ZTEČ ZBLÍZKA!", tone: "buff" },
+      });
+
+      // Vyvoláme pohyb na dlaždici s příznakem cíle pro okamžité seknutí po doběhu (0 AP navíc)
+      set({
+        hoveredTile: chargeReach.coord,
+        hoveredPath: path,
+        hoveredSpottedEnemyIds: [clickedUnit.id],
+      });
+      get().handleTileClick(chargeReach.coord);
+    },
+
+    handleTileRightClick: (coord: GridCoord) => {
+      const state = get();
+      if (state.isBusy || state.turn !== "player" || state.outcome !== "ongoing")
+        return;
+
+      // Pokud na dlaždici stojí živý nepřítel a jsme v režimu pohybu, pravé kliknutí spustí XCOM 2 Zteč zblízka
+      const unitOnTile = state.units.find(
+        (u) => u.alive && sameCoord(u.pos, coord),
+      );
+      if (unitOnTile && unitOnTile.faction === "enemy" && state.actionMode === "move") {
+        get().handleUnitRightClick(unitOnTile.id);
+        return;
+      }
+
+      // Zrušení akce / Zpět: Pokud je otevřeno menu střelby, granátu nebo zblízka, pravé tlačítko akci zruší
+      if (state.actionMode !== "move") {
+        get().setActionMode("move");
+        return;
+      }
+
+      // V režimu pohybu pravé kliknutí na dlaždici provede okamžitý přesun (Move / Dash)
+      get().handleTileClick(coord);
+    },
+
     handleUnitClick: (unitId: string) => {
       const state = get();
       if (state.isBusy || state.turn !== "player" || state.outcome !== "ongoing")
@@ -2683,6 +2987,21 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       );
       if (path.length === 0) return;
 
+      // Zjistíme, zda tento přesun byl spuštěn jako XCOM 2 Zteč zblízka (Run & Slash) na sousedního nepřítele
+      const chainedMeleeEnemy =
+        state.selectedTargetId
+          ? state.units.find(
+              (u) =>
+                u.id === state.selectedTargetId &&
+                u.faction === "enemy" &&
+                u.alive &&
+                u.hp > 0 &&
+                isAdjacentForMelee(coord, u.pos) &&
+                state.hoveredSpottedEnemyIds.includes(u.id),
+            ) ?? null
+          : null;
+      const chainedMeleeTargetId = chainedMeleeEnemy?.id ?? null;
+
       void (async () => {
         const interactions = detectPathInteractions(state.grid, unit.pos, path);
         const isActionCam = shouldTriggerActionCamForMove({
@@ -2736,17 +3055,25 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               u.alive &&
               u.hp > 0 &&
               u.faction !== currentUnit.faction &&
-              u.isOverwatch,
+              u.isOverwatch &&
+              u.firearmLoaded !== false &&
+              (u.id !== "player-colloredo" || u.pistolLoaded !== false),
           );
 
           for (let i = 0; i < remainingPath.length; i++) {
             const step = remainingPath[i]!;
 
-            // A) Kontrola Overwatch záchytu na dlaždici `step`
+            // A) Kontrola Overwatch / Připravené salvy na dlaždici `step`
             let stepTriggersOw = false;
             for (const watcher of activeWatchers) {
               const dist = gridDistance3D(watcher.pos, step);
               if (dist > watcher.weapon.maxRange) continue;
+              if (
+                watcher.weapon.overwatchMode === "prepared_volley_cone" &&
+                !isInPreparedVolleyCone(watcher.pos, watcher.facing, step)
+              ) {
+                continue;
+              }
               if (!checkLineOfSight3D(currentState.grid, watcher.pos, step).clear)
                 continue;
               if (
@@ -2918,11 +3245,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           const zoneNote =
             reach.zone === "yellow" ? "Sprint (2 AP)" : "Přesun (1 AP)";
 
-          // Tutoriál: Krok 1 (Pohyb & Eskorta) automaticky přejde na Krok 2,
-          // jakmile hráč pohne jednotkou a Colloredo získá doprovod (+2 k pohybu)
-          const colloredo = syncedUnits.find((u) => u.id === "player-colloredo");
+          // Tutoriál: Krok 1 (Pohyb & Ovládání) automaticky přejde na Krok 2,
+          // jakmile hráč poprvé pohne jednotkou
           const nextTutorialStep =
-            s.tutorialStep === 1 && colloredo && colloredo.movePerAp === 5
+            s.tutorialStep === 1
               ? (2 as const)
               : s.tutorialStep;
 
@@ -3073,6 +3399,40 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           return;
         }
 
+        // XCOM 2 Zteč zblízka (Run & Slash): Pokud byl pohyb spuštěn pravým klikem na nepřítele
+        // a voják doběhl živý na sousední pole k cíli, okamžitě provede útok zblízka za 0 AP navíc!
+        if (chainedMeleeTargetId) {
+          const latestState = get();
+          const attackerAfterMove = latestState.units.find(
+            (u) => u.id === unit.id && u.alive && u.hp > 0 && (u.detainedTurns ?? 0) === 0,
+          );
+          const targetAfterMove = latestState.units.find(
+            (u) => u.id === chainedMeleeTargetId && u.alive && u.hp > 0,
+          );
+          if (
+            attackerAfterMove &&
+            targetAfterMove &&
+            isAdjacentForMelee(attackerAfterMove.pos, targetAfterMove.pos)
+          ) {
+            set((s) => ({
+              isBusy: false,
+              selectedUnitId: attackerAfterMove.id,
+              selectedTargetId: targetAfterMove.id,
+              hoveredSpottedEnemyIds: [],
+              cameraDirector: {
+                ...s.cameraDirector,
+                mode: "TACTICAL_ISO",
+                timeScale: 1.0,
+                podReveal: null,
+                overwatchSlowMo: null,
+                coverSettle: null,
+              },
+            }));
+            get().executeMelee(targetAfterMove.id, { freeChainAp: true });
+            return;
+          }
+        }
+
         const autoNextUnit = findNextAvailablePlayerUnit(
           afterState.units,
           afterState.selectedUnitId,
@@ -3153,22 +3513,51 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       }
 
       if (attacker.firearmLoaded === false) {
+        const reqReloadAp = attacker.weapon.reloadApCost ?? 2;
+        const curReload = attacker.reloadProgress ?? 0;
         set((s) => ({
           combatLog: [
             ...s.combatLog,
             makeLog(
               s.round,
               "player",
-              `Zbraň postavy ${attacker.name} (${attacker.weapon.name}) je vybitá! Pro další výstřel je nutné provést akci Přebití (2 AP).`,
+              `Zbraň postavy ${attacker.name} (${attacker.weapon.name}) je vybitá (${curReload}/${reqReloadAp} AP)! Pokračujte ve Fázovém nabíjení [R] po 1 AP nebo udeřte pažbou zblízka [B].`,
               "alert",
             ),
           ],
         }));
         triggerUnitFx(attacker.id, {
-          banner: { text: "HLAVEŇ VYBITÁ! (2 AP PŘEBITÍ)", tone: "misfire" },
+          banner: {
+            text: `HLAVEŇ VYBITÁ! (${curReload}/${reqReloadAp} AP)`,
+            tone: "misfire",
+          },
         });
         return;
       }
+
+      const baseFireAp = attacker.weapon.fireApCost ?? 1;
+      const isHipFire =
+        baseFireAp >= 2 && (attacker.movedThisTurn || attacker.ap < baseFireAp);
+
+      if (baseFireAp >= 2 && isHipFire && !attacker.weapon.allowEmergencyHipFire) {
+        set((s) => ({
+          combatLog: [
+            ...s.combatLog,
+            makeLog(
+              s.round,
+              "player",
+              `Těžká mušketa (${attacker.weapon.name}) vyžaduje 2 AP bez pohybu v kole výstřelu pro rozložení furkety!`,
+              "alert",
+            ),
+          ],
+        }));
+        triggerUnitFx(attacker.id, {
+          banner: { text: "VYŽADUJE 2 AP BEZ POHYBU!", tone: "misfire" },
+        });
+        return;
+      }
+
+      const apSpent = isHipFire ? 1 : baseFireAp;
 
       const chosenId = targetIdArg ?? state.selectedTargetId;
       const targetEval = state.visibleTargets.find(
@@ -3235,6 +3624,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           outcome,
         );
         const nowTs = performance.now();
+        const isPistol =
+          attacker.weapon.id === "colloredo_wheellock_pistol" ||
+          attacker.id === "player-colloredo" ||
+          attacker.weapon.name.toLowerCase().includes("pistol") ||
+          attacker.weapon.name.toLowerCase().includes("bambitka");
+
         set((s) => ({
           isBusy: true,
           activeFloor: target.pos.y,
@@ -3270,12 +3665,19 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               ? {
                   ...u,
                   facing: newFacing,
-                  ap: isVerdictShot && outcome.hit ? 1 : 0, // Hit & Run refund za Svatováclavský ortel!
+                  // Výstřely ze všech pušek/mušket ukončují tah (ap = 0), pistole spotřebuje pouze apSpent
+                  ap: isVerdictShot && outcome.hit
+                    ? 1
+                    : isPistol
+                      ? Math.max(0, u.ap - apSpent)
+                      : 0,
                   isOverwatch: false,
+                  isShaken: isHipFire ? true : u.isShaken,
                   abilityBuffActive: false,
                   pistolLoaded:
                     attacker.id === "player-colloredo" ? false : u.pistolLoaded,
                   firearmLoaded: false,
+                  reloadProgress: 0,
                 }
               : u,
           ),
@@ -3306,7 +3708,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           lunge: true,
           banner: outcome.misfired
             ? { text: "SELHÁNÍ DOUTNÁKU!", tone: "misfire" }
-            : undefined,
+            : isHipFire
+              ? { text: "STŘELBA OD BOKU! (OTŘESEN)", tone: "overwatch" }
+              : undefined,
         });
 
         // Čekáme přesně na plynulý dolet kulky k cíli (~730 ms = 41 % z 1780 ms)
@@ -3356,6 +3760,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           });
 
           const bonusTags: string[] = [];
+          if (isHipFire)
+            bonusTags.push("NOUZOVÁ STŘELBA OD BOKU 1 AP (−35 % Aim, Otřesen)");
+          else if (baseFireAp >= 2)
+            bonusTags.push("opora furkety (2 AP)");
           if (outcome.heightAdvantage) bonusTags.push("výšková převaha +15 %");
           if (outcome.flanked) bonusTags.push("OBCHVAT +40 % krit");
           if (outcome.armorShredded > 0)
@@ -3605,7 +4013,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             makeLog(
               s.round,
               "player",
-              `Zbraň postavy ${unit.name} (${unit.weapon.name}) je již nabitá a připravená k výstřelu!`,
+              `Zbraň postavy ${unit.name} (${unit.weapon.name}) je již plně nabitá a připravená k výstřelu!`,
               "info",
             ),
           ],
@@ -3616,40 +4024,75 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         return;
       }
 
-      if (unit.ap < 2) {
+      if (unit.ap < 1) {
         set((s) => ({
           combatLog: [
             ...s.combatLog,
             makeLog(
               s.round,
               "player",
-              `Nedostatek akčních bodů! Přebití zbraně (${unit.weapon.name}) vyžaduje 2 AP.`,
+              `Nedostatek akčních bodů! Každý krok fázového nabíjení (${unit.weapon.name}) vyžaduje 1 AP.`,
               "alert",
             ),
           ],
         }));
         triggerUnitFx(unit.id, {
-          banner: { text: "NEDOSTATEK AP! (VYŽADUJE 2 AP)", tone: "misfire" },
+          banner: { text: "NEDOSTATEK AP! (VYŽADUJE 1 AP)", tone: "misfire" },
         });
         return;
       }
 
       playSpecialAbilitySound("klementinum_verdict");
 
+      const requiredAp = unit.weapon.reloadApCost ?? 2;
+      const prevProgress = unit.reloadProgress ?? 0;
+      const nextProgress = Math.min(requiredAp, prevProgress + 1);
+      const isNowLoaded = nextProgress >= requiredAp;
+
+      let stepActionDesc = "";
+      if (requiredAp >= 4) {
+        if (nextProgress === 1) {
+          stepActionDesc =
+            "odměřil dávku černého prachu z apoštola a nasypal ji do hlavně";
+        } else if (nextProgress === 2) {
+          stepActionDesc =
+            "zasunul těžkou olověnou kuli s ucpávkou a zarazil ji nabijákem";
+        } else if (nextProgress === 3) {
+          stepActionDesc =
+            "nasypal jemný prach na pánvičku a přiklopil kryt proti větru";
+        } else {
+          stepActionDesc =
+            "rozdmychal doutnající šňůru v kohoutu a opřel hlaveň o furketu — TĚŽKÁ MUŠKETA JE PLNĚ NABITA!";
+        }
+      } else {
+        if (nextProgress === 1 && !isNowLoaded) {
+          stepActionDesc =
+            "ukousl papírovou patronu, nasypal prach na pánvičku i do hlavně a vložil kuli";
+        } else {
+          stepActionDesc =
+            "utěsnil náboj nabijákem a připravil zámek — ZBRAŇ JE PLNĚ NABITA!";
+        }
+      }
+
       const updatedUnits = state.units.map((u) =>
         u.id === unit.id
           ? {
               ...u,
-              ap: Math.max(0, u.ap - 2),
-              firearmLoaded: true,
+              ap: Math.max(0, u.ap - 1),
+              isOverwatch: false,
+              reloadProgress: isNowLoaded ? 0 : nextProgress,
+              firearmLoaded: isNowLoaded,
             }
           : u,
       );
 
+      const autoNextUnit = findNextAvailablePlayerUnit(updatedUnits, unit.id);
+      const autoNextId = autoNextUnit?.id ?? unit.id;
+
       const sel = deriveSelectionData(
         state.grid,
         updatedUnits,
-        unit.id,
+        autoNextId,
         state.weather,
         state.selectedTargetId,
         state.fogSnapshot.exploredCoords,
@@ -3659,8 +4102,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
       set((s) => ({
         units: sel.units,
-        selectedUnitId: unit.id,
-        activeFloor: unit.pos.y,
+        selectedUnitId: autoNextId,
+        activeFloor: autoNextUnit ? autoNextUnit.pos.y : unit.pos.y,
         actionMode: "move",
         fogSnapshot: sel.fogSnapshot,
         reachableTiles: sel.reachableTiles,
@@ -3672,27 +4115,33 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           makeLog(
             s.round,
             "player",
-            `PŘEBITÍ (2 AP): ${unit.name} nasypal střelný prach na pánvičku, ucpal olověnou kuli v hlavni zbraně ${unit.weapon.name} a hlaveň je opět nabitá!`,
+            `FÁZOVÉ NABÍJENÍ (1 AP — ${nextProgress}/${requiredAp}): ${unit.name} ${stepActionDesc}`,
             "buff",
           ),
         ],
       }));
 
       triggerUnitFx(unit.id, {
-        banner: { text: "PŘEBITO! [HLAVEŇ NABITA]", tone: "buff" },
+        banner: {
+          text: isNowLoaded
+            ? `PLNĚ NABITO! (${requiredAp}/${requiredAp})`
+            : `NABÍJENÍ ${nextProgress}/${requiredAp} (1 AP)`,
+          tone: "buff",
+        },
       });
     },
 
-    executeMelee: (targetIdArg?: string) => {
+    executeMelee: (targetIdArg?: string, options?: { freeChainAp?: boolean }) => {
       const state = get();
       if (state.isBusy || state.turn !== "player" || state.outcome !== "ongoing")
         return;
 
+      const isFreeChain = options?.freeChainAp === true;
       const attacker = state.units.find((u) => u.id === state.selectedUnitId);
       if (
         !attacker ||
         !attacker.alive ||
-        attacker.ap < 1 ||
+        (!isFreeChain && attacker.ap < 1) ||
         (attacker.detainedTurns ?? 0) > 0 ||
         attacker.hp <= 0
       )
@@ -3739,15 +4188,22 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           attacker.facing,
         );
 
-        const isButt = meleeWeapon.kind === "pistol_butt";
+        const isButt =
+          meleeWeapon.kind === "pistol_butt" ||
+          meleeWeapon.kind === "musket_butt";
+        const spilledReload = !!(
+          meleeWeapon.spillsReloadOnStrike &&
+          attacker.firearmLoaded === false &&
+          (attacker.reloadProgress ?? 0) > 0
+        );
         playMeleeSound(isButt ? "butt" : "blade", outcome.hit, outcome.critical);
 
         const nowTs = performance.now();
         const bloodSev: 0 | 1 | 2 | 3 = !outcome.hit
           ? 0
-          : isButt
+          : isButt && outcome.damage < 6
             ? 1
-            : outcome.critical || outcome.damage >= 4
+            : outcome.critical || outcome.damage >= 5
               ? 3
               : 2;
 
@@ -3760,8 +4216,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               ? {
                   ...u,
                   facing: newFacing,
-                  ap: Math.max(0, u.ap - 1),
+                  ap: isFreeChain ? u.ap : Math.max(0, u.ap - 1),
                   isOverwatch: false,
+                  reloadProgress: spilledReload ? 0 : u.reloadProgress,
                 }
               : u,
           ),
@@ -3787,9 +4244,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
         triggerUnitFx(attacker.id, {
           lunge: true,
-          banner: isButt
-            ? { text: "ÚDER PAŽBOU!", tone: "buff" }
-            : { text: "ÚDER ZBLÍZKA!", tone: "buff" },
+          banner: spilledReload
+            ? { text: "ÚDER PAŽBOU! (PRACH VYSYPÁN)", tone: "overwatch" }
+            : isFreeChain
+              ? { text: "ZTEČ A SEK! (+0 AP)", tone: "buff" }
+              : isButt
+                ? { text: "ÚDER PAŽBOU!", tone: "buff" }
+                : { text: "ÚDER ZBLÍZKA!", tone: "buff" },
         });
 
         // Čekáme na dopad úderu (~680 ms)
@@ -3808,12 +4269,18 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           beforeUnits.find((u) => u.id === target.id) ?? target;
 
         set((s) => {
+          const stunnedByButt =
+            outcome.hit &&
+            (meleeWeapon.stunChance ?? 0) > 0 &&
+            Math.random() * 100 < (meleeWeapon.stunChance ?? 0);
+
           const updatedUnits = s.units.map((u) => {
             if (u.id !== target.id) return u;
             const nextArmor = Math.max(0, u.armor - outcome.armorShredded);
             const nextHp = Math.max(0, u.hp - outcome.damage);
             const shakenNow =
               u.isShaken ||
+              stunnedByButt ||
               (outcome.hit && (outcome.critical || outcome.damage >= 3));
             return {
               ...u,
@@ -3826,6 +4293,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           });
 
           const bonusTags: string[] = [];
+          if (stunnedByButt) bonusTags.push("OMRÁČEN PAŽBOU (Otřesen)");
+          if (spilledReload)
+            bonusTags.push("vysypáno rozpracované nabíjení (0/4 AP)");
           if (outcome.heightAdvantage) bonusTags.push("výšková převaha +15 %");
           if (outcome.armorShredded > 0)
             bonusTags.push(`zničena zbroj −${outcome.armorShredded}`);
@@ -3836,8 +4306,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
           const text = isButt
             ? outcome.hit
-              ? `${attacker.name} udeřil ${target.name} těžkou pažbou bambitky (${outcome.hitChance} %) za ${outcome.damage} HP${outcome.critical ? " — TVRDÝ ÚDER!" : ""}${outcome.killed ? " (OMRÁČEN / PADL)" : ""}${tagSuffix}.`
-              : `${attacker.name} máchl pažbou bambitky naprázdno vedle ${target.name} (${outcome.hitChance} %)${tagSuffix}.`
+              ? `${attacker.name} udeřil ${target.name} pažbou (${meleeWeapon.name}, ${outcome.hitChance} %) za ${outcome.damage} HP${outcome.critical ? " — DRTIVÝ ÚDER!" : ""}${outcome.killed ? " (OMRÁČEN / PADL)" : ""}${tagSuffix}.`
+              : `${attacker.name} máchl pažbou (${meleeWeapon.name}) naprázdno vedle ${target.name} (${outcome.hitChance} %)${tagSuffix}.`
             : outcome.hit
               ? `${attacker.name} zasáhl ${target.name} chladnou zbraní (${meleeWeapon.name}, ${outcome.hitChance} %) za ${outcome.damage} HP${outcome.critical ? " — SMRTÍCÍ SEK!" : ""}${outcome.killed ? " (PADL)" : ""}${tagSuffix}.`
               : `${attacker.name} sekl zbraní ${meleeWeapon.name} vedle ${target.name} (${outcome.hitChance} %)${tagSuffix}.`;
@@ -3983,6 +4453,49 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       )
         return;
 
+      if (
+        unit.firearmLoaded === false ||
+        (unit.id === "player-colloredo" && unit.pistolLoaded === false)
+      ) {
+        set((s) => ({
+          combatLog: [
+            ...s.combatLog,
+            makeLog(
+              s.round,
+              "player",
+              `Zbraň postavy ${unit.name} je vybitá! Nelze přejít do Hlídky / Připravené salvy bez nabité hlavně.`,
+              "alert",
+            ),
+          ],
+        }));
+        triggerUnitFx(unit.id, {
+          banner: { text: "HLAVEŇ VYBITÁ!", tone: "misfire" },
+        });
+        return;
+      }
+
+      const requiredOwAp = unit.weapon.fireApCost ?? 1;
+      if (unit.ap < requiredOwAp) {
+        set((s) => ({
+          combatLog: [
+            ...s.combatLog,
+            makeLog(
+              s.round,
+              "player",
+              `Připravená salva pro těžkou mušketu s furketou (${unit.weapon.name}) vyžaduje ${requiredOwAp} AP!`,
+              "alert",
+            ),
+          ],
+        }));
+        triggerUnitFx(unit.id, {
+          banner: { text: `VYŽADUJE ${requiredOwAp} AP!`, tone: "misfire" },
+        });
+        return;
+      }
+
+      const isConeVolley =
+        unit.weapon.overwatchMode === "prepared_volley_cone";
+
       const updatedUnits = state.units.map((u) =>
         u.id === unit.id ? { ...u, ap: 0, isOverwatch: true } : u,
       );
@@ -4014,14 +4527,19 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           makeLog(
             s.round,
             "player",
-            `${unit.name} přešel do režimu HLÍDKA (OVERWATCH).`,
+            isConeVolley
+              ? `${unit.name} zamířil přední kužel: PŘIPRAVENÁ SALVA (OVERWATCH — kužel ${unit.facing}).`
+              : `${unit.name} přešel do režimu HLÍDKA (OVERWATCH 360°).`,
             "overwatch",
           ),
         ],
       }));
 
       triggerUnitFx(unit.id, {
-        banner: { text: "OVERWATCH", tone: "overwatch" },
+        banner: {
+          text: isConeVolley ? "PŘIPRAVENÁ SALVA" : "OVERWATCH 360°",
+          tone: "overwatch",
+        },
       });
     },
 
@@ -4906,45 +5424,168 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             });
 
             await performOverwatchReactionsIfAny(enemy.id, dest, plan.movePath);
-
-            // Zkontrolujeme, zda se živý švédský voják po pohybu neocitl přímo u nechráněného maršála Colloreda
-            const postMoveEnemy = get().units.find(
-              (u) => u.id === enemy.id && u.alive && u.hp > 0,
-            );
-            if (postMoveEnemy) {
-              const captureSync = syncColloredoCaptureState(get().units);
-              if (captureSync.newlyDetained) {
-                set((s) => ({
-                  units: syncColloredoMobility(captureSync.units),
-                  combatLog: [
-                    ...s.combatLog,
-                    makeLog(
-                      s.round,
-                      "enemy",
-                      `POZOR (ZADRŽEN 1/2 KOLA): ${postMoveEnemy.name} pronikl těsně k nechráněnému maršálu Colloredovi a drží jej v šachu! Máte příští tah na vyproštění velitele, jinak bude zajat!`,
-                      "alert",
-                    ),
-                  ],
-                }));
-                triggerUnitFx("player-colloredo", {
-                  hit: true,
-                  banner: { text: "ZADRŽEN! (1/2)", tone: "crit" },
-                });
-              }
-            }
-
             await delay(220);
           }
 
           const updatedEnemy = get().units.find(
-            (u) => u.id === enemyId && u.alive,
+            (u) => u.id === enemyId && u.alive && u.hp > 0,
           );
-          if (
-            !updatedEnemy ||
-            updatedEnemy.ap <= 0 ||
-            get().outcome !== "ongoing"
-          )
+          if (!updatedEnemy || get().outcome !== "ongoing")
             continue;
+
+          const colloredo = get().units.find(
+            (u) => u.id === "player-colloredo" && u.alive,
+          );
+
+          // 1. ZAJETÍ HRABĚTE (1 AP):
+          // Švédové po hraběti nestřílí, ale zajmou ho tak, že buď utratí 1 AP těsně vedle něj
+          // nebo do tří políček u něj, pokud mají nabitou palnou zbraň.
+          if (colloredo && updatedEnemy.ap >= 1) {
+            const capCheck = checkEnemyColloredoCapture(
+              get().grid,
+              updatedEnemy,
+              colloredo,
+            );
+            if (capCheck.canCapture) {
+              const captureFacing = facingFromDelta(
+                updatedEnemy.pos,
+                colloredo.pos,
+                updatedEnemy.facing,
+              );
+              const logMsg = capCheck.isAdjacent
+                ? `${updatedEnemy.name} přistoupil těsně k hraběti Colloredovi, utratil 1 AP a zajímá jej!`
+                : `${updatedEnemy.name} namířil nabitou mušketu na hraběte Colloreda (${capCheck.distanceTiles} ${capCheck.distanceTiles === 1 ? "pole" : capCheck.distanceTiles <= 4 ? "pole" : "polí"}), utratil 1 AP a drží jej v šachu: „Stůjte, pane hrabě! Ani hnutí!“ — Hrabě Colloredo je zajat!`;
+
+              set((s) => ({
+                units: s.units.map((u) =>
+                  u.id === updatedEnemy.id
+                    ? {
+                        ...u,
+                        ap: Math.max(0, u.ap - 1),
+                        facing: captureFacing,
+                      }
+                    : u.id === colloredo.id
+                      ? {
+                          ...u,
+                          ap: 0,
+                          detainedTurns: 2,
+                          captureReason: "surrounded_unprotected",
+                        }
+                      : u,
+                ),
+                combatLog: [
+                  ...s.combatLog,
+                  makeLog(s.round, "enemy", logMsg, "alert"),
+                ],
+              }));
+
+              triggerUnitFx(updatedEnemy.id, {
+                lunge: true,
+                banner: {
+                  text: capCheck.isGunpoint ? "DRŽÍ V ŠACHU (1 AP)" : "ZAJETÍ (1 AP)",
+                  tone: "crit",
+                },
+              });
+              triggerUnitFx(colloredo.id, {
+                hit: true,
+                banner: { text: "ZAJAT ŠVÉDY! (2/2)", tone: "crit" },
+              });
+
+              playHitSound(true, 2);
+              await delay(850);
+
+              await playCaptureFinalAnimationAndDefeat(
+                "surrounded_unprotected",
+                get().round,
+              );
+              return;
+            }
+          }
+
+          // Pokud voják dorazil k hraběti, ale vyčerpal všechna AP na přesun (sprint 2 AP):
+          // Hrabě je v bezprostředním ohrožení (zadržen 1/2 kola) — hráč má 1 tah na reakci!
+          if (colloredo && updatedEnemy.ap === 0) {
+            const capCheck = checkEnemyColloredoCapture(
+              get().grid,
+              updatedEnemy,
+              colloredo,
+            );
+            if (capCheck.canCapture) {
+              const warningMsg = capCheck.isAdjacent
+                ? `POZOR (HROZBA ZAJETÍ): ${updatedEnemy.name} pronikl těsně k hraběti Colloredovi, ale vyčerpal AP na přesun! Pokud jej v příštím tahu nezlikvidujete nebo neustoupíte, hrabě bude zajat!`
+                : `POZOR (HROZBA ZAJETÍ): ${updatedEnemy.name} namířil nabitou mušketu na hraběte Colloreda (${capCheck.distanceTiles} pole), ale vyčerpal AP na pohyb! Pokud v příštím tahu nezrušíte přímou viditelnost nebo jej nezlikvidujete, hrabě bude zajat!`;
+
+              set((s) => ({
+                units: s.units.map((u) =>
+                  u.id === colloredo.id
+                    ? {
+                        ...u,
+                        detainedTurns: 1,
+                        captureReason: "surrounded_unprotected",
+                      }
+                    : u,
+                ),
+                combatLog: [
+                  ...s.combatLog,
+                  makeLog(s.round, "enemy", warningMsg, "alert"),
+                ],
+              }));
+
+              triggerUnitFx(colloredo.id, {
+                hit: true,
+                banner: { text: "HROZBA ZAJETÍ! (1/2)", tone: "crit" },
+              });
+            }
+          }
+
+          if (updatedEnemy.ap <= 0)
+            continue;
+
+          // Pokud má nepřítel vybitou mušketu, provede fázové nabíjení (po 1 AP)
+          if (updatedEnemy.firearmLoaded === false) {
+            const reqReloadAp = updatedEnemy.weapon.reloadApCost ?? 2;
+            const curReload = updatedEnemy.reloadProgress ?? 0;
+            const stepsSpent = Math.min(
+              updatedEnemy.ap,
+              Math.max(1, reqReloadAp - curReload),
+            );
+            const nextReload = Math.min(reqReloadAp, curReload + stepsSpent);
+            const isNowLoaded = nextReload >= reqReloadAp;
+
+            set((s) => ({
+              units: s.units.map((u) =>
+                u.id === updatedEnemy.id
+                  ? {
+                      ...u,
+                      ap: Math.max(0, u.ap - stepsSpent),
+                      reloadProgress: isNowLoaded ? 0 : nextReload,
+                      firearmLoaded: isNowLoaded,
+                    }
+                  : u,
+              ),
+              combatLog: [
+                ...s.combatLog,
+                makeLog(
+                  s.round,
+                  "enemy",
+                  isNowLoaded
+                    ? `${updatedEnemy.name} dokončil nabíjení muškety (${reqReloadAp}/${reqReloadAp} AP) s papírovou patronou!`
+                    : `${updatedEnemy.name} fázově nabíjí mušketu (${nextReload}/${reqReloadAp} AP).`,
+                  "info",
+                ),
+              ],
+            }));
+            triggerUnitFx(updatedEnemy.id, {
+              banner: {
+                text: isNowLoaded
+                  ? `NABITO (${reqReloadAp}/${reqReloadAp})`
+                  : `NABÍJENÍ ${nextReload}/${reqReloadAp}`,
+                tone: "buff",
+              },
+            });
+            await delay(240);
+            continue;
+          }
 
           const targets = evaluateVisibleTargets(
             get().grid,
@@ -4959,7 +5600,16 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             const targetUnit = get().units.find(
               (u) => u.id === chosenTargetEval.targetId && u.alive,
             );
-            if (targetUnit) {
+            if (
+              targetUnit &&
+              targetUnit.id !== "player-colloredo" &&
+              !isCompanionProtectedByCount(
+                get().grid,
+                updatedEnemy.pos,
+                targetUnit,
+                get().units,
+              )
+            ) {
               const outcome = rollRangedAttack(
                 updatedEnemy,
                 targetUnit,
@@ -4980,6 +5630,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               } else {
                 playGunshotSound(updatedEnemy.weapon.lockType === "wheellock");
               }
+
+              const enemyFireAp = updatedEnemy.weapon.fireApCost ?? 1;
 
               const impactMeta = resolveShotImpactMetadata(
                 get().grid,
@@ -5019,7 +5671,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                 ],
                 units: s.units.map((u) =>
                   u.id === updatedEnemy.id
-                    ? { ...u, facing: shotFacing, ap: 0 }
+                    ? {
+                        ...u,
+                        facing: shotFacing,
+                        ap: Math.max(0, u.ap - enemyFireAp),
+                        firearmLoaded: false,
+                        reloadProgress: 0,
+                      }
                     : u,
                 ),
                 activeProjectile: {
@@ -5103,21 +5761,11 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                   syncedUnits.find((u) => u.id === targetUnit.id) ??
                   beforeEnemyShotTarget;
 
-                const isColloredo = targetUnit.id === "player-colloredo";
-                const targetNextHp = Math.max(0, targetUnit.hp - outcome.damage);
                 const msg = outcome.misfired
-                  ? isColloredo
-                    ? `${updatedEnemy.name} pálil na nohy maršála Colloreda (snaha zajmout pro výkupné), ale doutnák v dešti selhal!`
-                    : `${updatedEnemy.name} chtěl vystřelit na ${targetUnit.name}, ale doutnák v dešti selhal!`
+                  ? `${updatedEnemy.name} chtěl vystřelit na ${targetUnit.name}, ale doutnák v dešti selhal!`
                   : outcome.hit
-                    ? isColloredo && targetNextHp <= 0
-                      ? `${updatedEnemy.name} srazil maršála Colloreda k zemi (0 HP)! Švédové se jej chystají spoutat pro výkupné (zadržen 1/2 kola — vyprostěte jej)!`
-                      : isColloredo
-                        ? `${updatedEnemy.name} postřelil maršála Colloreda (${outcome.hitChance} %) za ${outcome.damage} HP (Švédové míří na nohy — chtějí velitele živého pro výkupné)!`
-                        : `${updatedEnemy.name} zasáhl ${targetUnit.name} (${outcome.hitChance} %) za ${outcome.damage} HP${outcome.armorShredded > 0 ? ` (−${outcome.armorShredded} zbroj)` : ""}${outcome.critical ? " (KRITICKÝ!)" : ""}!`
-                    : isColloredo
-                      ? `${updatedEnemy.name} vystřelil na maršála Colloreda (${outcome.hitChance} %), ale kulka neškodně minula do zdi.`
-                      : `${updatedEnemy.name} vystřelil na ${targetUnit.name} (${outcome.hitChance} %), ale minul.`;
+                    ? `${updatedEnemy.name} zasáhl ${targetUnit.name} (${outcome.hitChance} %) za ${outcome.damage} HP${outcome.armorShredded > 0 ? ` (−${outcome.armorShredded} zbroj)` : ""}${outcome.critical ? " (KRITICKÝ!)" : ""}!`
+                    : `${updatedEnemy.name} vystřelil na ${targetUnit.name} (${outcome.hitChance} %), ale minul.`;
 
                 const outcomeCheck = checkMissionOutcome(s.grid, syncedUnits);
                 if (outcomeCheck.outcome === "defeat") {
@@ -5209,6 +5857,26 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                 );
                 return;
               }
+
+              // Pokud střelci se švédskou odlehčenou mušketou (1 AP výstřel) zbyl 1 AP, zahájí 1. krok nabíjení (1/2)
+              const afterShotEnemy = get().units.find(
+                (u) => u.id === updatedEnemy.id && u.alive && u.ap >= 1,
+              );
+              if (afterShotEnemy && afterShotEnemy.firearmLoaded === false) {
+                const reqAp = afterShotEnemy.weapon.reloadApCost ?? 2;
+                set((s) => ({
+                  units: s.units.map((u) =>
+                    u.id === afterShotEnemy.id
+                      ? {
+                          ...u,
+                          ap: 0,
+                          reloadProgress: 1,
+                          firearmLoaded: 1 >= reqAp,
+                        }
+                      : u,
+                  ),
+                }));
+              }
             }
           } else {
             set((s) => ({
@@ -5222,13 +5890,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                 makeLog(
                   s.round,
                   "enemy",
-                  `${updatedEnemy.name} zaujal kryt a drží Overwatch.`,
+                  `${updatedEnemy.name} zaujal kryt a drží Připravenou salvu (OVERWATCH — kužel ${updatedEnemy.facing}).`,
                   "overwatch",
                 ),
               ],
             }));
             triggerUnitFx(updatedEnemy.id, {
-              banner: { text: "OVERWATCH", tone: "overwatch" },
+              banner: { text: "PŘIPRAVENÁ SALVA", tone: "overwatch" },
             });
             await delay(240);
           }

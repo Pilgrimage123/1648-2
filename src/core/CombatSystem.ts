@@ -373,28 +373,30 @@ export class CombatCalculator {
     // 1. LEVÝ PANEL: MODIFIKÁTORY ŠANCE NA ZÁSAH (Hit Modifiers)
     // =========================================================================
 
-    // A) Základní přesnost střelce (Base Marksmanship) + přesnost zbraně
-    const baseMarksmanship = shooter.marksmanship;
+    // A) Základní přesnost zbraně (Base Aim) + střelecká zkušenost vojáka
+    const weaponBaseAim = weapon.baseAccuracy;
     hitModifiers.push({
-      id: "base-marksmanship",
-      label: "Základní přesnost střelce",
-      detail: shooter.roleTitle,
-      value: baseMarksmanship,
+      id: "weapon-accuracy",
+      label: `Základní přesnost (${weapon.name})`,
+      detail: weapon.supportsRestFork
+        ? "Dlouhá hlaveň + stabilita opěrné vidlice (furkety)"
+        : weapon.lockType === "wheellock"
+          ? "Kolečkový zámek (rychlý zážeh jiskrou)"
+          : "Kratší hlaveň, střelba z ruky bez opory (Model 1624)",
+      value: weaponBaseAim,
       unit: "%",
       kind: "base",
     });
 
-    if (weapon.baseAccuracy !== 0) {
+    const shooterSkillBonus = shooter.marksmanship - 65;
+    if (shooterSkillBonus !== 0) {
       hitModifiers.push({
-        id: "weapon-accuracy",
-        label: `Přesnost zbraně (${weapon.name})`,
-        detail:
-          weapon.lockType === "wheellock"
-            ? "Kolečkový zámek (rychlý zážeh)"
-            : "Hladká hlaveň s doutnákovým zámkem",
-        value: weapon.baseAccuracy,
+        id: "base-marksmanship",
+        label: `Střelecká zkušenost (${shooter.name})`,
+        detail: shooter.roleTitle,
+        value: shooterSkillBonus,
         unit: "%",
-        kind: weapon.baseAccuracy > 0 ? "bonus" : "penalty",
+        kind: shooterSkillBonus > 0 ? "bonus" : "penalty",
       });
     }
 
@@ -424,7 +426,7 @@ export class CombatCalculator {
     } else {
       hitModifiers.push({
         id: "distance-optimal",
-        label: `Optimální dostřel (${distance} polí)`,
+        label: `Efektivní dostřel (${distance} polí)`,
         detail: "Bez postihu za rozptyl kule",
         value: 0,
         unit: "%",
@@ -492,34 +494,41 @@ export class CombatCalculator {
       });
     }
 
-    // E) Kouř z černého prachu (Smoke Horizon Piercing ADR-0010)
+    // E) Černý prach a dým (Black Powder Smoke):
+    // - Střelba z políčka zahaleného dýmem má postih -10 % Aim
+    // - Cíl v oblaku dýmu má +15 % Obranu (-15 % k zásahu; při střelbě shora přes nízký dým -10 %)
     const shooterInSmoke = (shooterTile?.smokeTurns ?? 0) > 0;
     const targetInSmoke = (targetTile?.smokeTurns ?? 0) > 0;
     let smokeModifier = 0;
-    if (shooterInSmoke || targetInSmoke) {
-      if (fromPos.y > target.pos.y && !shooterInSmoke && targetInSmoke) {
-        // Střelec z vyvýšeného patra nahlíží přes nízký přízemní dým: -10 % místo -20 %
-        smokeModifier = -10;
+    if (shooterInSmoke) {
+      smokeModifier -= 10;
+      hitModifiers.push({
+        id: "shooter-smoke-aim",
+        label: "Střelba z oblaku dýmu (-10 % Aim)",
+        detail: "Hustý dým z černého prachu na políčku střelce zhoršuje míření",
+        value: -10,
+        unit: "%",
+        kind: "penalty",
+      });
+    }
+    if (targetInSmoke) {
+      if (fromPos.y > target.pos.y && !shooterInSmoke) {
+        smokeModifier -= 10;
         hitModifiers.push({
           id: "smoke-horizon-piercing",
           label: "Průhled z výšky přes dým (Smoke Piercing)",
           detail: "Střelba shora přes přízemní kouř z černého prachu (-10 %)",
-          value: smokeModifier,
+          value: -10,
           unit: "%",
           kind: "penalty",
         });
       } else {
-        smokeModifier = -20;
+        smokeModifier -= 15;
         hitModifiers.push({
           id: "black-powder-smoke",
-          label: "Kouř z černého prachu (Black Powder Smoke)",
-          detail:
-            shooterInSmoke && targetInSmoke
-              ? "Střelec i cíl stojí v dýmu z předchozích salv"
-              : shooterInSmoke
-                ? "Střelec stojí v hustém dýmu ze střelného prachu"
-                : "Cíl je zahalen dýmem z předchozích salv",
-          value: smokeModifier,
+          label: "Oblak dýmu v cíli (+15 Obrana)",
+          detail: "Cíl je zahalen dýmem z černého prachu (+15 % Obrana cíle)",
+          value: -15,
           unit: "%",
           kind: "penalty",
         });
@@ -550,26 +559,44 @@ export class CombatCalculator {
       });
     }
 
-    // G) Stav střelce: Opření muškety o furketu (vidlici) (+15 %) a Otřesení morálky (-20 %)
-    const forkActive = weapon.supportsRestFork && !shooter.movedThisTurn;
-    const forkModifier = forkActive ? 15 : 0;
-    if (forkActive) {
-      hitModifiers.push({
-        id: "musket-rest-fork",
-        label: "Opření muškety o furketu (vidlici)",
-        detail: "Střelec se v tomto tahu nepohnul a stabilizoval hlaveň",
-        value: forkModifier,
-        unit: "%",
-        kind: "bonus",
-      });
+    // G) Stav střelce: Těžká mušketa s furketou (2 AP bez pohybu vs. nouzová střelba od boku za 1 AP s -35 % Aim a Otřesením)
+    const requiresTwoApFork = (weapon.fireApCost ?? 1) === 2;
+    const isHipFire =
+      requiresTwoApFork &&
+      !!weapon.allowEmergencyHipFire &&
+      (shooter.movedThisTurn || shooter.ap < 2);
+    const fireApCost: 1 | 2 = requiresTwoApFork && !isHipFire ? 2 : 1;
+
+    let forkOrHipModifier = 0;
+    if (requiresTwoApFork) {
+      if (isHipFire) {
+        forkOrHipModifier = -(weapon.hipFireAimPenalty ?? 35);
+        hitModifiers.push({
+          id: "emergency-hip-fire",
+          label: "Nouzová střelba od boku (1 AP, bez furkety)",
+          detail: "Výstřel 8kg muškety z ruky (-35 % Aim, zpětný ráz způsobí stav Otřesený!)",
+          value: forkOrHipModifier,
+          unit: "%",
+          kind: "penalty",
+        });
+      } else {
+        hitModifiers.push({
+          id: "musket-rest-fork",
+          label: "Rozložená furketa (opěrná vidlice, 2 AP)",
+          detail: "Střelec se v kole výstřelu nepohnul a stabilizoval těžkou hlaveň",
+          value: 0,
+          unit: "%",
+          kind: "neutral",
+        });
+      }
     }
 
     const shakenModifier = shooter.isShaken ? -20 : 0;
     if (shooter.isShaken) {
       hitModifiers.push({
         id: "morale-shaken",
-        label: "Otřesená morálka (Suppressed / Shaken)",
-        detail: "Třes rukou pod nepřátelskou palbou",
+        label: "Otřesený střelec (Shaken)",
+        detail: "Třes rukou pod palbou nebo po zpětném rázu těžké muškety (-20 %)",
         value: shakenModifier,
         unit: "%",
         kind: "penalty",
@@ -632,14 +659,14 @@ export class CombatCalculator {
     }
 
     const rawHitChance =
-      baseMarksmanship +
-      weapon.baseAccuracy +
+      weaponBaseAim +
+      shooterSkillBonus +
       distanceModifier +
       coverModifier +
       heightModifier +
       smokeModifier +
       weatherHitModifier +
-      forkModifier +
+      forkOrHipModifier +
       shakenModifier +
       marshalModifier +
       abilityHitModifier;
@@ -651,10 +678,14 @@ export class CombatCalculator {
     // =========================================================================
 
     // A) Základní šance zbraně na kritický zásah
+    const critDamageLabel =
+      weapon.critBonusMaxDamage && weapon.critBonusMaxDamage > weapon.critBonusDamage
+        ? `+${weapon.critBonusDamage} až +${weapon.critBonusMaxDamage} HP`
+        : `+${weapon.critBonusDamage} HP`;
     critModifiers.push({
       id: "base-weapon-crit",
       label: `Základní šance zbraně (${weapon.name})`,
-      detail: `Bonus kritického zásahu +${weapon.critBonusDamage} HP`,
+      detail: `Bonus kritického poškození ${critDamageLabel}`,
       value: weapon.baseCritChance,
       unit: "%",
       kind: "base",
@@ -753,7 +784,7 @@ export class CombatCalculator {
     }
 
     // =========================================================================
-    // 3. ŠANCE NA SELHÁNÍ VÝSTŘELU (Misfire % — specifikum 17. století)
+    // 3. ŠANCE NA SELHÁNÍ VÝSTŘELU (Misfire % — v dešti mají doutnákové zámky 20 % šanci)
     // =========================================================================
     let weatherMisfireAdd = 0;
     if (weather === "rain") {
@@ -828,6 +859,9 @@ export class CombatCalculator {
       minDamage: weapon.minDamage,
       maxDamage: weapon.maxDamage,
       critBonusDamage: weapon.critBonusDamage,
+      critBonusMaxDamage: weapon.critBonusMaxDamage,
+      fireApCost,
+      isHipFire,
       armorPierce: effectiveArmorPierce,
       armorShred: weapon.armorShred,
       expectedArmorLoss,
@@ -859,6 +893,117 @@ export function calculateShot(
   );
 }
 
+export interface ColloredoCaptureCheck {
+  canCapture: boolean;
+  isAdjacent: boolean;
+  isGunpoint: boolean;
+  distanceTiles: number;
+}
+
+/**
+ * Zkontroluje, zda švédský voják může zajmout hraběte Colloreda za 1 AP:
+ * - Buď těsně vedle něj (Chebyshev <= 1, stejné patro, nejde o stejné pole)
+ * - Nebo do tří políček u něj (Chebyshev <= 3, |dy| <= 1), pokud má nabitou palnou zbraň a přímou viditelnost
+ */
+export function checkEnemyColloredoCapture(
+  grid: GridSystem,
+  enemy: UnitData,
+  colloredo: UnitData,
+  fromPos?: GridCoord,
+): ColloredoCaptureCheck {
+  const pos = fromPos ?? enemy.pos;
+  const noCapture: ColloredoCaptureCheck = {
+    canCapture: false,
+    isAdjacent: false,
+    isGunpoint: false,
+    distanceTiles: 999,
+  };
+
+  if (!enemy.alive || enemy.hp <= 0) return noCapture;
+  if (!colloredo.alive) return noCapture;
+
+  const dx = Math.abs(pos.x - colloredo.pos.x);
+  const dz = Math.abs(pos.z - colloredo.pos.z);
+  const dy = Math.abs(pos.y - colloredo.pos.y);
+  const chebyshevDist = Math.max(dx, dz);
+
+  // 1. Těsně vedle něj (Chebyshev <= 1, stejné patro dy === 0, nejde o stejné pole)
+  const isAdjacent =
+    pos.y === colloredo.pos.y && dx <= 1 && dz <= 1 && !(dx === 0 && dz === 0);
+  if (isAdjacent) {
+    return {
+      canCapture: true,
+      isAdjacent: true,
+      isGunpoint: false,
+      distanceTiles: chebyshevDist,
+    };
+  }
+
+  // 2. Do tří políček u něj, pokud mají nabitou palnou zbraň
+  const isWithin3Tiles = chebyshevDist <= 3 && dy <= 1;
+  const hasLoadedFirearm = enemy.firearmLoaded !== false;
+
+  if (isWithin3Tiles && hasLoadedFirearm) {
+    const los = checkLineOfSight3D(grid, pos, colloredo.pos);
+    if (los.clear) {
+      return {
+        canCapture: true,
+        isAdjacent: false,
+        isGunpoint: true,
+        distanceTiles: chebyshevDist,
+      };
+    }
+  }
+
+  return noCapture;
+}
+
+/**
+ * Ověří, zda je daná hráčská jednotka chráněna přítomností hraběte Colloreda:
+ * - Hráčská jednotka je do 3 políček od hraběte (Chebyshev <= 3, |dy| <= 1).
+ * - Střelec ze své pozice vidí hraběte (přímá 3D viditelnost bez neprůhledných překážek a hustého dýmu).
+ * Pokud jsou obě podmínky splněny, Švédové na tuto postavu nebudou střílet,
+ * aby neriskovali zbloudilou kulku a usmrcení maršála, kterého potřebují živého pro tučné výkupné.
+ */
+export function isCompanionProtectedByCount(
+  grid: GridSystem,
+  shooterPos: GridCoord,
+  targetUnit?: UnitData | null,
+  allUnits: UnitData[] = [],
+): boolean {
+  if (!targetUnit || targetUnit.faction !== "player") return false;
+  if (targetUnit.id === "player-colloredo") return true;
+
+  const colloredo = allUnits.find(
+    (u) => u.id === "player-colloredo" && u.alive,
+  );
+  if (!colloredo) return false;
+
+  const dx = Math.abs(targetUnit.pos.x - colloredo.pos.x);
+  const dz = Math.abs(targetUnit.pos.z - colloredo.pos.z);
+  const dy = Math.abs(targetUnit.pos.y - colloredo.pos.y);
+  const within3Tiles = Math.max(dx, dz) <= 3 && dy <= 1;
+
+  if (!within3Tiles) return false;
+
+  // Vidí střelec hraběte?
+  const losToCount = checkLineOfSight3D(grid, shooterPos, colloredo.pos);
+  if (!losToCount.clear) return false;
+
+  // Ověření kouře mezi střelcem a hrabětem
+  if (shooterPos.y <= colloredo.pos.y && losToCount.ray.length > 2) {
+    for (let i = 1; i < losToCount.ray.length - 1; i++) {
+      const stepCoord = losToCount.ray[i]!;
+      const stepTile = grid.getTile(stepCoord);
+      if (stepTile && stepTile.smokeTurns > 0 && stepCoord.y >= shooterPos.y) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
 /**
  * Vyhodnotí všechny živé nepřátele z pohledu střelce `attacker`.
  * Vrací pouze cíle, které jsou v dosahu zbraně, mají čistou 3D Bresenhamovu přímou viditelnost (LoS)
@@ -887,6 +1032,19 @@ export function evaluateVisibleTargets(
     if (!unit.alive || unit.hp <= 0 || unit.faction === attacker.faction)
       continue;
     if (visibleEnemyIds && !visibleEnemyIds.has(unit.id)) continue;
+
+    // Švédové po hraběti nikdy nestřílí!
+    if (attacker.faction === "enemy" && unit.id === "player-colloredo") {
+      continue;
+    }
+
+    // Švédové nestřílí na hráčskou postavu, pokud je do 3 políček od hraběte a střelec hraběte vidí
+    if (
+      attacker.faction === "enemy" &&
+      isCompanionProtectedByCount(grid, fromPos, unit, allUnits)
+    ) {
+      continue;
+    }
 
     const dist = gridDistance3D(fromPos, unit.pos);
     const inRange = dist <= attacker.weapon.maxRange;
@@ -984,11 +1142,17 @@ export function rollRangedAttack(
   const span = attacker.weapon.maxDamage - attacker.weapon.minDamage + 1;
   const rawRollDamage =
     attacker.weapon.minDamage + Math.floor(rng() * Math.max(1, span));
+  const critMin = attacker.weapon.critBonusDamage;
+  const critMax = attacker.weapon.critBonusMaxDamage ?? critMin;
+  const critSpan = Math.max(1, critMax - critMin + 1);
+  const rolledCritBonus = critical
+    ? critMin + Math.floor(rng() * critSpan)
+    : 0;
   const isVerdict =
     attacker.abilityBuffActive && attacker.ability?.id === "klementinum_verdict";
   const rawDamage =
     rawRollDamage +
-    (critical ? attacker.weapon.critBonusDamage : 0) +
+    rolledCritBonus +
     (isVerdict ? 3 : 0);
 
   // Destrukce zbroje (Shred) a průraz (Pierce)
@@ -1333,18 +1497,44 @@ export function facingFromDelta(
   return dz >= 0 ? "S" : "N";
 }
 
+/**
+ * Zkontroluje, zda cílová dlaždice leží v úzkém 90° předním kuželu Připravené salvy
+ * doutnákové muškety podle směru natočení střelce (facing).
+ */
+export function isInPreparedVolleyCone(
+  watcherPos: GridCoord,
+  watcherFacing: CardinalDir,
+  targetCoord: GridCoord,
+): boolean {
+  const dx = targetCoord.x - watcherPos.x;
+  const dz = targetCoord.z - watcherPos.z;
+  if (dx === 0 && dz === 0) return false;
+  switch (watcherFacing) {
+    case "N":
+      return dz < 0 && Math.abs(dx) <= Math.abs(dz);
+    case "S":
+      return dz > 0 && Math.abs(dx) <= Math.abs(dz);
+    case "E":
+      return dx > 0 && Math.abs(dz) <= Math.abs(dx);
+    case "W":
+      return dx < 0 && Math.abs(dz) <= Math.abs(dx);
+  }
+}
+
 export interface EnemyAiDecision {
   movePath: GridCoord[];
   moveApCost: number;
   targetId: string | null;
   doorToOpen?: GridCoord | null;
+  isCaptureAction?: boolean;
 }
 
 /**
  * Taktická AI pro nepřátelskou jednotku:
- * 1. Vyhodnotí současnou dlaždici a všechna pole dosažitelná za 1 AP (Modrá zóna).
- * 2. Preferuje dlaždice s krytem proti hráčovým žoldnéřům, výškovou převahu a čistý výstřel.
- * 3. Pokud z 1 AP nelze vystřelit, přesune se (sprint 2 AP) ke krytu blíže k hráči.
+ * 1. Švédové po hraběti nestřílí, ale zajmou ho tak, že buď utratí 1 AP těsně vedle něj
+ *    nebo do tří políček u něj, pokud mají nabitou palnou zbraň.
+ * 2. Na ostatní hráčské postavy klidně pálí a útočí, ale nebudou na ně střílet,
+ *    pokud je hráčská postava do tří políček od hraběte (a střelec vidí hraběte).
  */
 export function computeEnemyAiDecision(
   grid: GridSystem,
@@ -1359,7 +1549,7 @@ export function computeEnemyAiDecision(
     (u) => u.id === "player-colloredo" && u.alive,
   );
   if ((players.length === 0 && !colloredoUnit) || !enemy.alive || enemy.ap <= 0) {
-    return { movePath: [], moveApCost: 0, targetId: null };
+    return { movePath: [], moveApCost: 0, targetId: null, isCaptureAction: false };
   }
 
   const reachable = computeReachableTiles(grid, enemy, allUnits);
@@ -1374,7 +1564,12 @@ export function computeEnemyAiDecision(
   const candidates: CandidateSpot[] = [];
 
   const evaluateSpot = (coord: GridCoord, apCost: number) => {
-    const canShootAfter = enemy.ap - apCost >= 1;
+    const requiredFireAp = enemy.weapon.fireApCost ?? 1;
+    const canShootAfter =
+      enemy.firearmLoaded !== false &&
+      (requiredFireAp === 1
+        ? enemy.ap - apCost >= 1
+        : apCost === 0 && !enemy.movedThisTurn && enemy.ap >= requiredFireAp);
     const tile = grid.getTile(coord);
     if (!tile) return;
 
@@ -1406,27 +1601,43 @@ export function computeEnemyAiDecision(
             : -15;
 
     const heightScore = coord.y > 0 ? 18 : 0;
+    const remainingAp = enemy.ap - apCost;
 
-    // Bonus za těsné obklíčení / střežení maršála Colloreda (vzdálenost <= 1 na stejném patře)
-    const adjacentToColloredo =
-      colloredoUnit &&
-      coord.y === colloredoUnit.pos.y &&
-      Math.abs(coord.x - colloredoUnit.pos.x) <= 1 &&
-      Math.abs(coord.z - colloredoUnit.pos.z) <= 1;
-    const colloredoHasEscort =
-      colloredoUnit &&
-      allUnits.some(
-        (u) =>
-          u.faction === "player" &&
-          u.alive &&
-          u.hp > 0 &&
-          u.id !== "player-colloredo" &&
-          u.pos.y === colloredoUnit.pos.y &&
-          Math.abs(u.pos.x - colloredoUnit.pos.x) <= 1 &&
-          Math.abs(u.pos.z - colloredoUnit.pos.z) <= 1,
+    // 1. Ověření možnosti zajmout hraběte Colloreda za 1 AP z tohoto místa:
+    // Švédové po hraběti nestřílí, ale zajmou ho tak, že buď utratí 1 AP těsně vedle něj
+    // nebo do tří políček u něj, pokud mají nabitou palnou zbraň.
+    if (colloredoUnit && remainingAp >= 1) {
+      const captureCheck = checkEnemyColloredoCapture(
+        grid,
+        enemy,
+        colloredoUnit,
+        coord,
       );
-    const captureProximityBonus =
-      adjacentToColloredo && !colloredoHasEscort ? 55 : 0;
+      if (captureCheck.canCapture) {
+        // Nejvyšší možná priorita: Švédský voják může dosáhnout pozice a utratit 1 AP k zajetí hraběte!
+        candidates.push({
+          coord,
+          apCost,
+          score:
+            4000 +
+            (captureCheck.isAdjacent ? 150 : 100) -
+            apCost * 15,
+          bestTargetId: "player-colloredo",
+        });
+        return;
+      }
+    }
+
+    // Snaha přiblížit se k hraběti na dosah zajetí (3 pole s nabitou mušketou nebo 1 pole)
+    const distToColloredo = colloredoUnit
+      ? Math.max(
+          Math.abs(coord.x - colloredoUnit.pos.x),
+          Math.abs(coord.z - colloredoUnit.pos.z),
+        )
+      : Infinity;
+    const capturePursuitScore = colloredoUnit
+      ? Math.max(0, (18 - distToColloredo) * 12)
+      : 0;
 
     if (canShootAfter) {
       const simulatedEnemy: UnitData = {
@@ -1442,23 +1653,12 @@ export function computeEnemyAiDecision(
         coord,
       );
       if (targets.length > 0) {
-        // Švédský přepadový oddíl má rozkaz maršála nezabít, ale zajmout pro tučné výkupné!
-        // Prioritně cílí na Colloreda, pokud ještě není zadržen.
-        const colloredoTarget = targets.find(
-          (t) =>
-            t.targetId === "player-colloredo" &&
-            (colloredoUnit?.detainedTurns ?? 0) === 0,
-        );
-        const bestTarget =
-          colloredoTarget && colloredoTarget.calculation.hitChance >= 25
-            ? colloredoTarget
-            : targets[0]!;
-
-        const isVipTarget = bestTarget.targetId === "player-colloredo";
+        // evaluateVisibleTargets již garantuje, že cíl není hrabě Colloredo
+        // ani spojenec do 3 políček od hraběte, pokud na hraběte střelec vidí!
+        const bestTarget = targets[0]!;
         const shotScore =
           bestTarget.calculation.hitChance * 1.4 +
-          (bestTarget.calculation.isFlanked ? 25 : 0) +
-          (isVipTarget ? 45 : 0); // Vysoká priorita zajetí velkopřevora
+          (bestTarget.calculation.isFlanked ? 25 : 0);
         candidates.push({
           coord,
           apCost,
@@ -1467,7 +1667,7 @@ export function computeEnemyAiDecision(
             coverScore +
             heightScore +
             shotScore +
-            captureProximityBonus -
+            capturePursuitScore -
             apCost * 6,
           bestTargetId: bestTarget.targetId,
         });
@@ -1476,17 +1676,13 @@ export function computeEnemyAiDecision(
     }
 
     const distDiff = Math.abs(nearestDist - 6);
-    const interceptScore = colloredoUnit
-      ? Math.max(0, (12 - gridDistance3D(coord, colloredoUnit.pos)) * 4)
-      : 0;
     candidates.push({
       coord,
       apCost,
       score:
         coverScore +
         heightScore +
-        interceptScore +
-        captureProximityBonus -
+        capturePursuitScore -
         distDiff * 6,
       bestTargetId: null,
     });
@@ -1501,7 +1697,7 @@ export function computeEnemyAiDecision(
   candidates.sort((a, b) => b.score - a.score);
   const chosen = candidates[0];
   if (!chosen) {
-    return { movePath: [], moveApCost: 0, targetId: null };
+    return { movePath: [], moveApCost: 0, targetId: null, isCaptureAction: false };
   }
 
   const movePath = sameCoord(enemy.pos, chosen.coord)
@@ -1529,10 +1725,14 @@ export function computeEnemyAiDecision(
     }
   }
 
+  const isCaptureAction =
+    colloredoUnit && chosen.bestTargetId === "player-colloredo";
+
   return {
     movePath,
     moveApCost: chosen.apCost,
     targetId: chosen.bestTargetId,
     doorToOpen,
+    isCaptureAction: Boolean(isCaptureAction),
   };
 }
