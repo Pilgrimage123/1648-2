@@ -623,7 +623,7 @@ export class CombatCalculator {
             detail:
               shooter.id === "player-colloredo"
                 ? "Válečné zkušenosti vrchního velitele (+8 %)"
-                : "Přítomnost maršála Colloreda na bojišti (+8 %)",
+                : "Maršál Colloredo je do 7 polí (+8 %)",
             value: marshalModifier,
             unit: "%",
             kind: "bonus",

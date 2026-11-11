@@ -25,7 +25,10 @@ import {
 } from "../../core/FogOfWar";
 import {
   coordKey,
+  getMission1EscapeTile,
+  getMission1TutorialBeacon,
   resolvePreferredFloorCoord,
+  sameCoord,
 } from "../../core/GridSystem";
 import type {
   CardinalDir,
@@ -1420,31 +1423,17 @@ export function InstancedBattlefield() {
   // Pevně držíme vybrané patro (P0 / P1 / P2): přejetí myší nad dvůr či zahradu nikdy neshodí řez aktivního patra
   const effectiveViewFloor: FloorLevel = activeFloor;
 
-  const waypoint = useMemo<{
-    coord: GridCoord;
-    label: string;
-    color: string;
-  } | null>(() => {
+  const waypoint = useMemo(() => {
     if (isShootingView || tutorialDismissed || tutorialStep === null) return null;
-    if (tutorialStep === 3) {
-      return {
-        coord: { x: 6, y: 0, z: 11 },
-        label: "Prachový sud (Odpálit!)",
-        color: "#f97316",
-      };
-    }
-    if (tutorialStep === 4) {
-      return {
-        coord: { x: 2, y: 0, z: 2 },
-        label: "Rybářská pramice (Cíl)",
-        color: "#38bdf8",
-      };
-    }
-    return null;
-  }, [isShootingView, tutorialDismissed, tutorialStep]);
+    return getMission1TutorialBeacon(grid, tutorialStep);
+  }, [isShootingView, tutorialDismissed, tutorialStep, grid, gridVersion]);
 
   const groundFloorTiles = useMemo(
     () => grid.getFloorTiles(0),
+    [grid, gridVersion],
+  );
+  const escapeTile = useMemo(
+    () => getMission1EscapeTile(grid),
     [grid, gridVersion],
   );
   const upperFloorTiles = useMemo(
@@ -2327,8 +2316,9 @@ export function InstancedBattlefield() {
     selectedUnit &&
     gridDistance3D(selectedUnit.pos, hoveredTile) <= 8;
 
-  const isBeaconOnSkiff =
-    waypoint?.coord.x === 2 && waypoint?.coord.z === 2;
+  const isBeaconOnSkiff = Boolean(
+    waypoint && escapeTile && sameCoord(waypoint.coord, escapeTile.coord),
+  );
 
   return (
     <group onPointerOut={() => setHoveredTile(null)}>
@@ -2799,8 +2789,7 @@ export function InstancedBattlefield() {
 
       {/* 8b. 3D Rybářská pramice (Fisherman's Skiff at Čertovka - bound to escape zone tile) */}
       {(() => {
-        const escapeTile = groundFloorTiles.find((t) => t.isEscapeZone);
-        const boatX = escapeTile ? escapeTile.coord.x - 0.55 : 1.45;
+        const boatX = escapeTile ? escapeTile.coord.x - 0.55 : 2.45;
         const boatZ = escapeTile ? escapeTile.coord.z : 2.0;
         const [bx, by, bz] = continuousGridToWorld(boatX, 0, boatZ);
         return (

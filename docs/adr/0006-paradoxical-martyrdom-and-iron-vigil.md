@@ -14,12 +14,12 @@ To establish deep narrative continuity and emotional weight for the overarching 
 ## Decision
 
 1. **Three Historical Companion Identities**:
-   - **Jan Matěj (Osobní komorník)**: Colloredo's elderly personal valet who supports the Marshal through his severe Lützen mobility handicap (restoring 5 tiles/AP).
-   - **Bratr Bartoloměj (Maltézský zbrojmistr & konventní vartýř)**: Experienced convent armorer and craftsman, equipped with heavy armor, blunderbuss, and petard explosives.
-   - **Václav z Michalovic (Klementinský klerik & písař)**: A 20-year-old student of philosophy and theology from the Clementinum Jesuit college, serving the Grand Prior as scribe; agile with a wheellock carbine.
+   - **Jan Matěj (Osobní komorník)**: Colloredo's personal valet, armed with a wheellock carbine (5 tiles/AP). He does not remove the Marshal's limp.
+   - **Bratr Bartoloměj (Maltézský zbrojmistr & konventní vartýř)**: Convent armorer with a heavy matchlock musket and rest fork (4 tiles/AP, 4 AP segmented reload) and two petards.
+   - **Václav z Michalovic (Klementinský klerik & písař)**: Clementinum scribe stationed on the Piano Nobile with a Swedish lightened musket M1624 (5 tiles/AP).
 
 2. **The Paradoxical Martyrdom Mechanic (*Paradoxní oběť*)**:
-   - Upon Marshal Colloredo reaching the fisherman's skiff on the Čertovka canal (`[1, 0, 2]`), an interactive narrative dilemma pauses the action: the swollen river and small skiff cannot carry everyone while Odowalsky's Swedish vanguard closes in.
+   - Upon Marshal Colloredo reaching a Čertovka escape tile (`(3, 0, 2)` or `(4, 0, 2)`), an interactive narrative dilemma pauses the action: the swollen river and small skiff cannot carry everyone while Odowalsky's Swedish vanguard closes in.
    - The player chooses which of the three companions stays behind at the palace gate to mount a suicidal rear-guard action.
    - **The Dramatic Paradox**:
      - The two companions who board the skiff with Colloredo are raked by Swedish musketry from the riverbank while shielding the Marshal with their bodies; they succumb to their wounds upon delivering Colloredo to safety on the Old Town bank.

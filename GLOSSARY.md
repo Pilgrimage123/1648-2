@@ -31,7 +31,7 @@ The low-angle third-person camera state triggered during 2 AP dashes and environ
 _Avoid_: Zoomed isometric cam, static shoulder cam
 
 **Pod Reveal & Scramble** (*Odhalení hlídky a rozprchnutí do krytu*):
-The mid-movement cinematic interrupt triggered when a moving soldier spots a previously unalerted group of Swedish musketeers or pikemen in the fog of war: the soldier pauses on the discovery tile while the camera pans and zooms to the revealed patrol as they scramble into nearby cover before returning to the soldier.
+The mid-movement cinematic interrupt triggered when a moving soldier spots a previously unalerted group of Swedish musketeers in the fog of war: the soldier pauses on the discovery tile while the camera pans and zooms to the revealed patrol as they scramble into nearby cover before returning to the soldier.
 _Avoid_: Passive fog reveal, instant enemy spawn
 
 **Overwatch Slow-Mo** (*Zpomalený přepad ze zálohy*):
@@ -61,11 +61,11 @@ _Avoid_: Mission pointer, quest arrow
 ### Architecture & Rendering
 
 **Grid Coordinate** (`GridCoord`):
-A 3D discrete position `{ x: number, y: number, z: number }` where `x` and `z` are horizontal grid coordinates (`0..15`) and `y` is the vertical elevation floor (`0` = ground floor, `1` = first floor / roof).
+A 3D discrete position `{ x: number, y: number, z: number }` where `x` is `0..23`, `z` is `0..27`, and `y` is the floor (`0` = ground, `1` = Piano Nobile and belvedere, `2` = Maltese watchtower).
 _Avoid_: 2D `{ x, y }` tile coordinate, screen pixel coordinate
 
 **Tile**:
-A single cell in the 3D `GridSystem` storing `walkable: boolean`, `isLadder: boolean` (vertical connector between `y = 0` and `y = 1`), directional `cover` for all 4 cardinal directions (`N, E, S, W` with `'none' | 'half' | 'full'`), `obstacle` (`'none' | 'low_wall' | 'high_wall' | 'pillar'`), and `smokeTurns: number` (duration of black-powder smoke cloud on the tile).
+A single cell in the 3D `GridSystem` storing `walkable: boolean`, `isLadder: boolean` (vertical connector across `y = 0`, `1`, and `2`), directional `cover` for all 4 cardinal directions (`N, E, S, W` with `'none' | 'half' | 'full'`), `obstacle` (`'none' | 'low_wall' | 'high_wall' | 'pillar' | 'powder_keg'`), and `smokeTurns: number` (duration of black-powder smoke cloud on the tile).
 _Avoid_: Node, cell
 
 **Floor Cutaway** (*Přepínání pater*):
@@ -151,16 +151,16 @@ The horizontal bar of visible enemy icons at the bottom-center of the screen in 
 The structured output of the 17th-century combat calculator containing final metrics (`hitChance`, `critChance`, `minDamage`, `maxDamage`, `armorPierce`, `armorShred`, `misfireChance`, `expectedHpLossMin`, `expectedHpLossMax`, `expectedArmorLoss`) and two itemized arrays of `StatModifier` entries (`hitModifiers` and `critAndArmorModifiers`) for the expandable **Breakdown Wings** (`F1`).
 
 **Black Powder Smoke** (*Kouř z černého prachu*):
-A dense cloud left on a tile after firing a black-powder weapon or detonating a grenade, inflicting a `-20%` accuracy penalty when the shooter or target stands in smoke.
+A dense cloud left on a tile after firing a black-powder weapon or detonating a grenade. A shooter standing in smoke takes `-10%` aim. A target standing in smoke takes `-15%` to hit (`+15` defense). Firing downward through ground smoke, while the shooter is not in smoke, takes only `-10%` (Smoke Horizon Piercing).
 
 **Musket Rest / Fork** (*Furketa*):
-A fork stand used by heavy matchlock musketeers; grants a `+15%` accuracy bonus (`hasRestFork`) when the shooter has not moved yet during the current turn (`movedThisTurn === false`).
+A fork stand used by the heavy matchlock (`supportsRestFork`). A prepared shot costs `2 AP` and adds no aim bonus. If the shooter has already moved or has only `1 AP` left, the same musket may hip-fire for `1 AP` at `-35%` aim and the shooter becomes Shaken. Swedish muskets and wheellocks fire for `1 AP` and do not use the fork.
 
 **Misfire Chance** (*Šance na selhání výstřelu*):
 The probability (`0–100%`) that a 17th-century firearm fails to discharge due to damp black powder or a sputtering matchcord, scaled by lock mechanism (`matchlock` doutnákový vs. `wheellock` kolečkový) and `WeatherState` (`clear` *Jasno*, `fog` *Mlha*, `rain` *Déšť*).
 
 **Armor Cuirass & Pierce/Shred** (*Kyrys, Průraz a Zničení zbroje*):
-Armor points (`armor / maxArmor`) worn by 17th-century soldiers (cuirass, morion helmet) that absorb incoming damage unless bypassed by the weapon's `armorPierce` or permanently destroyed by `armorShred`. Heavy cuirass also reduces incoming critical hit chance (`-10%` per armor point).
+Armor points (`armor / maxArmor`) worn by 17th-century soldiers (cuirass, morion helmet) that absorb incoming damage unless bypassed by the weapon's `armorPierce` or permanently destroyed by `armorShred`. Armor also reduces incoming critical hit chance by `-8%` per armor point.
 
 ### Mission 1: Escape of the Grand Prior (Mise 1: Útěk polního maršála)
 
@@ -177,10 +177,13 @@ The tactical and narrative dilemma where the player chooses which escort compani
 _Avoid_: Random death, scripted casualty, cutscene wipe
 
 **Rybářská pramice** (*Fisherman's Skiff / Úniková zóna*):
-The wooden skiff moored at the Čertovka canal dock (`x: 1, z: 2`) serving as the extraction objective for Field Marshal Rudolf Count Colloredo-Wallsee.
+The wooden skiff moored at the Čertovka dock. Escape tiles are `(3, 0, 2)` and `(4, 0, 2)`. Tiles with `x` `0..18` and `z` `0..2` are canal water and are not walkable. The tutorial beacon and the boat model both bind to the first escape tile, `(3, 0, 2)`.
 
-**Zranění z Lützenu & Podepření komorníkem** (*Marshal's Mobility Handicap & Escort Assist*):
-The permanent war handicap (7 bullet wounds from Lützen 1632) restricting Marshal Colloredo to 3 movement tiles per AP, which increases to 5 tiles per AP whenever an escort servant (Martin, Václav, or Jakub) remains adjacent (distance 1).
+**Zranění z Lützenu** (*Marshal's Mobility Handicap*):
+The permanent war handicap (7 bullet wounds from Lützen 1632) restricting Marshal Colloredo to 3 movement tiles per AP. Standing next to Jan Matěj, Václav z Michalovic, or Bratr Bartoloměj does not raise that pace. While detained, his `movePerAp` drops to 0 until the companions free him.
+
+**Mission 1 abilities**:
+No Mission 1 unit is given an activatable special ability. `ability` stays unset, so the `[5]` path (`marshal_command`, `protector_oath`, `klementinum_verdict`, `maltese_shrapnel`) does not run in this scenario. Weapon weight does apply: soldier pace is `7 - mobilityPenalty` (carbine and Swedish musket `5`, heavy musket `4`). Colloredo's limp overrides his pistol's penalty.
 
 **Autorita polního maršála** (*Marshal Command Aura*):
 The tactical presence of Bohemia's supreme commander granting a +8% marksmanship modifier to nearby allied imperial soldiers within 7 tiles.
@@ -200,16 +203,16 @@ The strict color allocation across the scene: 60% desaturated calm ground & atmo
 The rule that all 5 unit archetypes (`ranger`, `sniper`, `trooper`, `sectoid`, `commander`) are immediately distinguishable from a bird's-eye view by their silhouette (tall triangular polearms, wide plumed cavalier hats with capes, square cuirassier pauldrons with morions, asymmetric back-banners with censers) and that all headgear sits physically low on the brow covering the upper cranium.
 
 **Nevypleněný honosný palác** (*Unplundered Opulent Palace Biome*):
-The intact interior of the Grand Priory Palace (`x: 2..13, z: 12..15`, `damageLevel === 0`) characterized by warm polished limestone parquet (`stone_floor`), a central cardinal-burgundy royal runner (`palace_carpet`) with flat gold brocade borders, cream-stucco masonry, gilded Corinthian pillar capitals, carved walnut furniture barricades, and framed Chiaroscuro oil paintings.
+The intact interior of the Grand Priory Palace (`x: 2..21`, `z: 16..27`, `damageLevel === 0`) characterized by warm polished limestone parquet (`stone_floor`), a central cardinal-burgundy royal runner (`palace_carpet`) with flat gold brocade borders, cream-stucco masonry, gilded Corinthian pillar capitals, carved walnut furniture barricades, and framed Chiaroscuro oil paintings. The Piano Nobile occupies the same footprint at `y = 1`. The garden belvedere is `y = 1`, `x: 9..14`, `z: 9..12`. The Maltese watchtower is `y = 2`, `x: 4..8`, `z: 17..19`.
 
 **Zaprášená malostranská ulice a nádvoří** (*Dusty Street & Courtyard Biome*):
-The outdoor section of the battlefield (`z: 3..11`, `damageLevel === 0`) characterized by cool matte slate-mud cobblestones (`cobble`), worn carriage tracks, weathered mossy sandstone walls, and rough field stone gabions.
+The Grand Priory garden (`z: 5..15`, `x: 1..22`, `damageLevel === 0`) characterized by cool matte slate-mud cobblestones (`cobble`), weathered mossy sandstone walls, and rough field stone gabions. The Čertovka canal is `z: 0..4`.
 
 **Zdevastovaná rozstřílená ruina** (*Devastated Shot-Up & Scorched Ruin Biome*):
 The dynamic battle-scarred state (`damageLevel: 1 | 2`, `rubble` / `scorched_ruin`) applied to any tile struck by gunfire (`damageLevel = 1`, fallen plaster/mortar rubble) or a 3×3 explosion (`damageLevel = 2`, charred soot crater, glowing ember cracks, blackened neighboring walls, and low-profile perimeter debris that keeps the tile center clear for tactical grid readability).
 
 **Krytý palácový interiér** (*Enclosed Roofed Masking* / `isEnclosedRoofedCoord`):
-The spatial boundary excluding enclosed palace halls and roofed ground-floor arcades from outdoor rain/snow and pre-combat floating dust or smoke.
+The spatial boundary excluding enclosed rooms from outdoor rain and snow. Palace halls count when `y ≤ 1`, `x` is `1.5..21.5`, and `z` is `15.5..27.5`, except the open courtyard (`x` `9.6..13.4`, `z` `17.6..20.4`). The ground-floor belvedere arcade counts when `y < 1`, `x` is `8.5..14.5`, and `z` is `8.5..12.5`. Ash and dust stay at zero indoors until gunfire or explosions create `blastZones` and `smokeTiles`.
 
 **Organické šíření prachu a dýmu** (*Causal Combat Diffusion* / `blastZones`):
 The physical rule that indoor and courtyard ash, plaster dust, embers, and creeping ground mist start at zero before combat and expand radially outward ($R(t) = \min(R_{\max}, R_0 + v_{\text{diff}} \cdot \Delta t)$) exclusively from actual gunfire and explosion epicenters.

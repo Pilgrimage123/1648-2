@@ -2,23 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] - 2026-11-10
+## [Unreleased] - 2026-11-11
+
+### Fixed
+- Tutorial step 3 now beacons the palace-side powder keg `(7, 0, 13)`. Step 4 and the advisor text beacon the Čertovka escape dock `(3, 0, 2)`, the same tile the skiff model uses. Both come from the live grid.
+- The skiff label hides only when that beacon sits on the escape tile.
+- Soldier `movePerAp` is `7 - weapon.mobilityPenalty`. The carbine penalty is 2, matching the Swedish musket (5 tiles) and the heavy musket (4 tiles). Colloredo stays at 3 from his limp.
+- Shot breakdown for the marshal aura now says the bonus applies within 7 tiles.
+- Garden and reinforcement musketeers no longer use dragoon or cuirassier ids.
+- Glossary, ADRs, and `AGENTS.md` now match the 24×28×3 map, the current names, smoke penalties, fork rules, armor crit, and indoor mask.
 
 ### Added
 - **4-State XCOM 2 Camera State Machine & Mid-Movement Event Interrupts (ADR-0009, `CameraDirector.ts`)**:
   - **Headless Camera State Machine (`CameraDirector.ts`)**: Pure TypeScript camera director managing prioritized transitions across `TACTICAL_ISO`, `ACTION_OTS_FOLLOW`, `INTERRUPT_POD_REVEAL`, `INTERRUPT_OVERWATCH_SLOWMO`, `COVER_SETTLE_RESET`, `AIM_OTS`, and `PROJECTILE_TRACK`, backed by zero-allocation 60–144 Hz `liveMovementTelemetry`.
   - **Tactical Isometric View (`TACTICAL_ISO`) & Dynamic Indoor Cutaway**: Real-time camera tracking during 1 AP (`Blue Zone`) movement and automatic roof/upper-floor cutaway (`resolveDynamicRoofCutawayFloor`) whenever the tracked soldier steps into an enclosed building (`isEnclosedRoofedCoord`).
   - **Over-the-Shoulder Sprint & Interaction Action Cam (`ACTION_OTS_FOLLOW`)**: Low chase camera behind the soldier's shoulder (`2.6m` behind, `1.65m` height, `FOV 44°`) triggered automatically on 2 AP sprints (`Yellow Zone` / Dash) or environmental interactions (`detectPathInteractions`: kicking open closed wooden doors mid-run, parabolic vaulting over low cover, and climbing stairs), featuring smart wall/pillar shoulder switching (`chooseSmartSprintCamRig`) and footstep/impact camera shake.
-  - **Mid-Movement Pod Reveal & Scramble Interrupt (`INTERRUPT_POD_REVEAL`)**: Stepping onto a tile that reveals unspotted Swedish musketeers/pikemen in the Fog of War pauses movement on that exact tile, pans & zooms onto the newly revealed group, triggers their **Scramble** animation (`computeScrambleDestination`) into nearby cover (1–2 tiles), and smoothly returns to the soldier.
+  - **Mid-Movement Pod Reveal & Scramble Interrupt (`INTERRUPT_POD_REVEAL`)**: Stepping onto a tile that reveals unspotted Swedish musketeers in the Fog of War pauses movement on that exact tile, pans & zooms onto the newly revealed group, triggers their **Scramble** animation (`computeScrambleDestination`) into nearby cover (1–2 tiles), and smoothly returns to the soldier.
   - **Overwatch Slow-Mo Interrupt (`INTERRUPT_OVERWATCH_SLOWMO`)**: Triggering enemy Overwatch fire mid-movement slows down global animation time (`timeScale = 0.25`), frames the reacting shooter in a cloud of black-powder smoke (`SHOOTER_FOCUS`), and then tracks the running soldier in slow motion (`RUNNER_TRACK`) as the musket ball arrives.
   - **Cover Settle & Reset (`COVER_SETTLE_RESET`)**: Upon reaching a destination tile with cover (`half` / `full`), the soldier kneels and braces into the primary cover direction (`resolvePrimaryCoverDirection`) before the camera smoothly resets to `TACTICAL_ISO`.
 - **Automatic Door Breaching on the Move (`Pathfinding.ts`)**:
   - Units can now path directly through closed wooden doors during movement and kick them open mid-stride (`door_breach`) without requiring a separate manual click prior to moving.
-- **Marshal Colloredo Command Ability (`marshal_command`) & Smart Shooter Auto-Switch**:
-  - Added `Rozkaz maršála` (`1 AP`, 2-turn cooldown) granting allies `+2 AP` and expanded sight radius for the turn.
+- **Smart Shooter Auto-Switch**:
   - Clicking `[2] Střelba` when the currently selected unit has an empty firearm or no targets in LoS automatically switches to a ready squadmate with a valid target in range.
-- **2 AP Period Firearm Reload & Melee Combat System**:
-  - Added 2 AP reload mechanic (`[R]`) for multi-shot period firearms (`ammo` / `maxAmmo`), single-shot wheellock pistol discharge for Marshal Colloredo, and close-quarters melee combat (`[B]`, `MELEE_CATALOG`).
+  - Mission 1 does not grant activatable special abilities. `marshal_command` and the companion `[5]` abilities stay in the combat and audio code and do not run while `ability` is unset.
+- **Segmented Firearm Reload & Melee Combat System**:
+  - Reload spends 1 AP per step (`[R]`). A heavy musket needs 4 AP in total. A Swedish musket or carbine needs 2 AP. Marshal Colloredo's wheellock pistol is a single shot and cannot be reloaded. Melee is `[B]` or `[6]` (`MELEE_CATALOG`).
 
 ### Added (2026-11-09)
 - **Multi-Floor Vertical Combat & Fog of War System (ADR-0010)**:
@@ -63,7 +71,7 @@ All notable changes to this project will be documented in this file.
     - `Bratr Bartoloměj` (*Maltézský zbrojmistr & konventní vartýř*): Heavy armor, blunderbuss, and petards.
     - `Václav z Michalovic` (*Klementinský klerik & písař*): Student of philosophy at the Jesuit Clementinum university and Grand Prior scribe, marksman with musket and rest fork.
   - **Paradoxical Martyrdom Dilemma Modal (`App.tsx`)**:
-    - Triggered upon extraction at the Čertovka dock (`[1, 0, 2]`) when Odowalsky's Swedish cavalry closes in.
+    - Triggered upon extraction at a Čertovka escape tile (`(3, 0, 2)` or `(4, 0, 2)`) when Odowalsky's Swedish musketeers close in.
     - Player must designate which companion stays behind at the palace gate to detonate the powder barrels.
     - **The Narrative Twist**: The two companions on the skiff take the Swedish bullets shielding Colloredo and perish upon arrival on the Old Town bank. The sacrificed companion miraculously survives the explosion, swims the Vltava, and is found on the steps of the Clementinum by Father Jiří Plachý.
   - **The Iron Vigil (*Železná vigilie*) Archetype Perks**:
@@ -81,27 +89,26 @@ All notable changes to this project will be documented in this file.
 - **Diegetic Floating Tutorial Architecture & Mission 1 Onboarding (ADR-0005)**:
   - **Tactical Advisor Widget (`TacticalAdvisorWidget.tsx`)**:
     - Floating, non-blocking HUD card anchored in the upper-left directly below `MissionStatusChip`.
-    - Authentic period voices (valet Martin and armorer Jakub) giving urgent diegetic instructions alongside clear tactical advice and key shortcut badges (`[1]`, `[2]`, `[Tab]`, `[F1]`, `[4]`, `[F]`).
+    - Authentic period voices (Jan Matěj, Václav z Michalovic, and Bratr Bartoloměj) giving urgent diegetic instructions alongside clear tactical advice and key shortcut badges (`[1]`, `[2]`, `[Tab]`, `[F1]`, `[4]`, `[R]`, `[V]`).
     - 4 progressive milestones explaining core mechanics:
-      - *Step 1: Pohyb & Eskorta*: Explaining AP movement zones (1 AP move vs. 2 AP sprint), Colloredo's Lützen wound handicap (3 AP), and moving valet Martin adjacent to restore full mobility (5 AP).
-      - *Step 2: Krytí, Obchvat & Míření*: Explaining half/full cover, flanking bonuses (+40% crit), aim mode (`[2]`), target cycling (`[Tab]`), and inspecting mathematical modifiers via Breakdown Wings (`[F1]`).
-      - *Step 3: Počasí & Prachové sudy*: Explaining matchlock vs. wheellock reliability in rain, and throwing Jakub's petard (`[4]`) or shooting to detonate powder kegs on 3×3 AoE.
-      - *Step 4: Patra & Únik*: Explaining floor cutaway (`[F]`), elevated roof sentries (+10% height bonus), and guiding Colloredo to the fisherman's skiff on Čertovka.
+      - *Step 1: Pohyb & Eskorta*: Explaining AP movement zones (1 AP move vs. 2 AP sprint) and Colloredo's permanent Lützen limp (3 tiles per AP).
+      - *Step 2: Střelba a zteč*: Explaining aim mode (`[2]`), target selection, and right-click melee.
+      - *Step 3: Nabíjení, petardy a sudy*: Explaining segmented reload and throwing Bartoloměj's petard (`[4]`) or shooting to detonate powder kegs on a 3×3 area. The beacon marks `(7, 0, 13)`.
+      - *Step 4: Patra & Únik*: Explaining floor cutaway (`[V]` / `PageUp` / `PageDown`), the +15% high-ground bonus, and guiding Colloredo to the escape dock `(3, 0, 2)`. `[F]` toggles fullscreen.
     - Dual progression: steps advance automatically upon completing actions or can be navigated manually via `[Další krok →]` / `[← Zpět]`.
     - Collapsible and togglable at any time using keyboard shortcut `[H]` or the graduation cap icon in `TacticalUtilitiesCapsule`.
   - **Tutorial Waypoint Beacon (`InstancedBattlefield.tsx`)**:
-    - Pulsing 3D in-world gold and emerald glowing rings and floating `<Html>` badges highlighting recommended target tiles for each active milestone (Step 1 escort support tile at `[7, 0, 14]`, Step 3 powder keg at `[5, 0, 8]`, and Step 4 fisherman's skiff at `[1, 0, 2]`).
+    - Pulsing 3D in-world glowing rings on the live step-3 powder keg and the step-4 escape dock.
   - **Action Ribbon Glowing Highlights (`TacticalActionRibbon.tsx`)**:
     - Recommended action buttons pulse with an animated golden border glow (`[1] Move` in Step 1, `[2] Shoot` & `[F1]` in Step 2, `[4] Grenade` in Step 3).
 
 - **Mission 1: Escape of Grand Prior Rudolf Count Colloredo-Wallsee (Útěk z Velkopřevorského paláce)**:
   - **Authentic Historical Setting & Objectives**:
     - July 26, 1648, 02:30 AM: Ernst Odowalsky betrays Prague, breaching Strahov gate for Königsmarck's Swedish cavalry.
-    - 63-year-old Grand Prior and Field Marshal Rudolf Colloredo escapes his bed in a nightshirt (`noční košile`) and red Maltese cross sash (`Maltézský kříž`) with 3 faithful servants (chamberlain Martin, page Václav, armorer Jakub).
+    - 63-year-old Grand Prior and Field Marshal Rudolf Colloredo escapes his bed in a nightshirt (`noční košile`) and red Maltese cross sash (`Maltézský kříž`) with Jan Matěj, Václav z Michalovic, and Bratr Bartoloměj.
     - Charles Bridge is cut off by dragoons; the primary tactical objective is to escort the wounded Marshal through the palace garden to the fisherman's skiff (`Rybářská pramice`) moored at the Čertovka canal to cross to Staré Město before the Swedish net closes.
-  - **VIP Escort & Mobility Handicap ("Zranění z Lützenu" & "Podepření komorníkem")**:
-    - Colloredo's 7 bullet wounds from the Battle of Lützen (1632) limit his base movement to 3 tiles/AP.
-    - When an escort servant stands adjacent (distance 1), Colloredo is physically supported and gains a +2 movement buff (5 tiles/AP).
+  - **VIP Mobility Handicap ("Zranění z Lützenu")**:
+    - Colloredo's 7 bullet wounds from the Battle of Lützen (1632) permanently limit his movement to 3 tiles/AP. An adjacent companion does not raise that pace.
     - If Colloredo is captured or killed, the mission ends in defeat ("Praha ztratila svého vrchního velitele").
   - **Marshal Command Aura ("Autorita polního maršála")**:
     - Colloredo's presence inspires imperial troops within 7 tiles, granting a +8% marksmanship bonus in shot calculations and immune composure against suppression.
@@ -148,7 +155,7 @@ All notable changes to this project will be documented in this file.
     - Itemized breakdown structures providing transparent math for every modifier.
     - Full weapon catalog representing Thirty Years' War arms (wheellock dragoon carbines, heavy matchlock muskets with rest forks, trench arquebuses, officer wheellocks).
     - Authentic armor mechanics: steel cuirass absorbing damage and mitigating critical hits; armor piercing (`armorPierce`) and permanent cuirass shredding (`armorShred`).
-    - Black powder smoke mechanics (`smokeTurns`): firearm salvos and grenades spawn smoke clouds inflicting a -20% accuracy penalty.
+    - Black powder smoke mechanics (`smokeTurns`): a shooter in smoke takes -10% aim, and a target in smoke takes -15% to hit. Downward fire through ground smoke takes -10%.
     - Weather system (`clear`, `fog`, `rain`) influencing visibility and matchlock ignition reliability.
   - **Target Ribbon (Bottom Bar)**:
     - Period helmet and skull icons colored by tactical status: Yellow (`flanked` / exposed), Red (`covered`), and Blue/Slate (`extreme_range`).
@@ -156,7 +163,7 @@ All notable changes to this project will be documented in this file.
   - **Central Summary Panel**:
     - Instant overview displaying Hit Chance (%), Critical/Penetration Chance (%), Damage Range + Armor Pierce/Shred, and Misfire Chance (%).
   - **Expandable Breakdown Wings (`F1`)**:
-    - Left Wing: Itemized hit chance modifiers (Base marksmanship, weapon balance, point-blank bonus vs. smoothbore range penalty, directional cover, high ground, gunpowder smoke, rain/fog, musket fork stabilization, and suppressed morale).
+    - Left Wing: Itemized hit chance modifiers (Base marksmanship, weapon balance, point-blank bonus vs. smoothbore range penalty, directional cover, high ground, gunpowder smoke, rain/fog, prepared 2 AP fork shot vs 1 AP hip-fire, and suppressed morale).
     - Right Wing: Critical & armor modifiers (Base weapon crit, flanking +40%, point-blank crit +15%, cuirass absorption, armor pierce, and armor shred).
   - **Over-the-Shoulder Tactical Camera (`TacticalCamera.tsx`)**:
     - Automatically glides over the shooter's right shoulder aiming toward the selected target during targeting mode.

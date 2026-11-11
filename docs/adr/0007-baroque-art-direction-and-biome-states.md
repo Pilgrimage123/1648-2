@@ -59,10 +59,10 @@ The battlefield must breathe continuously during turns without heavy GPU overhea
 
 ### Pillar 5: Environmental Biomes & Dynamic Battle Devastation
 The battlefield must visually distinguish intact noble interiors from dusty streets and battle-scarred ruins while preserving Pillar 1 (low-contrast ground) and Pillar 2 (60-30-10 rule):
-1. **Biome 1 — Unplundered Opulent Baroque Palace (`Velkopřevorský palác`, `z: 12..15, x: 2..13`, `damageLevel === 0`)**:
+1. **Biome 1 — Unplundered Opulent Baroque Palace (`Velkopřevorský palác`, `x: 2..21, z: 16..27`, `damageLevel === 0`)**:
    - *Ground (60%)*: Polished warm Bohemian limestone & porphyry parquet (`#3d342e` / `#342c27`) + central **Royal Tapestry Runner** (`surface: "palace_carpet"`, muted cardinal burgundy `#4a2226` / `#3f1d20` with flat gold brocade edge strips `#c89d3c`).
    - *Structures (30%)*: Intact cream-sandstone Baroque stucco walls (`#7d7267`), polished warm marble columns (`#8c7b6b`) topped with **gilded Corinthian capitals** (`#d4a73f`), carved walnut furniture barricades (`#5c3a21`) with brass trim, and framed Chiaroscuro oil paintings on interior walls.
-2. **Biome 2 — Dusty Malá Strana Street & Courtyard (`z: 3..11`, `damageLevel === 0`)**:
+2. **Biome 2 — Dusty Malá Strana Garden (`z: 5..15`, `x: 1..22`, `damageLevel === 0`)**:
    - *Ground (60%)*: Cool desaturated slate-mud cobblestones (`#1c222a` / `#171c23`) and dusty carriage tracks (`#242a33`).
    - *Structures (30%)*: Weathered dark sandstone masonry (`#4e4841`), mossy courtyard pillars (`#696158`), and rough field stone low walls (`#61584f`).
 3. **Biome 3 — Devastated Shot-Up & Scorched Ruins (`damageLevel === 1 | 2`, `rubble` / `scorched_ruin`)**:
@@ -73,7 +73,7 @@ The battlefield must visually distinguish intact noble interiors from dusty stre
 
 ### Pillar 6: Enclosed Interior Physics & Authentic 17th-Century Ballistics
 1. **Spatial Masking of Roofed Interiors (`isEnclosedRoofedCoord(x, y, z)`)**:
-   - Rain and snow (`RainParticles.tsx`) MUST NEVER fall inside enclosed palace interiors (`x: 1.5..13.5, z: 11.5..15.5`) or under covered ground-floor arcades (`y < 1, x: 5.5..9.5, z: 5.5..8.5`).
+   - Rain and snow (`RainParticles.tsx`) MUST NEVER fall inside enclosed palace interiors (`y ≤ 1`, `x: 1.5..21.5`, `z: 15.5..27.5`, except the open courtyard `x: 9.6..13.4`, `z: 17.6..20.4`) or under the belvedere arcade (`y < 1`, `x: 8.5..14.5`, `z: 8.5..12.5`).
    - Before gunfire and explosions begin (`combatIntensity === 0 && blastZones.length === 0`), zero arbitrary ash, plaster dust, or black-powder smoke may float inside the enclosed palace.
    - Once combat begins, ash, plaster dust, embers, and ground mist spawn causally at actual `blastZones` and `smokeTiles`, expanding organically outward over time:
      $$R(t) = \min\bigl(R_{\max},\; R_0 + v_{\text{diff}} \cdot \Delta t\bigr) \cdot \text{TILE\_SIZE}$$

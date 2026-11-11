@@ -817,6 +817,56 @@ export function isEnclosedRoofedCoord(x: number, y: number, z: number): boolean 
   return false;
 }
 
+/** Unencumbered soldier pace. Weapon weight is subtracted via `soldierMovePerAp`. Colloredo's limp replaces this. */
+export const SOLDIER_BASE_MOVE = 7;
+
+/** Tiles per AP after the weapon's `mobilityPenalty` (base 7). */
+export function soldierMovePerAp(weapon: WeaponStats): number {
+  return Math.max(1, SOLDIER_BASE_MOVE - (weapon.mobilityPenalty ?? 0));
+}
+
+/** Čertovka extraction tile. First escape-zone tile in grid order, which is the west dock `(3, 0, 2)`. */
+export function getMission1EscapeTile(grid: GridSystem): TileData | undefined {
+  return grid.getAllTiles().find((t) => t.isEscapeZone && t.coord.y === 0);
+}
+
+/** Powder keg nearest the palace (highest `z`), used by the step-3 tutorial beacon. */
+export function getMission1TutorialKeg(grid: GridSystem): TileData | undefined {
+  return grid
+    .getAllTiles()
+    .filter((t) => t.obstacle === "powder_keg")
+    .sort((a, b) => b.coord.z - a.coord.z || a.coord.x - b.coord.x)[0];
+}
+
+/**
+ * In-world tutorial beacon. Steps 1–2 have none.
+ * Step 3 marks a real powder keg. Step 4 marks the Čertovka escape dock.
+ */
+export function getMission1TutorialBeacon(
+  grid: GridSystem,
+  step: 1 | 2 | 3 | 4 | null,
+): { coord: GridCoord; label: string; color: string } | null {
+  if (step === 3) {
+    const keg = getMission1TutorialKeg(grid);
+    if (!keg) return null;
+    return {
+      coord: { ...keg.coord },
+      label: "Prachový sud (Odpálit!)",
+      color: "#f97316",
+    };
+  }
+  if (step === 4) {
+    const dock = getMission1EscapeTile(grid);
+    if (!dock) return null;
+    return {
+      coord: { ...dock.coord },
+      label: "Rybářská pramice (Cíl)",
+      color: "#38bdf8",
+    };
+  }
+  return null;
+}
+
 /**
  * Dobový arzenál třicetileté války (1618–1648):
  * kolečkové karabiny, těžké doutnákové muškety s furketou, arkebuzy a maršálova osobní pistole.
@@ -865,7 +915,7 @@ export const WEAPON_CATALOG: Record<string, WeaponStats> = {
     supportsRestFork: false,
     fireApCost: 1,
     reloadApCost: 2,
-    mobilityPenalty: 1,
+    mobilityPenalty: 2,
     overwatchMode: "full_360",
   },
   matchlock_musket_fork: {
@@ -1117,7 +1167,7 @@ export function createInitialUnits(): UnitData[] {
       ap: 2,
       maxAp: 2,
       marksmanship: 68,
-      movePerAp: 5,
+      movePerAp: soldierMovePerAp(WEAPON_CATALOG.wheellock_carbine!),
       weapon: WEAPON_CATALOG.wheellock_carbine!,
       meleeWeapon: MELEE_CATALOG.valet_cleaver!,
       firearmLoaded: true,
@@ -1147,7 +1197,7 @@ export function createInitialUnits(): UnitData[] {
       ap: 2,
       maxAp: 2,
       marksmanship: 78,
-      movePerAp: 5, // Odlehčená švédská mušketa (-2 postih k pohybu)
+      movePerAp: soldierMovePerAp(WEAPON_CATALOG.swedish_musket!),
       weapon: WEAPON_CATALOG.swedish_musket!,
       meleeWeapon: MELEE_CATALOG.swedish_musket_butt!,
       firearmLoaded: true,
@@ -1177,7 +1227,7 @@ export function createInitialUnits(): UnitData[] {
       ap: 2,
       maxAp: 2,
       marksmanship: 65,
-      movePerAp: 4, // Masivní 8 kg těžká mušketa s furketou (-3 postih k pohybu)
+      movePerAp: soldierMovePerAp(WEAPON_CATALOG.matchlock_musket_fork!),
       weapon: WEAPON_CATALOG.matchlock_musket_fork!,
       meleeWeapon: MELEE_CATALOG.heavy_musket_butt!,
       firearmLoaded: true,
@@ -1208,7 +1258,7 @@ export function createInitialUnits(): UnitData[] {
       ap: 2,
       maxAp: 2,
       marksmanship: 72,
-      movePerAp: 5,
+      movePerAp: soldierMovePerAp(WEAPON_CATALOG.swedish_musket!),
       weapon: WEAPON_CATALOG.swedish_musket!,
       meleeWeapon: MELEE_CATALOG.swedish_musket_butt!,
       firearmLoaded: true,
@@ -1222,7 +1272,7 @@ export function createInitialUnits(): UnitData[] {
 
     // 2. Švédský mušketýr (zahradní hlídka)
     {
-      id: "enemy-dragoon",
+      id: "enemy-garden-musketeer",
       name: "Švédský mušketýr",
       roleTitle: "Mušketýrská hlídka (Odlehčená mušketa M1624)",
       faction: "enemy",
@@ -1236,7 +1286,7 @@ export function createInitialUnits(): UnitData[] {
       ap: 2,
       maxAp: 2,
       marksmanship: 65,
-      movePerAp: 5,
+      movePerAp: soldierMovePerAp(WEAPON_CATALOG.swedish_musket!),
       weapon: WEAPON_CATALOG.swedish_musket!,
       meleeWeapon: MELEE_CATALOG.swedish_musket_butt!,
       firearmLoaded: true,
@@ -1264,7 +1314,7 @@ export function createInitialUnits(): UnitData[] {
       ap: 2,
       maxAp: 2,
       marksmanship: 65,
-      movePerAp: 5,
+      movePerAp: soldierMovePerAp(WEAPON_CATALOG.swedish_musket!),
       weapon: WEAPON_CATALOG.swedish_musket!,
       meleeWeapon: MELEE_CATALOG.swedish_musket_butt!,
       firearmLoaded: true,
@@ -1292,7 +1342,7 @@ export function createInitialUnits(): UnitData[] {
       ap: 2,
       maxAp: 2,
       marksmanship: 68,
-      movePerAp: 5,
+      movePerAp: soldierMovePerAp(WEAPON_CATALOG.swedish_musket!),
       weapon: WEAPON_CATALOG.swedish_musket!,
       meleeWeapon: MELEE_CATALOG.swedish_musket_butt!,
       firearmLoaded: true,
@@ -1314,7 +1364,7 @@ export function createInitialUnits(): UnitData[] {
 export function createReinforcementUnits(): UnitData[] {
   return [
     {
-      id: "enemy-reinforcement-dragoon",
+      id: "enemy-reinforcement-vanguard",
       name: "Předsunutý mušketýr",
       roleTitle: "Königsmarckův mušketýr (Odlehčená mušketa M1624)",
       faction: "enemy",
@@ -1328,7 +1378,7 @@ export function createReinforcementUnits(): UnitData[] {
       ap: 2,
       maxAp: 2,
       marksmanship: 66,
-      movePerAp: 5,
+      movePerAp: soldierMovePerAp(WEAPON_CATALOG.swedish_musket!),
       weapon: WEAPON_CATALOG.swedish_musket!,
       meleeWeapon: MELEE_CATALOG.swedish_musket_butt!,
       firearmLoaded: true,
@@ -1340,7 +1390,7 @@ export function createReinforcementUnits(): UnitData[] {
       alive: true,
     },
     {
-      id: "enemy-reinforcement-cuirassier",
+      id: "enemy-reinforcement-reserve",
       name: "Záložní mušketýr",
       roleTitle: "Švédský mušketýr (Odlehčená mušketa M1624)",
       faction: "enemy",
@@ -1354,7 +1404,7 @@ export function createReinforcementUnits(): UnitData[] {
       ap: 2,
       maxAp: 2,
       marksmanship: 65,
-      movePerAp: 5,
+      movePerAp: soldierMovePerAp(WEAPON_CATALOG.swedish_musket!),
       weapon: WEAPON_CATALOG.swedish_musket!,
       meleeWeapon: MELEE_CATALOG.swedish_musket_butt!,
       firearmLoaded: true,

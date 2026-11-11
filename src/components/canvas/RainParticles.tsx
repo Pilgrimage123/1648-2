@@ -2,8 +2,9 @@
  * 3D Atmospheric & Combat-Driven Particle System (/src/components/canvas/RainParticles.tsx).
  * Enforces physical realism for enclosed Baroque interiors vs. open courtyard:
  * 1. Falling rain streaks (weather === "rain") strictly respect roofed & enclosed zones:
- *    no rain or snow ever falls inside the enclosed Grand Priory Palace (z: 12..15, x: 2..13)
- *    or beneath the covered ground-floor pavilion roof (y=0, x: 6..9, z: 6..8).
+ *    no rain or snow ever falls inside `isEnclosedRoofedCoord`
+ *    (palace y ≤ 1, x 1.5..21.5, z 15.5..27.5, except the open courtyard;
+ *    belvedere arcade y < 1, x 8.5..14.5, z 8.5..12.5).
  * 2. Zero arbitrary dust/ash inside the palace before gunfire and explosions begin!
  * 3. Once gunfire, grenades, or powder-keg explosions erupt, plaster dust, ash flakes,
  *    and glowing embers organically spawn at the combat epicenters (`blastZones` & `smokeTiles`)

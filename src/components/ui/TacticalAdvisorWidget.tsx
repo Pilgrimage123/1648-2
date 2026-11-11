@@ -17,6 +17,8 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
+import { getMission1TutorialBeacon } from "../../core/GridSystem";
+import type { UnitArchetype } from "../../core/types";
 import { useGameStore } from "../../store/useGameStore";
 import { UnitPortrait } from "./UnitPortrait";
 import { useDraggableHud } from "./useDraggableHud";
@@ -26,10 +28,9 @@ interface TutorialStepData {
   title: string;
   speaker: string;
   role: string;
-  avatarIcon: "jan" | "bartolomej";
+  portrait: UnitArchetype;
   dialogue: string;
   tactics: string[];
-  beaconCoord?: string;
 }
 
 const TUTORIAL_STEPS: TutorialStepData[] = [
@@ -38,7 +39,7 @@ const TUTORIAL_STEPS: TutorialStepData[] = [
     title: "Ovládání XCOM 2: LKM Výběr · PKM Pohyb",
     speaker: "Jan Matěj",
     role: "Osobní komorník velkopřevora",
-    avatarIcon: "jan",
+    portrait: "ranger",
     dialogue:
       "Vaše Excelence! Po těch sedmi střelných ranách u Lützenu těžce kulháte a sotva stojíte na nohou! Zůstanu při vás a budeme se krýt za zídkami zahradou k Čertovce!",
     tactics: [
@@ -54,7 +55,7 @@ const TUTORIAL_STEPS: TutorialStepData[] = [
     title: "Střelba, Hlavy cílů & Zteč zblízka (PKM)",
     speaker: "Václav z Michalovic",
     role: "Klementinský klerik & písař",
-    avatarIcon: "jan",
+    portrait: "sniper",
     dialogue:
       "Pozor, pane! Švédští mušketýři mají odlehčené gustaviánské muškety M1624, zatímco naši obránci mohou nepřítele ztečovat i chladnou zbraní!",
     tactics: [
@@ -68,29 +69,27 @@ const TUTORIAL_STEPS: TutorialStepData[] = [
     title: "Fázové nabíjení, Petardy (LKM) & Sudy",
     speaker: "Bratr Bartoloměj",
     role: "Maltézský zbrojmistr",
-    avatarIcon: "bartolomej",
+    portrait: "ranger",
     dialogue:
       "Moje těžká mušketa potřebuje na nabití 4 AP, švédská s papírovými patronami jen 2 AP — nabíjet však můžeme postupně po 1 AP mezi přesuny!",
     tactics: [
       "Fázové nabíjení po 1 AP [R]: Investujte 1 AP do kroku nabíjení a za druhý AP ustupte pravým tlačítkem do krytu.",
       "Házení granátů / petard [4]: Po zvolení petardy v liště zamíříte a levým kliknutím (LKM) hod potvrdíte (pravým kliknutím zrušíte).",
-      "Prachové sudy: Trefa nebo petarda odpálí sud na ploše 3×3.",
+      "Prachové sudy: Trefa nebo petarda odpálí sud na ploše 3×3. Maják označuje nejbližší sud u paláce.",
     ],
-    beaconCoord: "[6, 0, 11]",
   },
   {
     step: 4,
     title: "Schodiště, Patra paláce & Pramice",
     speaker: "Bratr Bartoloměj",
     role: "Maltézský zbrojmistr",
-    avatarIcon: "bartolomej",
+    portrait: "ranger",
     dialogue:
       "Za zahradou teče Čertovka! Rybář čeká s pramicí u dřevěného mola. Využijte schodiště do 1. patra i na Maltézskou věž pro palebnou převahu!",
     tactics: [
       "Schodiště [V / PgUp / PgDn]: Výšková převaha z 1. a 2. patra přidává +15 % k zásahu a rozšiřuje dohled.",
-      "Cíl mise: Doveďte maršála Colloreda na molo [2, 0, 2] k pramici na Čertovce!",
+      "Cíl mise: Doveďte maršála Colloreda na únikové molo k pramici na Čertovce!",
     ],
-    beaconCoord: "[2, 0, 2]",
   },
 ];
 
@@ -105,6 +104,7 @@ export function TacticalAdvisorWidget() {
   const setTutorialStep = useGameStore((s) => s.setTutorialStep);
   const advanceTutorialStep = useGameStore((s) => s.advanceTutorialStep);
   const toggleTutorial = useGameStore((s) => s.toggleTutorial);
+  const grid = useGameStore((s) => s.grid);
 
   // Kontextové vrstvení (Pillar 1): Ve výchozím stavu kompaktní jednořádková stužka, rozbalí se na kliknutí
   const [expanded, setExpanded] = useState(false);
@@ -123,6 +123,15 @@ export function TacticalAdvisorWidget() {
 
   const currentData =
     TUTORIAL_STEPS.find((t) => t.step === tutorialStep) ?? TUTORIAL_STEPS[0]!;
+  const beacon = getMission1TutorialBeacon(grid, currentData.step);
+  const tactics = currentData.tactics.map((line) => {
+    if (!beacon) return line;
+    if (currentData.step === 4 && line.startsWith("Cíl mise:")) {
+      const { x, y, z } = beacon.coord;
+      return `Cíl mise: Doveďte maršála Colloreda na molo [${x}, ${y}, ${z}] k pramici na Čertovce!`;
+    }
+    return line;
+  });
 
   return (
     <aside
@@ -191,7 +200,7 @@ export function TacticalAdvisorWidget() {
         <div className="space-y-2 pt-1.5 border-t border-amber-900/70 animate-in fade-in duration-150">
           <div className="flex items-start gap-2 bg-slate-900/85 rounded-lg p-2 border border-amber-900/60">
             <UnitPortrait
-              archetype="ranger"
+              archetype={currentData.portrait}
               faction="player"
               name={currentData.speaker}
               size="xs"
@@ -210,7 +219,7 @@ export function TacticalAdvisorWidget() {
           </div>
 
           <ul className="space-y-1 font-literata text-[11px] text-amber-100/95 leading-snug">
-            {currentData.tactics.map((point, idx) => (
+            {tactics.map((point, idx) => (
               <li key={idx} className="flex items-start gap-1.5">
                 <span className="text-amber-400 font-bold shrink-0">·</span>
                 <span>{point}</span>

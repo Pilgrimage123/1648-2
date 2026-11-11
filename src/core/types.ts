@@ -149,7 +149,7 @@ export interface WeaponStats {
   hipFireAimPenalty?: number;
   /** Celková cena nabití v AP při fázovém nabíjení po 1 AP (4 AP těžká mušketa, 2 AP švédská mušketa s papírovými patronami) */
   reloadApCost?: number;
-  /** Postih k pohybu v políčkách kvůli váze zbraně (-3 až -4 těžká mušketa, -1 až -2 švédská mušketa) */
+  /** Tiles lost from `SOLDIER_BASE_MOVE` (7). Carbine and Swedish musket are −2, heavy musket −3. Colloredo's limp ignores this. */
   mobilityPenalty?: number;
   /** Režim hlídky: plný 360° Overwatch (kolečkový zámek) nebo Připravená salva v předním kuželu (doutnáková mušketa) */
   overwatchMode?: OverwatchMode;
@@ -233,7 +233,7 @@ export interface UnitData {
   detainedTurns?: number;
   /** Důvod aktuálního zadržení nebo zajetí VIP maršála */
   captureReason?: CaptureReason | null;
-  /** Popisek aktivního taktického posílení (např. "Podepřen komorníkem") */
+  /** Popisek aktivního stavu (např. "Těžké kulhání (zranění z Lützenu)") */
   buffTitle?: string;
   /** Zda je palná zbraň (mušketa/karabina) plně nabitá a připravená k výstřelu */
   firearmLoaded?: boolean;

@@ -20,6 +20,7 @@ import {
   createInitialGrid,
   createInitialUnits,
   createReinforcementUnits,
+  getMission1TutorialBeacon,
   MELEE_CATALOG,
   resolvePreferredFloorCoord,
   WEAPON_CATALOG,
@@ -95,6 +96,30 @@ const keg3 = grid.getTile({ x: 10, y: 0, z: 6 });
 assert(keg1 && keg1.obstacle === "powder_keg", "Powder keg 1 must be at (7, 0, 13)");
 assert(keg2 && keg2.obstacle === "powder_keg", "Powder keg 2 must be at (16, 0, 9)");
 assert(keg3 && keg3.obstacle === "powder_keg", "Powder keg 3 must be at (10, 0, 6)");
+
+const kegBeacon = getMission1TutorialBeacon(grid, 3);
+assert(
+  kegBeacon !== null && grid.getTile(kegBeacon.coord)?.obstacle === "powder_keg",
+  "Tutorial step 3 beacon must sit on a powder keg",
+);
+assert(
+  kegBeacon!.coord.x === 7 && kegBeacon!.coord.y === 0 && kegBeacon!.coord.z === 13,
+  "Tutorial step 3 beacon must mark the palace-side keg (7, 0, 13)",
+);
+const dockBeacon = getMission1TutorialBeacon(grid, 4);
+assert(
+  dockBeacon !== null && grid.getTile(dockBeacon.coord)?.isEscapeZone === true,
+  "Tutorial step 4 beacon must sit on an escape tile",
+);
+assert(
+  dockBeacon!.coord.x === 3 && dockBeacon!.coord.y === 0 && dockBeacon!.coord.z === 2,
+  "Tutorial step 4 beacon must mark the Čertovka dock (3, 0, 2)",
+);
+assert(
+  getMission1TutorialBeacon(grid, 1) === null &&
+    getMission1TutorialBeacon(grid, 2) === null,
+  "Tutorial steps 1 and 2 have no world beacon",
+);
 
 // Check Piano Nobile (P1) and Maltese Watchtower (P2)
 const pianoNobileTile = grid.getTile({ x: 11, y: 1, z: 23 });
@@ -750,11 +775,11 @@ assert(
   "Swedish sharpshooter on garden belvedere (12,1,10) must be spotted at start from Piano Nobile",
 );
 assert(
-  !fogState.fogSnapshot.visibleEnemyIds.has("enemy-dragoon"),
+  !fogState.fogSnapshot.visibleEnemyIds.has("enemy-garden-musketeer"),
   "Swedish dragoon in western garden (6,0,8) must start shrouded in Fog of War",
 );
 assert(
-  fogState.fogSnapshot.soundContacts.some((c) => c.unitId === "enemy-dragoon"),
+  fogState.fogSnapshot.soundContacts.some((c) => c.unitId === "enemy-garden-musketeer"),
   "Unspotted dragoon within acoustic range must emit a 17th-century Sound Contact",
 );
 
@@ -812,8 +837,8 @@ const reconPreview = previewReconFromTile(
 );
 assert(
   reconPreview.newlyRevealedCount >= 1 &&
-    reconPreview.spottedEnemyIds.includes("enemy-dragoon"),
-  "Recon preview from (5,0,8) must detect newly revealed enemy-dragoon",
+    reconPreview.spottedEnemyIds.includes("enemy-garden-musketeer"),
+  "Recon preview from (5,0,8) must detect the newly revealed garden musketeer",
 );
 
 console.log(
@@ -847,11 +872,11 @@ assert(
   "All reinforcement units must be musketeers (archetype trooper)",
 );
 assert(
-  reinforcementUnits.some((u) => u.id === "enemy-reinforcement-dragoon" && u.faction === "enemy" && u.pos.z === 5),
+  reinforcementUnits.some((u) => u.id === "enemy-reinforcement-vanguard" && u.faction === "enemy" && u.pos.z === 5),
   "Reinforcement musketeer 1 must arrive at northern garden gate (z: 5)",
 );
 assert(
-  reinforcementUnits.some((u) => u.id === "enemy-reinforcement-cuirassier" && u.faction === "enemy" && u.pos.z === 5),
+  reinforcementUnits.some((u) => u.id === "enemy-reinforcement-reserve" && u.faction === "enemy" && u.pos.z === 5),
   "Reinforcement musketeer 2 must arrive at northern garden gate (z: 5)",
 );
 
@@ -883,18 +908,18 @@ assert(
   "Reinforcements must be flagged as spawned in Round 5",
 );
 const dragoonInUnits = round5State.units.find(
-  (u) => u.id === "enemy-reinforcement-dragoon" && u.alive,
+  (u) => u.id === "enemy-reinforcement-vanguard" && u.alive,
 );
 assert(
   dragoonInUnits !== undefined,
-  "Reinforcement dragoon must be present in active units roster",
+  "Reinforcement vanguard musketeer must be present in the active roster",
 );
 const cuirassierInUnits = round5State.units.find(
-  (u) => u.id === "enemy-reinforcement-cuirassier" && u.alive,
+  (u) => u.id === "enemy-reinforcement-reserve" && u.alive,
 );
 assert(
   cuirassierInUnits !== undefined,
-  "Reinforcement cuirassier must be present in active units roster",
+  "Reinforcement reserve musketeer must be present in the active roster",
 );
 
 // Check that Colloredo can still reach the boat and escape (Tutorial approachability)
@@ -1634,7 +1659,7 @@ assert(!isAdjacentForMelee(baseCoord, { x: 8, y: 0, z: 10 }), "Tile at distance 
 assert(!isAdjacentForMelee(baseCoord, { x: 12, y: 0, z: 12 }), "Distant tile is not adjacent");
 
 // 25c: Melee Calculations (Colloredo vs Bartoloměj)
-const dummyEnemy = initialTestUnits.find((u) => u.id === "enemy-dragoon")!;
+const dummyEnemy = initialTestUnits.find((u) => u.id === "enemy-garden-musketeer")!;
 const colloredoAdjacent = { ...colloredoUnit, pos: { x: dummyEnemy.pos.x + 1, y: dummyEnemy.pos.y, z: dummyEnemy.pos.z } };
 const colloredoMeleeCalc = calculateMeleeAttack(grid, colloredoAdjacent, dummyEnemy);
 
@@ -1869,7 +1894,7 @@ const resolvedPodReveal = resolveActiveCameraState({
     podReveal: {
       spotterUnitId: "player-bartolomej",
       spotterCoord: { x: 8, y: 0, z: 14 },
-      revealedEnemyIds: ["enemy-dragoon"],
+      revealedEnemyIds: ["enemy-garden-musketeer"],
       focusCoord: { x: 8, y: 0, z: 8 },
       startedAt: Date.now(),
       durationMs: 1150,
@@ -1950,7 +1975,7 @@ assert(
 
 // 26e: Pod Reveal Scramble destination calculation & Cover Direction
 const scrambleEnemy = {
-  ...createInitialUnits().find((u) => u.id === "enemy-dragoon")!,
+  ...createInitialUnits().find((u) => u.id === "enemy-garden-musketeer")!,
   pos: { x: 8, y: 0 as const, z: 9 },
 };
 const scrambleDest = computeScrambleDestination(
