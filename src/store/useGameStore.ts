@@ -19,6 +19,7 @@ import {
   isAdjacentForMelee,
   isCompanionProtectedByCount,
   isInPreparedVolleyCone,
+  isInstantOverkill,
   resolveTargetCoverAgainstShot,
   rollMeleeAttack,
   rollRangedAttack,
@@ -79,7 +80,15 @@ import type {
   TargetEvaluation,
   UnitData,
   WeatherType,
+  GuidedTutorialStep,
+  GuidedTutorialState,
 } from "../core/types";
+import {
+  getGuidedStepData,
+  isTileAllowedForGuidedMove,
+  isActionAllowedForGuidedStep,
+  getGuidedRejectFeedback,
+} from "../core/GuidedTutorialSystem";
 
 export type ActionMode = "move" | "shoot" | "grenade" | "melee" | "reload";
 
@@ -118,6 +127,8 @@ export interface UnitCombatLoss {
   overwatchLost: boolean;
   detainedApplied: boolean;
   killed: boolean;
+  enteredDeathThroes?: boolean;
+  instantKilled?: boolean;
 }
 
 export interface UnitVisualFX {
@@ -238,6 +249,13 @@ interface GameStoreState {
   setTutorialStep: (step: 1 | 2 | 3 | 4 | null) => void;
   advanceTutorialStep: () => void;
   toggleTutorial: () => void;
+
+  // Skriptovaný vedený tutoriál ve stylu XCOM 2 (Operation Gatecrasher)
+  guidedTutorial: GuidedTutorialState;
+  setGuidedTutorialStep: (step: GuidedTutorialStep) => void;
+  skipGuidedTutorial: () => void;
+  toggleGuidedTutorial: () => void;
+  setGuidedTutorialReject: (msg: string | null) => void;
 
   // Paradoxní oběť a Železná vigilie (Mission 1 Climax)
   sacrificeDilemmaOpen: boolean;
@@ -518,7 +536,7 @@ export function buildUnitCombatLoss(
   },
 ): UnitCombatLoss {
   const hpBefore = beforeUnit.hp;
-  const hpAfter = Math.max(0, afterUnit.hp);
+  const hpAfter = afterUnit.hp;
   const hpLost = Math.max(0, hpBefore - hpAfter);
   const armorBefore = beforeUnit.armor;
   const armorAfter = Math.max(0, afterUnit.armor);
@@ -528,8 +546,9 @@ export function buildUnitCombatLoss(
   const overwatchLost = beforeUnit.isOverwatch && !afterUnit.isOverwatch;
   const detainedApplied =
     (beforeUnit.detainedTurns ?? 0) === 0 && (afterUnit.detainedTurns ?? 0) > 0;
-  const killed =
-    hpBefore > 0 && hpAfter <= 0 && afterUnit.id !== "player-colloredo";
+  const enteredDeathThroes = !beforeUnit.inDeathThroes && (afterUnit.inDeathThroes ?? false);
+  const killed = beforeUnit.alive && !afterUnit.alive;
+  const instantKilled = killed && isInstantOverkill(hpAfter, beforeUnit.maxHp);
 
   return {
     id: fxSeq++,
@@ -555,6 +574,8 @@ export function buildUnitCombatLoss(
     overwatchLost,
     detainedApplied,
     killed,
+    enteredDeathThroes,
+    instantKilled,
   };
 }
 
@@ -994,7 +1015,7 @@ export function checkMissionOutcome(
     (u) =>
       u.faction === "player" &&
       u.alive &&
-      u.hp > 0 &&
+      (u.hp > 0 || (u.inDeathThroes ?? false)) &&
       (u.detainedTurns ?? 0) === 0,
   );
   if (!activeRescuers) {
@@ -1008,7 +1029,7 @@ export function checkMissionOutcome(
   const colloredoTile = grid.getTile(colloredo.pos);
   if (
     colloredoTile?.isEscapeZone &&
-    colloredo.hp > 0 &&
+    colloredo.alive &&
     (colloredo.detainedTurns ?? 0) === 0
   ) {
     return { outcome: "victory", victoryReason: "boat_escape", defeatReason: null };
@@ -1084,15 +1105,17 @@ function processExplosions(
 
       if (!victims.includes(u.id)) victims.push(u.id);
       const nextArmor = Math.max(0, u.armor - armorShred);
-      const nextHp = Math.max(0, u.hp - damage);
-      const isColloredo = u.id === "player-colloredo";
+      const nextHp = u.hp - damage;
+      const instantKilled = isInstantOverkill(nextHp, u.maxHp);
+      const inThroes = !instantKilled && nextHp <= 0;
       return {
         ...u,
         armor: nextArmor,
         hp: nextHp,
         isShaken: nextHp > 0,
-        alive: isColloredo ? true : nextHp > 0,
-        ap: isColloredo && nextHp <= 0 ? 0 : u.ap,
+        alive: !instantKilled,
+        inDeathThroes: inThroes,
+        deathThroesTurns: inThroes ? (u.deathThroesTurns ?? 1) : 0,
         isOverwatch: nextHp > 0 ? u.isOverwatch : false,
       };
     });
@@ -1108,7 +1131,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
   const initialUnits = createInitialUnits();
   const initialWeather: WeatherType = "rain";
   const firstPlayerId =
-    initialUnits.find((u) => u.faction === "player")?.id ?? null;
+    initialUnits.find((u) => u.id === "player-jan-matej")?.id ??
+    initialUnits.find((u) => u.faction === "player")?.id ??
+    null;
   const derived = deriveSelectionData(
     initialGrid,
     initialUnits,
@@ -1766,8 +1791,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         const updatedUnits = s.units.map((u) => {
           if (u.id !== currentMoved.id) return u;
           const nextArmor = Math.max(0, u.armor - outcome.armorShredded);
-          const nextHp = Math.max(0, u.hp - outcome.damage);
-          const isColloredo = u.id === "player-colloredo";
+          const nextHp = u.hp - outcome.damage;
+          const instantKilled = isInstantOverkill(nextHp, u.maxHp);
+          const inThroes = !instantKilled && nextHp <= 0;
           const shakenNow =
             u.isShaken || (outcome.hit && (outcome.critical || outcome.damage >= 4));
           return {
@@ -1775,8 +1801,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             armor: nextArmor,
             hp: nextHp,
             isShaken: nextHp > 0 ? shakenNow : false,
-            alive: isColloredo ? true : nextHp > 0,
-            ap: isColloredo && nextHp <= 0 ? 0 : u.ap,
+            alive: !instantKilled,
+            inDeathThroes: inThroes,
+            deathThroesTurns: inThroes ? (u.deathThroesTurns ?? 1) : 0,
             isOverwatch: nextHp > 0 ? u.isOverwatch : false,
           };
         });
@@ -1883,7 +1910,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     isCapturingAnim: false,
 
     selectedUnitId: firstPlayerId,
-    activeFloor: 0,
+    activeFloor: 1,
     renderMode: "2D_SPRITE",
     cameraStep: 0,
     isFullscreen: false,
@@ -1935,22 +1962,122 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     tutorialStep: 1,
     tutorialDismissed: false,
 
+    guidedTutorial: {
+      enabled: true,
+      currentStep: "step_1_matej_move",
+      dismissed: false,
+      rejectFeedback: null,
+      rejectTimestamp: 0,
+    },
+
+    setGuidedTutorialStep: (step: GuidedTutorialStep) => {
+      set((s) => {
+        let legacyStep: 1 | 2 | 3 | 4 | null = s.tutorialStep;
+        if (step === "step_1_matej_move" || step === "step_2_colloredo_escort") legacyStep = 1;
+        else if (step === "step_3_vaclav_aim" || step === "step_4_vaclav_shoot") legacyStep = 2;
+        else if (
+          step === "step_5_enemy_turn_react" ||
+          step === "step_6_vaclav_reload" ||
+          step === "step_7_keg_explosion" ||
+          step === "step_8_melee_finish"
+        )
+          legacyStep = 3;
+        else if (step === "step_9_free_combat") legacyStep = 4;
+
+        return {
+          guidedTutorial: {
+            ...s.guidedTutorial,
+            currentStep: step,
+            rejectFeedback: null,
+          },
+          tutorialStep: legacyStep,
+        };
+      });
+    },
+
+    skipGuidedTutorial: () => {
+      set((s) => ({
+        guidedTutorial: {
+          ...s.guidedTutorial,
+          enabled: false,
+          currentStep: "step_9_free_combat",
+          rejectFeedback: null,
+        },
+        tutorialStep: 4,
+      }));
+    },
+
+    toggleGuidedTutorial: () => {
+      set((s) => ({
+        guidedTutorial: {
+          ...s.guidedTutorial,
+          dismissed: !s.guidedTutorial.dismissed,
+        },
+        tutorialDismissed: !s.tutorialDismissed,
+      }));
+    },
+
+    setGuidedTutorialReject: (msg: string | null) => {
+      set((s) => ({
+        guidedTutorial: {
+          ...s.guidedTutorial,
+          rejectFeedback: msg,
+          rejectTimestamp: performance.now(),
+        },
+      }));
+    },
+
     setTutorialStep: (step: 1 | 2 | 3 | 4 | null) => {
-      set({ tutorialStep: step });
+      set((s) => {
+        let nextGuided: GuidedTutorialStep = s.guidedTutorial.currentStep;
+        if (step === 1) nextGuided = "step_1_matej_move";
+        else if (step === 2) nextGuided = "step_3_vaclav_aim";
+        else if (step === 3) nextGuided = "step_6_vaclav_reload";
+        else if (step === 4) nextGuided = "step_9_free_combat";
+        return {
+          tutorialStep: step,
+          guidedTutorial: {
+            ...s.guidedTutorial,
+            currentStep: nextGuided,
+            enabled: step !== null,
+          },
+        };
+      });
     },
 
     advanceTutorialStep: () => {
       set((s) => {
         if (s.tutorialStep === null) return { tutorialStep: 1 };
         if (s.tutorialStep < 4) {
-          return { tutorialStep: (s.tutorialStep + 1) as 1 | 2 | 3 | 4 };
+          const next = (s.tutorialStep + 1) as 1 | 2 | 3 | 4;
+          let nextGuided: GuidedTutorialStep = s.guidedTutorial.currentStep;
+          if (next === 2) nextGuided = "step_3_vaclav_aim";
+          else if (next === 3) nextGuided = "step_6_vaclav_reload";
+          else if (next === 4) nextGuided = "step_9_free_combat";
+          return {
+            tutorialStep: next,
+            guidedTutorial: { ...s.guidedTutorial, currentStep: nextGuided },
+          };
         }
-        return { tutorialStep: null };
+        return {
+          tutorialStep: null,
+          guidedTutorial: {
+            ...s.guidedTutorial,
+            enabled: false,
+            currentStep: "step_9_free_combat",
+          },
+        };
       });
     },
 
     toggleTutorial: () => {
-      set((s) => ({ tutorialDismissed: !s.tutorialDismissed }));
+      set((s) => ({
+        tutorialDismissed: !s.tutorialDismissed,
+        guidedTutorial: {
+          ...s.guidedTutorial,
+          dismissed: !s.guidedTutorial.dismissed,
+        },
+      }));
     },
 
     sacrificeDilemmaOpen: false,
@@ -2019,6 +2146,18 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       if (state.isBusy || state.turn !== "player") return;
       const unit = state.units.find((u) => u.id === unitId);
       if (!unit || !unit.alive || unit.faction !== "player") return;
+
+      if (state.guidedTutorial.enabled && !state.guidedTutorial.dismissed) {
+        const step = state.guidedTutorial.currentStep;
+        if (
+          unitId === "player-vaclav-michalovic" &&
+          (step === "step_1_matej_move" || step === "step_2_colloredo_escort")
+        ) {
+          get().setGuidedTutorialStep("step_3_vaclav_aim");
+        } else if (unitId === "player-bartolomej" && step !== "step_9_free_combat") {
+          get().setGuidedTutorialStep("step_7_keg_explosion");
+        }
+      }
 
       const sel = deriveSelectionData(
         state.grid,
@@ -2151,6 +2290,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     setActionMode: (mode: ActionMode) => {
       const state = get();
       if (state.turn !== "player") return;
+
+      if (state.guidedTutorial.enabled && !state.guidedTutorial.dismissed) {
+        const step = state.guidedTutorial.currentStep;
+        if (step === "step_3_vaclav_aim" && mode === "shoot") {
+          get().setGuidedTutorialStep("step_4_vaclav_shoot");
+        }
+      }
 
       // Návrat do režimu pohybu (Zpět k pohybu / Esc / 1) - musí VŽDY fungovat bez ohledu na AP střelce či stav zadržení
       if (mode === "move") {
@@ -3046,11 +3192,19 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           set((s) => {
             const nextTutorialStep =
               s.tutorialStep === 3 ? (4 as const) : s.tutorialStep;
+            const nextGuidedStep =
+              s.guidedTutorial.enabled && s.guidedTutorial.currentStep === "step_7_keg_explosion"
+                ? ("step_8_melee_finish" as const)
+                : s.guidedTutorial.currentStep;
             return {
               gridVersion: s.gridVersion + 1,
               smokeVersion: s.smokeVersion + 2,
               units: syncedUnits,
               tutorialStep: nextTutorialStep,
+              guidedTutorial: {
+                ...s.guidedTutorial,
+                currentStep: nextGuidedStep,
+              },
               combatLog: [
                 ...s.combatLog,
                 makeLog(
@@ -3124,6 +3278,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         unit.hp <= 0
       )
         return;
+
+      if (state.guidedTutorial.enabled && !state.guidedTutorial.dismissed) {
+        const step = state.guidedTutorial.currentStep;
+        if (!isTileAllowedForGuidedMove(step, coord)) {
+          get().setGuidedTutorialReject(getGuidedRejectFeedback(step, "tile"));
+          return;
+        }
+      }
 
       const reach = get().reachableTiles.get(coordKey(coord));
       if (!reach) return;
@@ -3402,6 +3564,24 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               ? (2 as const)
               : s.tutorialStep;
 
+          let nextGuidedStep = s.guidedTutorial.currentStep;
+          if (s.guidedTutorial.enabled && !s.guidedTutorial.dismissed) {
+            if (s.guidedTutorial.currentStep === "step_1_matej_move") {
+              nextGuidedStep = "step_2_colloredo_escort";
+              setTimeout(() => {
+                const st = useGameStore.getState();
+                st.selectUnit("player-colloredo");
+              }, 120);
+            } else if (s.guidedTutorial.currentStep === "step_2_colloredo_escort") {
+              nextGuidedStep = "step_3_vaclav_aim";
+              setTimeout(() => {
+                const st = useGameStore.getState();
+                st.selectUnit("player-vaclav-michalovic");
+                st.setActiveFloor(1);
+              }, 120);
+            }
+          }
+
           const extraLogs: CombatLogEntry[] = [];
           if (interactions.hasDoorBreach) {
             extraLogs.push(
@@ -3440,6 +3620,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               finalStep.y,
             ),
             tutorialStep: nextTutorialStep,
+            guidedTutorial: {
+              ...s.guidedTutorial,
+              currentStep: nextGuidedStep,
+            },
             combatLog: [
               ...s.combatLog,
               makeLog(
@@ -3922,7 +4106,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           const updatedUnits = s.units.map((u) => {
             if (u.id !== target.id) return u;
             const nextArmor = Math.max(0, u.armor - outcome.armorShredded);
-            const nextHp = Math.max(0, u.hp - outcome.damage);
+            const nextHp = u.hp - outcome.damage;
+            const instantKilled = isInstantOverkill(nextHp, u.maxHp);
+            const inThroes = !instantKilled && nextHp <= 0;
             const shakenNow =
               u.isShaken ||
               (outcome.hit && (outcome.critical || outcome.damage >= 4));
@@ -3931,7 +4117,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               armor: nextArmor,
               hp: nextHp,
               isShaken: nextHp > 0 ? shakenNow : false,
-              alive: nextHp > 0,
+              alive: !instantKilled,
+              inDeathThroes: inThroes,
+              deathThroesTurns: inThroes ? (u.deathThroesTurns ?? 1) : 0,
               isOverwatch: nextHp > 0 ? u.isOverwatch : false,
             };
           });
@@ -3950,10 +4138,21 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           const tagSuffix =
             bonusTags.length > 0 ? ` [${bonusTags.join(", ")}]` : "";
 
+          const targetAfter = updatedUnits.find((u) => u.id === target.id);
+          const wasInstantKilled = targetAfter ? !targetAfter.alive : false;
+          const enteredThroesNow = targetAfter ? targetAfter.inDeathThroes && !target.inDeathThroes : false;
+          const statusTag = wasInstantKilled
+            ? " (OKAMŽITĚ PADL!)"
+            : enteredThroesNow
+              ? " (POSLEDNÍ VZEPĚTÍ!)"
+              : targetAfter && targetAfter.inDeathThroes
+                ? ` (V AGÓNII: ${targetAfter.hp} HP)`
+                : "";
+
           const text = outcome.misfired
             ? `${attacker.name} stiskl spoušť (${attacker.weapon.name}), ale vlhký střelný prach na pánvičce jen zasyčel (Selhání ${outcome.misfireChance} %)!`
             : outcome.hit
-              ? `${attacker.name} zasáhl ${target.name} (${outcome.hitChance} %) za ${outcome.damage} HP${outcome.critical ? " — KRITICKÝ PRŮSTŘEL!" : ""}${outcome.killed ? " (PADL)" : ""}${tagSuffix}.`
+              ? `${attacker.name} zasáhl ${target.name} (${outcome.hitChance} %) za ${outcome.damage} HP${outcome.critical ? " — KRITICKÝ PRŮSTŘEL!" : ""}${statusTag}${tagSuffix}.`
               : `${attacker.name} minul ${target.name} (šance ${outcome.hitChance} %)${tagSuffix}.`;
 
           let finalUnits = updatedUnits;
@@ -4030,11 +4229,22 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                 ? (4 as const)
                 : s.tutorialStep;
 
+          const nextGuidedStep =
+            s.guidedTutorial.enabled && s.guidedTutorial.currentStep === "step_4_vaclav_shoot"
+              ? ("step_5_enemy_turn_react" as const)
+              : kegDetonated && s.guidedTutorial.currentStep === "step_7_keg_explosion"
+                ? ("step_8_melee_finish" as const)
+                : s.guidedTutorial.currentStep;
+
           return {
             gridVersion: s.gridVersion + (outcome.misfired ? 0 : 1),
             smokeVersion: s.smokeVersion + (kegDetonated ? 2 : 1),
             units: finalUnits,
             tutorialStep: nextTutorialStep,
+            guidedTutorial: {
+              ...s.guidedTutorial,
+              currentStep: nextGuidedStep,
+            },
             combatLog: newLogs,
           };
         });
@@ -4266,10 +4476,23 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       const autoNextUnit = findNextAvailablePlayerUnit(updatedUnits, unit.id);
       const autoNextId = autoNextUnit?.id ?? unit.id;
 
+      let nextTutorialGuided = state.guidedTutorial.currentStep;
+      let nextSelId = autoNextId;
+      let nextFlr = autoNextUnit ? autoNextUnit.pos.y : unit.pos.y;
+      if (
+        state.guidedTutorial.enabled &&
+        !state.guidedTutorial.dismissed &&
+        state.guidedTutorial.currentStep === "step_6_vaclav_reload"
+      ) {
+        nextTutorialGuided = "step_7_keg_explosion";
+        nextSelId = "player-bartolomej";
+        nextFlr = 0;
+      }
+
       const sel = deriveSelectionData(
         state.grid,
         updatedUnits,
-        autoNextId,
+        nextSelId,
         state.weather,
         state.selectedTargetId,
         state.fogSnapshot.exploredCoords,
@@ -4279,8 +4502,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
       set((s) => ({
         units: sel.units,
-        selectedUnitId: autoNextId,
-        activeFloor: autoNextUnit ? autoNextUnit.pos.y : unit.pos.y,
+        selectedUnitId: nextSelId,
+        activeFloor: nextFlr,
+        guidedTutorial: {
+          ...s.guidedTutorial,
+          currentStep: nextTutorialGuided,
+        },
         actionMode: "move",
         fogSnapshot: sel.fogSnapshot,
         reachableTiles: sel.reachableTiles,
@@ -4454,7 +4681,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           const updatedUnits = s.units.map((u) => {
             if (u.id !== target.id) return u;
             const nextArmor = Math.max(0, u.armor - outcome.armorShredded);
-            const nextHp = Math.max(0, u.hp - outcome.damage);
+            const nextHp = u.hp - outcome.damage;
+            const instantKilled = isInstantOverkill(nextHp, u.maxHp);
+            const inThroes = !instantKilled && nextHp <= 0;
             const shakenNow =
               u.isShaken ||
               stunnedByButt ||
@@ -4464,7 +4693,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               armor: nextArmor,
               hp: nextHp,
               isShaken: nextHp > 0 ? shakenNow : false,
-              alive: nextHp > 0,
+              alive: !instantKilled,
+              inDeathThroes: inThroes,
+              deathThroesTurns: inThroes ? (u.deathThroesTurns ?? 1) : 0,
               isOverwatch: nextHp > 0 ? u.isOverwatch : false,
             };
           });
@@ -4481,12 +4712,23 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           const tagSuffix =
             bonusTags.length > 0 ? ` [${bonusTags.join(", ")}]` : "";
 
+          const targetAfter = updatedUnits.find((u) => u.id === target.id);
+          const wasInstantKilled = targetAfter ? !targetAfter.alive : false;
+          const enteredThroesNow = targetAfter ? targetAfter.inDeathThroes && !target.inDeathThroes : false;
+          const statusTag = wasInstantKilled
+            ? " (OKAMŽITĚ PADL!)"
+            : enteredThroesNow
+              ? " (POSLEDNÍ VZEPĚTÍ!)"
+              : targetAfter && targetAfter.inDeathThroes
+                ? ` (V AGÓNII: ${targetAfter.hp} HP)`
+                : "";
+
           const text = isButt
             ? outcome.hit
-              ? `${attacker.name} udeřil ${target.name} pažbou (${meleeWeapon.name}, ${outcome.hitChance} %) za ${outcome.damage} HP${outcome.critical ? " — DRTIVÝ ÚDER!" : ""}${outcome.killed ? " (OMRÁČEN / PADL)" : ""}${tagSuffix}.`
+              ? `${attacker.name} udeřil ${target.name} pažbou (${meleeWeapon.name}, ${outcome.hitChance} %) za ${outcome.damage} HP${outcome.critical ? " — DRTIVÝ ÚDER!" : ""}${statusTag}${tagSuffix}.`
               : `${attacker.name} máchl pažbou (${meleeWeapon.name}) naprázdno vedle ${target.name} (${outcome.hitChance} %)${tagSuffix}.`
             : outcome.hit
-              ? `${attacker.name} zasáhl ${target.name} chladnou zbraní (${meleeWeapon.name}, ${outcome.hitChance} %) za ${outcome.damage} HP${outcome.critical ? " — SMRTÍCÍ SEK!" : ""}${outcome.killed ? " (PADL)" : ""}${tagSuffix}.`
+              ? `${attacker.name} zasáhl ${target.name} chladnou zbraní (${meleeWeapon.name}, ${outcome.hitChance} %) za ${outcome.damage} HP${outcome.critical ? " — SMRTÍCÍ SEK!" : ""}${statusTag}${tagSuffix}.`
               : `${attacker.name} sekl zbraní ${meleeWeapon.name} vedle ${target.name} (${outcome.hitChance} %)${tagSuffix}.`;
 
           const captureSync = syncColloredoCaptureState(updatedUnits);
@@ -4518,8 +4760,19 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             );
           }
 
+          let nextGuidedStep = s.guidedTutorial.currentStep;
+          if (s.guidedTutorial.enabled && !s.guidedTutorial.dismissed) {
+            if (s.guidedTutorial.currentStep === "step_8_melee_finish") {
+              nextGuidedStep = "step_9_free_combat";
+            }
+          }
+
           return {
             units: finalUnits,
+            guidedTutorial: {
+              ...s.guidedTutorial,
+              currentStep: nextGuidedStep,
+            },
             combatLog: newLogs,
           };
         });
@@ -4940,7 +5193,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         freshState.grid.addSmoke(unit.pos, 1, 3);
 
         const livingEnemies = freshState.units.filter(
-          (u) => u.faction === "enemy" && u.alive && u.hp > 0,
+          (u) => u.faction === "enemy" && u.alive,
         );
         const inRangeEnemies = livingEnemies.filter(
           (e) => gridDistance3D(unit.pos, e.pos) <= 9,
@@ -4963,13 +5216,17 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             };
           }
           if (hitEnemyIds.has(u.id)) {
-            const nextHp = Math.max(0, u.hp - 3);
+            const nextHp = u.hp - 3;
             const nextArmor = Math.max(0, u.armor - 2);
+            const instantKilled = isInstantOverkill(nextHp, u.maxHp);
+            const inThroes = !instantKilled && nextHp <= 0;
             return {
               ...u,
               hp: nextHp,
               armor: nextArmor,
-              alive: nextHp > 0,
+              alive: !instantKilled,
+              inDeathThroes: inThroes,
+              deathThroesTurns: inThroes ? (u.deathThroesTurns ?? 1) : 0,
               isShaken: nextHp > 0 ? true : false,
               ap: Math.max(0, u.ap - 1),
               isOverwatch: false,
@@ -5345,6 +5602,11 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           const nextTutorialStep =
             s.tutorialStep === 3 ? (4 as const) : s.tutorialStep;
 
+          const nextGuidedStep =
+            s.guidedTutorial.enabled && s.guidedTutorial.currentStep === "step_7_keg_explosion"
+              ? ("step_8_melee_finish" as const)
+              : s.guidedTutorial.currentStep;
+
           const extraLogs: CombatLogEntry[] = [];
           if (captureSync.rescued) {
             extraLogs.push(
@@ -5371,6 +5633,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             smokeVersion: s.smokeVersion + 1,
             units: updatedUnits,
             tutorialStep: nextTutorialStep,
+            guidedTutorial: {
+              ...s.guidedTutorial,
+              currentStep: nextGuidedStep,
+            },
             combatLog: [
               ...s.combatLog,
               makeLog(
@@ -5515,6 +5781,67 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           }
         }
 
+        // Vyhodnocení hrdinů v Posledním vzepětí na konci tahu hráče:
+        const dyingHeroes = get().units.filter(
+          (u) => u.faction === "player" && u.alive && u.inDeathThroes,
+        );
+        for (const hero of dyingHeroes) {
+          if (hero.id === "player-colloredo") {
+            const tile = get().grid.getTile(hero.pos);
+            if (!tile?.isEscapeZone) {
+              set((s) => ({
+                units: s.units.map((u) =>
+                  u.id === hero.id ? { ...u, alive: false, inDeathThroes: false } : u,
+                ),
+                combatLog: [
+                  ...s.combatLog,
+                  makeLog(
+                    s.round,
+                    "player",
+                    "Polní maršál Colloredo v Posledním vzepětí nedokázal dosáhnout rybářské pramice a podlehl zraněním!",
+                    "alert",
+                  ),
+                ],
+                outcome: "defeat",
+                defeatReason: "zero_hp",
+              }));
+              await delay(600);
+              return;
+            }
+          } else {
+            // Společník vyčerpal svůj tah v Posledním vzepětí a padá mrtev
+            set((s) => ({
+              units: s.units.map((u) =>
+                u.id === hero.id ? { ...u, alive: false, inDeathThroes: false } : u,
+              ),
+              combatLog: [
+                ...s.combatLog,
+                makeLog(
+                  s.round,
+                  "player",
+                  `${hero.name} vyčerpal své Poslední vzepětí a padl k zemi s čistým štítem.`,
+                  "alert",
+                ),
+              ],
+            }));
+            triggerUnitFx(hero.id, {
+              banner: { text: "PADL V BOJI", tone: "crit" },
+            });
+            playHitSound(true, 3);
+            await delay(350);
+          }
+        }
+
+        const afterHeroLossOutcome = checkMissionOutcome(get().grid, get().units);
+        if (afterHeroLossOutcome.outcome !== "ongoing") {
+          set({
+            outcome: afterHeroLossOutcome.outcome,
+            victoryReason: afterHeroLossOutcome.victoryReason,
+            defeatReason: afterHeroLossOutcome.defeatReason,
+          });
+          return;
+        }
+
         set((s) => ({
           isBusy: true,
           turn: "enemy",
@@ -5621,7 +5948,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           }
 
           const updatedEnemy = get().units.find(
-            (u) => u.id === enemyId && u.alive && u.hp > 0,
+            (u) => u.id === enemyId && u.alive,
           );
           if (!updatedEnemy || get().outcome !== "ongoing")
             continue;
@@ -5633,7 +5960,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           // 1. ZAJETÍ HRABĚTE (1 AP):
           // Švédové po hraběti nestřílí, ale zajmou ho tak, že buď utratí 1 AP těsně vedle něj
           // nebo do tří políček u něj, pokud mají nabitou palnou zbraň.
-          if (colloredo && updatedEnemy.ap >= 1) {
+          // V Posledním vzepětí (agónii) mají nepřátelé zajetí maršála přísně zakázáno (ADR-0012).
+          if (colloredo && updatedEnemy.ap >= 1 && !updatedEnemy.inDeathThroes) {
             const capCheck = checkEnemyColloredoCapture(
               get().grid,
               updatedEnemy,
@@ -5697,7 +6025,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
           // Pokud voják dorazil k hraběti, ale vyčerpal všechna AP na přesun (sprint 2 AP):
           // Hrabě je v bezprostředním ohrožení (zadržen 1/2 kola) — hráč má 1 tah na reakci!
-          if (colloredo && updatedEnemy.ap === 0) {
+          // V Posledním vzepětí (agónii) mají nepřátelé zajetí maršála přísně zakázáno (ADR-0012).
+          if (colloredo && updatedEnemy.ap === 0 && !updatedEnemy.inDeathThroes) {
             const capCheck = checkEnemyColloredoCapture(
               get().grid,
               updatedEnemy,
@@ -5734,8 +6063,115 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           if (updatedEnemy.ap <= 0)
             continue;
 
-          // Pokud má nepřítel vybitou mušketu, provede fázové nabíjení (po 1 AP)
+          // Pokud má nepřítel vybitou mušketu:
           if (updatedEnemy.firearmLoaded === false) {
+            // V Posledním vzepětí nepřítel neztrácí čas nabíjením, ale přednostně udeří pažbou zblízka (ADR-0012)
+            if (updatedEnemy.inDeathThroes) {
+              const adjMelee = evaluateAdjacentMeleeTargets(
+                get().grid,
+                updatedEnemy,
+                get().units,
+              );
+              const validMelee = adjMelee.find(
+                (t) => t.targetId !== "player-colloredo",
+              );
+              if (validMelee && updatedEnemy.ap >= 1) {
+                const targetUnit = get().units.find(
+                  (u) => u.id === validMelee.targetId && u.alive,
+                );
+                if (targetUnit) {
+                  const strikeFacing = facingFromDelta(
+                    updatedEnemy.pos,
+                    targetUnit.pos,
+                    updatedEnemy.facing,
+                  );
+                  const outcome = rollMeleeAttack(
+                    updatedEnemy,
+                    targetUnit,
+                    validMelee.calculation,
+                  );
+                  const beforeTargetStrike = targetUnit;
+                  let afterTargetStrike: UnitData = targetUnit;
+
+                  set((s) => {
+                    const nextUnits = s.units.map((u) => {
+                      if (u.id === updatedEnemy.id) {
+                        return {
+                          ...u,
+                          facing: strikeFacing,
+                          ap: Math.max(0, u.ap - 1),
+                        };
+                      }
+                      if (u.id === targetUnit.id) {
+                        const nextArmor = Math.max(
+                          0,
+                          u.armor - outcome.armorShredded,
+                        );
+                        const nextHp = u.hp - outcome.damage;
+                        const instantKilled = isInstantOverkill(nextHp, u.maxHp);
+                        const inThroes = !instantKilled && nextHp <= 0;
+                        const shakenNow =
+                          u.isShaken ||
+                          (outcome.hit && (outcome.critical || outcome.damage >= 3));
+                        return {
+                          ...u,
+                          armor: nextArmor,
+                          hp: nextHp,
+                          isShaken: nextHp > 0 ? shakenNow : false,
+                          alive: !instantKilled,
+                          inDeathThroes: inThroes,
+                          deathThroesTurns: inThroes ? (u.deathThroesTurns ?? 1) : 0,
+                          isOverwatch: nextHp > 0 ? u.isOverwatch : false,
+                        };
+                      }
+                      return u;
+                    });
+                    const captureSync = syncColloredoCaptureState(nextUnits);
+                    const syncedUnits = syncColloredoMobility(captureSync.units);
+                    afterTargetStrike =
+                      syncedUnits.find((u) => u.id === targetUnit.id) ?? targetUnit;
+
+                    const msg = outcome.hit
+                      ? `${updatedEnemy.name} v Posledním vzepětí udeřil pažbou do ${targetUnit.name} za ${outcome.damage} HP!`
+                      : `${updatedEnemy.name} v Posledním vzepětí máchl pažbou po ${targetUnit.name}, ale minul.`;
+
+                    return {
+                      units: syncedUnits,
+                      combatLog: [
+                        ...s.combatLog,
+                        makeLog(s.round, "enemy", msg, outcome.hit ? "hit" : "miss"),
+                      ],
+                    };
+                  });
+
+                  triggerUnitFx(updatedEnemy.id, { lunge: true });
+                  await delay(320);
+                  if (outcome.hit) {
+                    playHitSound(outcome.critical, 2);
+                  }
+                  triggerUnitFx(targetUnit.id, {
+                    hit: outcome.hit,
+                    loss: buildUnitCombatLoss(
+                      beforeTargetStrike,
+                      afterTargetStrike,
+                      {
+                        attackerName: updatedEnemy.name,
+                        weaponName: "Úder pažbou švédské muškety",
+                        hit: outcome.hit,
+                        critical: outcome.critical,
+                        misfired: false,
+                        hitChance: validMelee.calculation.hitChance,
+                      },
+                    ),
+                  });
+                  await delay(450);
+                  continue;
+                }
+              }
+              // Pokud nemá nikoho na dosah pažby, nenabíjí a pokračuje
+              continue;
+            }
+
             const reqReloadAp = updatedEnemy.weapon.reloadApCost ?? 2;
             const curReload = updatedEnemy.reloadProgress ?? 0;
             const stepsSpent = Math.min(
@@ -5939,8 +6375,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                     0,
                     u.armor - outcome.armorShredded,
                   );
-                  const nextHp = Math.max(0, u.hp - outcome.damage);
-                  const isColloredo = u.id === "player-colloredo";
+                  const nextHp = u.hp - outcome.damage;
+                  const instantKilled = isInstantOverkill(nextHp, u.maxHp);
+                  const inThroes = !instantKilled && nextHp <= 0;
                   const shakenNow =
                     u.isShaken ||
                     (outcome.hit && (outcome.critical || outcome.damage >= 4));
@@ -5949,8 +6386,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                     armor: nextArmor,
                     hp: nextHp,
                     isShaken: nextHp > 0 ? shakenNow : false,
-                    alive: isColloredo ? true : nextHp > 0,
-                    ap: isColloredo && nextHp <= 0 ? 0 : u.ap,
+                    alive: !instantKilled,
+                    inDeathThroes: inThroes,
+                    deathThroesTurns: inThroes ? (u.deathThroesTurns ?? 1) : 0,
                     isOverwatch: nextHp > 0 ? u.isOverwatch : false,
                   };
                 });
@@ -6101,6 +6539,48 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             });
             await delay(240);
           }
+
+          // Závěr aktivace nepřítele: Pokud byl v Posledním vzepětí, jeho dodatečný tah vypršel a padá mrtev!
+          const finishedEnemy = get().units.find((u) => u.id === enemyId);
+          if (finishedEnemy && finishedEnemy.alive && finishedEnemy.inDeathThroes) {
+            set((s) => ({
+              units: s.units.map((u) =>
+                u.id === enemyId
+                  ? {
+                      ...u,
+                      alive: false,
+                      inDeathThroes: false,
+                      ap: 0,
+                      isOverwatch: false,
+                    }
+                  : u,
+              ),
+              combatLog: [
+                ...s.combatLog,
+                makeLog(
+                  s.round,
+                  "enemy",
+                  `${finishedEnemy.name} vyčerpal své Poslední vzepětí, podlehl zraněním a padl k zemi.`,
+                  "alert",
+                ),
+              ],
+            }));
+            triggerUnitFx(enemyId, {
+              banner: { text: "PADL (AGÓNIE)", tone: "crit" },
+            });
+            playHitSound(true, 3);
+            await delay(350);
+
+            const outcomeAfterDeath = checkMissionOutcome(get().grid, get().units);
+            if (outcomeAfterDeath.outcome !== "ongoing") {
+              set({
+                outcome: outcomeAfterDeath.outcome,
+                victoryReason: outcomeAfterDeath.victoryReason,
+                defeatReason: outcomeAfterDeath.defeatReason,
+              });
+              return;
+            }
+          }
         }
 
         if (get().outcome !== "ongoing") {
@@ -6202,6 +6682,21 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             s.fogOfWarEnabled,
           );
 
+          let finalSelectedId = nextSelectedId;
+          let finalFloor = nextSelectedUnit ? nextSelectedUnit.pos.y : 0;
+          let nextGuidedStep = s.guidedTutorial.currentStep;
+
+          if (s.guidedTutorial.enabled && !s.guidedTutorial.dismissed) {
+            if (
+              s.guidedTutorial.currentStep === "step_5_enemy_turn_react" ||
+              s.guidedTutorial.currentStep === "step_4_vaclav_shoot"
+            ) {
+              nextGuidedStep = "step_6_vaclav_reload";
+              finalSelectedId = "player-vaclav-michalovic";
+              finalFloor = 1;
+            }
+          }
+
           return {
             round: nextRound,
             reinforcementsSpawned: s.reinforcementsSpawned || spawnedReinforcements,
@@ -6209,9 +6704,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             smokeVersion: s.smokeVersion + 1,
             isBusy: false,
             units: refreshedUnits,
-            selectedUnitId: nextSelectedId,
-            activeFloor: nextSelectedUnit ? nextSelectedUnit.pos.y : 0,
+            selectedUnitId: finalSelectedId,
+            activeFloor: finalFloor,
             actionMode: "move",
+            guidedTutorial: {
+              ...s.guidedTutorial,
+              currentStep: nextGuidedStep,
+            },
             fogSnapshot: nextDerived.fogSnapshot,
             reachableTiles: nextDerived.reachableTiles,
             visibleTargets: nextDerived.visibleTargets,
@@ -6234,7 +6733,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     resetGame: () => {
       const nextGrid = createInitialGrid();
       const nextUnits = syncColloredoMobility(createInitialUnits());
-      const firstId = nextUnits.find((u) => u.faction === "player")?.id ?? null;
+      const firstId =
+        nextUnits.find((u) => u.id === "player-jan-matej")?.id ??
+        nextUnits.find((u) => u.faction === "player")?.id ??
+        null;
       const currentWeather = "rain"; // Výchozí autentický noční déšť
       const currentFogEnabled = get().fogOfWarEnabled;
       const nextDerived = deriveSelectionData(
@@ -6272,8 +6774,15 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         demonstratedAbilities: {},
         tutorialStep: 1,
         tutorialDismissed: false,
+        guidedTutorial: {
+          enabled: true,
+          currentStep: "step_1_matej_move",
+          dismissed: false,
+          rejectFeedback: null,
+          rejectTimestamp: 0,
+        },
         selectedUnitId: firstId,
-        activeFloor: 0,
+        activeFloor: 1,
         actionMode: "move",
         inspectOpen: false,
         inspectKeyHeld: false,

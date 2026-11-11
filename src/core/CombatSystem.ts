@@ -987,6 +987,66 @@ export interface ColloredoCaptureCheck {
 }
 
 /**
+ * Vypočte práh okamžité smrti (Instant Overkill, ADR-0012):
+ * Jednotka padne okamžitě mrtev bez Posledního vzepětí, pokud její HP klesne na -(maxHp + 1) nebo níže.
+ */
+export function getInstantOverkillThreshold(maxHp: number): number {
+  return -(maxHp + 1);
+}
+
+export function isInstantOverkill(hp: number, maxHp: number): boolean {
+  return hp <= getInstantOverkillThreshold(maxHp);
+}
+
+export interface UnitDamageResolution {
+  nextHp: number;
+  alive: boolean;
+  inDeathThroes: boolean;
+  deathThroesTurns: number;
+  instantKilled: boolean;
+  enteredDeathThroes: boolean;
+}
+
+export function resolveUnitDamageResolution(
+  unit: UnitData,
+  damage: number,
+): UnitDamageResolution {
+  const nextHp = unit.hp - damage;
+  const instantKilled = isInstantOverkill(nextHp, unit.maxHp);
+  if (instantKilled) {
+    return {
+      nextHp,
+      alive: false,
+      inDeathThroes: false,
+      deathThroesTurns: 0,
+      instantKilled: true,
+      enteredDeathThroes: false,
+    };
+  }
+
+  if (nextHp <= 0) {
+    const wasInThroes = unit.inDeathThroes ?? false;
+    return {
+      nextHp,
+      alive: true,
+      inDeathThroes: true,
+      deathThroesTurns: wasInThroes ? (unit.deathThroesTurns ?? 1) : 1,
+      instantKilled: false,
+      enteredDeathThroes: !wasInThroes,
+    };
+  }
+
+  return {
+    nextHp,
+    alive: true,
+    inDeathThroes: false,
+    deathThroesTurns: 0,
+    instantKilled: false,
+    enteredDeathThroes: false,
+  };
+}
+
+/**
  * Zkontroluje, zda švédský voják může zajmout hraběte Colloreda za 1 AP:
  * - Buď těsně vedle něj (Chebyshev <= 1, stejné patro, nejde o stejné pole)
  * - Nebo do tří políček u něj (Chebyshev <= 3, |dy| <= 1), pokud má nabitou palnou zbraň a přímou viditelnost
@@ -1005,7 +1065,7 @@ export function checkEnemyColloredoCapture(
     distanceTiles: 999,
   };
 
-  if (!enemy.alive || enemy.hp <= 0) return noCapture;
+  if (!enemy.alive || enemy.inDeathThroes || enemy.hp <= 0) return noCapture;
   if (!colloredo.alive) return noCapture;
 
   const dx = Math.abs(pos.x - colloredo.pos.x);
@@ -1115,7 +1175,7 @@ export function evaluateVisibleTargets(
   const results: TargetEvaluation[] = [];
 
   for (const unit of allUnits) {
-    if (!unit.alive || unit.hp <= 0 || unit.faction === attacker.faction)
+    if (!unit.alive || unit.faction === attacker.faction)
       continue;
     if (visibleEnemyIds && !visibleEnemyIds.has(unit.id)) continue;
 
@@ -1253,7 +1313,10 @@ export function rollRangedAttack(
   const armorAbsorbed = Math.max(0, remainingArmor - effectivePierce);
 
   const finalDamage = Math.max(1, rawDamage - armorAbsorbed);
-  const killed = target.hp - finalDamage <= 0;
+  const nextHp = target.hp - finalDamage;
+  const instantKilled = isInstantOverkill(nextHp, target.maxHp);
+  const killed = instantKilled;
+  const enteredDeathThroes = target.hp > 0 && nextHp <= 0 && !instantKilled;
 
   return {
     attackerId: attacker.id,
@@ -1270,6 +1333,8 @@ export function rollRangedAttack(
     flanked: calculation.isFlanked,
     heightAdvantage: calculation.heightAdvantage,
     killed,
+    enteredDeathThroes,
+    instantKilled,
   };
 }
 
@@ -1482,7 +1547,7 @@ export function evaluateAdjacentMeleeTargets(
   const results: MeleeTargetEvaluation[] = [];
 
   for (const unit of allUnits) {
-    if (!unit.alive || unit.hp <= 0 || unit.faction === attacker.faction) {
+    if (!unit.alive || unit.faction === attacker.faction) {
       continue;
     }
     if (visibleEnemyIds && !visibleEnemyIds.has(unit.id)) {
@@ -1549,7 +1614,10 @@ export function rollMeleeAttack(
   const armorAbsorbed = Math.max(0, remainingArmor - effectivePierce);
 
   const finalDamage = Math.max(1, rawDamage - armorAbsorbed);
-  const killed = target.hp - finalDamage <= 0;
+  const nextHp = target.hp - finalDamage;
+  const instantKilled = isInstantOverkill(nextHp, target.maxHp);
+  const killed = instantKilled;
+  const enteredDeathThroes = target.hp > 0 && nextHp <= 0 && !instantKilled;
 
   return {
     attackerId: attacker.id,
@@ -1566,6 +1634,8 @@ export function rollMeleeAttack(
     flanked: true,
     heightAdvantage: attacker.pos.y > target.pos.y,
     killed,
+    enteredDeathThroes,
+    instantKilled,
   };
 }
 
@@ -1629,7 +1699,7 @@ export function computeEnemyAiDecision(
   weather: WeatherType = "clear",
 ): EnemyAiDecision {
   const players = allUnits.filter(
-    (u) => u.alive && u.hp > 0 && u.faction === "player",
+    (u) => u.alive && u.faction === "player",
   );
   const colloredoUnit = allUnits.find(
     (u) => u.id === "player-colloredo" && u.alive,
@@ -1721,9 +1791,25 @@ export function computeEnemyAiDecision(
           Math.abs(coord.z - colloredoUnit.pos.z),
         )
       : Infinity;
-    const capturePursuitScore = colloredoUnit
+    const capturePursuitScore = colloredoUnit && !enemy.inDeathThroes
       ? Math.max(0, (18 - distToColloredo) * 12)
       : 0;
+
+    // V Posledním vzepětí při vybité mušketě nepřítel přednostně zaútočí pažbou muškety zblízka (1 AP)
+    if (enemy.inDeathThroes && remainingAp >= 1 && enemy.firearmLoaded === false) {
+      const meleeTarget = players.find(
+        (p) => p.id !== "player-colloredo" && isAdjacentForMelee(coord, p.pos),
+      );
+      if (meleeTarget) {
+        candidates.push({
+          coord,
+          apCost,
+          score: 3000 - apCost * 12,
+          bestTargetId: meleeTarget.id,
+        });
+        return;
+      }
+    }
 
     if (canShootAfter) {
       const simulatedEnemy: UnitData = {

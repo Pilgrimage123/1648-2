@@ -900,20 +900,27 @@ export function UnitActor({ unit }: UnitActorProps) {
                 className={`flex items-center gap-1 text-[9px] font-cinzel font-black px-1.5 py-0.5 rounded uppercase tracking-wider shadow-md whitespace-nowrap ${
                   activeCombatLoss.killed
                     ? "bg-red-600 text-amber-200 border border-amber-300 animate-pulse"
-                    : activeCombatLoss.critical && activeCombatLoss.hit
-                      ? "bg-amber-400 text-slate-950 border border-white"
-                      : activeCombatLoss.hit
-                        ? activeCombatLoss.hpLost > 0 ||
-                          activeCombatLoss.armorLost > 0
-                          ? "bg-red-600 text-white border border-red-200"
-                          : "bg-amber-500 text-slate-950 border border-amber-200"
-                        : "bg-slate-800 text-slate-200 border border-slate-500"
+                    : activeCombatLoss.enteredDeathThroes
+                      ? "bg-purple-950 text-rose-200 border border-rose-400 animate-pulse shadow-[0_0_8px_rgba(244,63,94,0.6)]"
+                      : activeCombatLoss.critical && activeCombatLoss.hit
+                        ? "bg-amber-400 text-slate-950 border border-white"
+                        : activeCombatLoss.hit
+                          ? activeCombatLoss.hpLost > 0 ||
+                            activeCombatLoss.armorLost > 0
+                            ? "bg-red-600 text-white border border-red-200"
+                            : "bg-amber-500 text-slate-950 border border-amber-200"
+                          : "bg-slate-800 text-slate-200 border border-slate-500"
                 }`}
               >
                 {activeCombatLoss.killed ? (
                   <>
                     <Skull className="w-3 h-3 text-amber-200 shrink-0" />
-                    <span>VYŘAZEN!</span>
+                    <span>{activeCombatLoss.instantKilled ? "OKAMŽITĚ PADL!" : "VYŘAZEN!"}</span>
+                  </>
+                ) : activeCombatLoss.enteredDeathThroes ? (
+                  <>
+                    <Skull className="w-3 h-3 text-rose-300 shrink-0 animate-pulse" />
+                    <span className="text-rose-200">POSLEDNÍ VZEPĚTÍ!</span>
                   </>
                 ) : activeCombatLoss.hit ? (
                   activeCombatLoss.critical ? (
@@ -1019,6 +1026,19 @@ export function UnitActor({ unit }: UnitActorProps) {
               {/* Kompaktní barokní erb krytu přilepený vlevo */}
               {tileMeta.cover !== "none" && (
                 <BaroqueCoverBadge cover={tileMeta.cover} size="sm" />
+              )}
+
+              {/* Odznak Posledního vzepětí (agónie, ADR-0012) */}
+              {unit.inDeathThroes && (
+                <div
+                  title={`Poslední vzepětí (1 tah do pádu) · Okamžitá smrt při ≤ ${-(unit.maxHp + 1)} HP`}
+                  className="flex items-center gap-1 px-1 py-0.5 rounded bg-purple-950/95 border border-rose-500/80 shadow-[0_0_6px_rgba(244,63,94,0.5)] animate-pulse"
+                >
+                  <Skull className="w-2.5 h-2.5 text-rose-300 shrink-0" />
+                  <span className="text-[8px] font-cinzel font-black tracking-wider text-rose-200">
+                    VZEPĚTÍ ({unit.hp} HP)
+                  </span>
+                </div>
               )}
 
               {/* Dvouřadá matice mikro-segmentů (nahoře Zbroj, dole HP) */}

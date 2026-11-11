@@ -10,6 +10,10 @@ Turn-based 2.5D tactical strategy in the spirit of XCOM 2, set on the night of J
 The unified floating bottom-center command strip combining selected soldier vitals, numbered action buttons (`[1] Move`, `[2] Shoot`, `[3] Overwatch`, `[4] Grenade`), turn termination (`[Space]`), and squad quick-select tabs.
 _Avoid_: Action bar, bottom command panel, button dock
 
+**Tutorial Order Banner** (*Rozkazový pruh skriptovaného výcviku*):
+The floating top-center Baroque cartouche directive strip inspired by XCOM 2 (Operation Gatecrasher) that delivers explicit tactical orders, diegetic speaker portraits, step progression badges, live rejection warnings, and veteran bypass controls (`[Shift+H]`).
+_Avoid_: Tutorial popup, tip window, helper banner
+
 **Combat Chronicle Feed** (*Plovoucí kronika boje*):
 The floating, auto-fading toast log anchored in the upper-right corner that displays recent combat rolls and event feedback with an expandable full-scroll history drawer.
 _Avoid_: Combat log box, message console
@@ -138,6 +142,10 @@ _Avoid_: Smoke bypass, high vision
 **Stairway Recon Preview** (*Predikce průzkumu na schodišti*):
 The movement hover indicator calculating anticipated field-of-view and enemy alerts on an unexplored floor before committing an action point to ascend a staircase or ladder.
 _Avoid_: Stair preview, ladder check
+
+**Poslední vzepětí** (*Death Throes* / *Mortally Wounded Last Stand*):
+The universal agonal state entered by any unit (Swedish soldier or Prague defender) upon suffering lethal damage (reaching $\le 0$ HP without exceeding the instant-death overkill threshold of $\le -(maxHp + 1)$), granting them exactly one final turn of active actions before collapsing dead.
+_Avoid_: Bleeding out, downed state, martyr frenzy, second wind
 
 ### 17th-Century Aiming HUD & Shot Breakdown System
 

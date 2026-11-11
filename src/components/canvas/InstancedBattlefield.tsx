@@ -30,6 +30,7 @@ import {
   resolvePreferredFloorCoord,
   sameCoord,
 } from "../../core/GridSystem";
+import { getGuidedTutorialBeacon } from "../../core/GuidedTutorialSystem";
 import {
   doorMeshForwardsClick,
   stairClickChangesFloor,
@@ -1371,10 +1372,29 @@ export function InstancedBattlefield() {
   // Pevně držíme vybrané patro (P0 / P1 / P2): přejetí myší nad dvůr či zahradu nikdy neshodí řez aktivního patra
   const effectiveViewFloor: FloorLevel = activeFloor;
 
+  const guidedTutorial = useGameStore((s) => s.guidedTutorial);
+
   const waypoint = useMemo(() => {
-    if (isShootingView || tutorialDismissed || tutorialStep === null) return null;
+    if (isShootingView || tutorialDismissed) return null;
+    if (guidedTutorial?.enabled && !guidedTutorial.dismissed) {
+      const guidedBeacon = getGuidedTutorialBeacon(
+        grid,
+        guidedTutorial.currentStep,
+        units,
+      );
+      if (guidedBeacon) return guidedBeacon;
+    }
+    if (tutorialStep === null) return null;
     return getMission1TutorialBeacon(grid, tutorialStep);
-  }, [isShootingView, tutorialDismissed, tutorialStep, grid, gridVersion]);
+  }, [
+    isShootingView,
+    tutorialDismissed,
+    tutorialStep,
+    guidedTutorial,
+    grid,
+    gridVersion,
+    units,
+  ]);
 
   const groundFloorTiles = useMemo(
     () => grid.getFloorTiles(0),

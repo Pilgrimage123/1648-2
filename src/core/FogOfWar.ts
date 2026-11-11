@@ -155,7 +155,7 @@ export function computeFogOfWar(
   const unitSightRadii: Record<string, number> = {};
 
   const playerUnits = units.filter(
-    (u) => u.faction === "player" && u.alive && u.hp > 0,
+    (u) => u.faction === "player" && u.alive,
   );
 
   const hasGlobalReconBuff = playerUnits.some(
@@ -237,7 +237,7 @@ export function computeFogOfWar(
   const soundContacts: SoundContact[] = [];
 
   for (const unit of units) {
-    if (unit.faction !== "enemy" || !unit.alive || unit.hp <= 0) continue;
+    if (unit.faction !== "enemy" || !unit.alive) continue;
 
     const enemyKey = coordKey(unit.pos);
     const isTileVisible = visibleCoords.has(enemyKey);
@@ -344,7 +344,7 @@ export function previewReconFromTile(
   const spottedEnemyIds: string[] = [];
 
   for (const u of allUnits) {
-    if (u.faction !== "enemy" || !u.alive || u.hp <= 0) continue;
+    if (u.faction !== "enemy" || !u.alive) continue;
     const dist = gridDistance3D(candidateCoord, u.pos);
     if (dist > Math.max(radius, mover.weapon.maxRange)) continue;
 

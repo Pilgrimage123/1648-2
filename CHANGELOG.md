@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - 2026-11-11
 
 ### Added
+- **Poslední vzepětí (Death Throes) & Prahy záporného zdraví (ADR-0012)**:
+  - **Snížení základního zdraví nepřátel**: Švédští mušketýři mají nově **8 HP** (+1 zbroj), velitel Arnošt Odowalsky **10 HP** (+2 zbroj). Zbraně družiny (těžká mušketa 12–16 HP, odlehčená mušketa 8–12 HP, karabina 7–10 HP) spolehlivě způsobují smrtelný zásah na 1–2 rány.
+  - **Univerzální mechanika Posledního vzepětí**: Jakákoliv jednotka (švédský voják i hrdina obrany Prahy), jejíž HP klesne na $\le 0$, nepadá okamžitě mrtva, ale získává přesně jeden dodatečný tah plné akceschopnosti před definitivním skonem.
+  - **Zákaz zajetí pro umírající nepřátele**: Nepřátelé v Posledním vzepětí mají přísně zakázáno zajmout maršála Colloreda. Pokud mají vybitou mušketu, přednostně zaútočí pažbou zblízka (`swedish_musket_butt`) místo zdlouhavého 2 AP přebíjení.
+  - **Práh okamžité smrti (Instant Overkill)**: Jednotka padne okamžitě mrtev bez Posledního vzepětí pouze tehdy, klesne-li její HP na $\le -(maxHp + 1)$ (např. $\le -9$ HP pro 8 HP mušketýra, $\le -11$ HP pro Odowalského, $\le -13$ HP pro Václava, $\le -15$ HP pro Colloreda a Jana Matěje, $\le -17$ HP pro Bartoloměje). Další poškození se kumuluje do záporných HP.
+  - **Časování skonu**: Jednotka padá mrtev na konci své vlastní aktivace. Hrabě Colloredo v Posledním vzepětí má 1 tah na záchranu úprkem do pramice; pokud nedorazí, nastává porážka. Společníci v agónii jsou aktivními záchranci a mohou maršála osvobodit.
+  - **Vizuální a HUD indikace**: Odznak s prasklou lebkou 💀, pulzující fialovo-rudá lišta zdraví s výpisem záporných HP a nová telemetry hlášení v Combat Chronicle (`OKAMŽITĚ PADL!`, `POSLEDNÍ VZEPĚTÍ!`).
+  - **Testovací pokrytí**: Přidána Sekce 29 do `scripts/test-mission1.ts` a ověření v `scripts/test-inspect.ts`.
+
 - **Dynamic Smoke, Blast Shockwave & Chiaroscuro Lighting System (ADR-0011)**:
   - **Unified Chiaroscuro Combat Atmosphere Field (`CombatAtmosphereField.tsx`)**: Replaced disjoint per-tile meshes with an instanced soft-depth particle manager ($\le 600$ particles total). Uses true spherical camera-facing billboarding (`camera.quaternion`) and a procedural 128×128 multi-stage Gaussian radial alpha texture with mipmapping, ensuring seamless multi-tile blending without polygonal terrain intersections. Supports three material buffers: dense black powder (`#1e293b` to `#334155`), masonry plaster dust (`#d6d3d1`), and floating embers (`#ea580c`).
   - **Dynamic Light Flash Pool (`useGameStore.ts`, `TacticalScene.tsx`)**: Implemented a strictly budgeted FIFO point-light pool (max 2 blast lights `#f97316` + 1 muzzle flash light `#fde047` with quadratic decay $I(t) = I_0 (1 - t/T)^2$) that physically illuminates the scene and injects internal amber forward-scattering (`#fb923c` / `#f97316`) into local smoke volumes during detonations.

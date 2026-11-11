@@ -241,4 +241,33 @@ useGameStore.getState().endInspectHold();
 useGameStore.getState().handleRightClickCancel();
 assert.equal(useGameStore.getState().actionMode, "move");
 
+// Test Poslední vzepětí chip in inspect dossier (ADR-0012)
+const dyingEnemyData: UnitData = {
+  ...enemy,
+  hp: -3,
+  maxHp: 10,
+  inDeathThroes: true,
+};
+const dyingView = view({
+  units: units.map((u) => (u.id === enemy.id ? dyingEnemyData : u)),
+  pin: { kind: "unit", id: enemy.id },
+  fog: fog({ visibleEnemyIds: new Set([enemy.id]) }),
+});
+assert.equal(dyingView.kind, "unit");
+if (dyingView.kind === "unit") {
+  assert.equal(
+    dyingView.stats.find((s) => s.label === "Zdraví")?.value,
+    "-3/10",
+    "Must display negative HP in stats",
+  );
+  assert(
+    dyingView.conditions.some((c) => c.includes("Poslední vzepětí")),
+    "Must show Poslední vzepětí condition chip",
+  );
+  assert(
+    dyingView.conditions.some((c) => c.includes("Okamžitá smrt při ≤ -11 HP")),
+    "Must show instant overkill threshold condition chip",
+  );
+}
+
 console.log("Inspect dossier checks passed.");

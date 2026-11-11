@@ -148,10 +148,10 @@ export function TacticalActionRibbon() {
 
   const canCommand = turn === "player" && !isBusy;
   const isSelectedDetained =
-    (selectedUnit?.detainedTurns ?? 0) > 0 || (selectedUnit?.hp ?? 1) <= 0;
+    (selectedUnit?.detainedTurns ?? 0) > 0 || (selectedUnit ? !selectedUnit.alive : false);
   const hasAp = (selectedUnit?.ap ?? 0) > 0 && !isSelectedDetained;
   const anyUnitHasAp = playerUnits.some(
-    (u) => u.alive && u.hp > 0 && u.ap > 0 && (u.detainedTurns ?? 0) === 0,
+    (u) => u.alive && u.ap > 0 && (u.detainedTurns ?? 0) === 0,
   );
   const isColloredoDischarged =
     selectedUnit?.id === "player-colloredo" &&
@@ -216,10 +216,22 @@ export function TacticalActionRibbon() {
     : null;
   const meleeCalc = activeMeleeEval?.calculation ?? null;
 
+  const guidedTutorial = useGameStore((s) => s.guidedTutorial);
+  const isGuidedActive = guidedTutorial?.enabled && !guidedTutorial.dismissed;
+  const guidedStep = guidedTutorial?.currentStep;
+
   const isTutorialActive = !tutorialDismissed && tutorialStep !== null;
-  const isStep1Highlight = isTutorialActive && tutorialStep === 1;
-  const isStep2Highlight = isTutorialActive && tutorialStep === 2;
-  const isStep3Highlight = isTutorialActive && tutorialStep === 3;
+  const isStep1Highlight = isGuidedActive
+    ? guidedStep === "step_1_matej_move" || guidedStep === "step_2_colloredo_escort"
+    : isTutorialActive && tutorialStep === 1;
+  const isStep2Highlight = isGuidedActive
+    ? guidedStep === "step_3_vaclav_aim" || guidedStep === "step_4_vaclav_shoot"
+    : isTutorialActive && tutorialStep === 2;
+  const isStep3Highlight = isGuidedActive
+    ? guidedStep === "step_7_keg_explosion"
+    : isTutorialActive && tutorialStep === 3;
+  const isReloadHighlight = isGuidedActive && guidedStep === "step_6_vaclav_reload";
+  const isMeleeHighlight = isGuidedActive && guidedStep === "step_8_melee_finish";
 
   const showBreakdownWings = breakdownOpen || hoverBreakdownPreview;
 
@@ -264,26 +276,28 @@ export function TacticalActionRibbon() {
                 {playerUnits.map((u) => {
                   const isSel = u.id === selectedUnitId;
                   const uDetained = (u.detainedTurns ?? 0) > 0;
-                  const isTurnEnded = !u.alive || u.ap === 0 || uDetained || u.hp <= 0;
+                  const isTurnEnded = !u.alive || u.ap === 0 || uDetained;
                   return (
                     <button
                       key={u.id}
                       type="button"
                       disabled={!u.alive || !canCommand}
                       onClick={() => selectUnit(u.id)}
-                      title={`${u.name} (${u.hp}/${u.maxHp} HP, ${u.ap} AP)${isTurnEnded ? " — Tah ukončen" : ""}`}
+                      title={`${u.name} (${u.inDeathThroes ? `V POSLEDNÍM VZEPĚTÍ: ${u.hp}/${u.maxHp}` : `${u.hp}/${u.maxHp}`} HP, ${u.ap} AP)${isTurnEnded ? " — Tah ukončen" : ""}`}
                       className={`relative w-5 h-5 rounded-md flex items-center justify-center border text-[10px] font-cinzel font-black transition-all cursor-pointer ${
                         !u.alive
                           ? "bg-slate-950/50 border-slate-800 text-slate-600 opacity-35"
-                          : uDetained
-                            ? "bg-red-950 border-red-400 text-rose-200 animate-pulse"
-                            : isSel
-                              ? isTurnEnded
-                                ? "bg-stone-700 text-stone-200 border-stone-400 shadow-[0_0_6px_rgba(168,162,158,0.5)] scale-105"
-                                : "bg-amber-500 text-stone-950 border-amber-200 shadow-[0_0_8px_rgba(245,158,11,0.6)] scale-105"
-                              : isTurnEnded
-                                ? "bg-stone-900/80 border-stone-700/60 text-stone-500 opacity-50 grayscale hover:opacity-80"
-                                : "bg-slate-900/90 border-amber-700/50 text-amber-200/80 hover:border-amber-400"
+                          : u.inDeathThroes
+                            ? "bg-purple-950 border-rose-500 text-rose-200 animate-pulse shadow-[0_0_6px_rgba(244,63,94,0.5)]"
+                            : uDetained
+                              ? "bg-red-950 border-red-400 text-rose-200 animate-pulse"
+                              : isSel
+                                ? isTurnEnded
+                                  ? "bg-stone-700 text-stone-200 border-stone-400 shadow-[0_0_6px_rgba(168,162,158,0.5)] scale-105"
+                                  : "bg-amber-500 text-stone-950 border-amber-200 shadow-[0_0_8px_rgba(245,158,11,0.6)] scale-105"
+                                : isTurnEnded
+                                  ? "bg-stone-900/80 border-stone-700/60 text-stone-500 opacity-50 grayscale hover:opacity-80"
+                                  : "bg-slate-900/90 border-amber-700/50 text-amber-200/80 hover:border-amber-400"
                       }`}
                     >
                       <span>{u.name.charAt(0)}</span>
@@ -971,7 +985,7 @@ export function TacticalActionRibbon() {
                   onClick={executeReload}
                   aria-label="Nabít zbraň [R]"
                   className={`relative w-10 h-10 rounded-lg border flex items-center justify-center transition-all cursor-pointer ${
-                    canReload
+                    canReload || isReloadHighlight
                       ? "bg-amber-600/40 border-amber-300 text-amber-100 ring-2 ring-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.5)] animate-pulse"
                       : "baroque-bronze-btn text-amber-200/80 hover:text-amber-100 disabled:opacity-35 disabled:cursor-not-allowed"
                   }`}
@@ -1020,9 +1034,11 @@ export function TacticalActionRibbon() {
                   }
                   aria-label="Útok zblízka [B]"
                   className={`relative w-10 h-10 rounded-lg border flex items-center justify-center transition-all cursor-pointer ${
-                    visibleMeleeTargets.length > 0 && hasAp && canCommand
-                      ? "bg-amber-950/90 border-amber-400 text-amber-100 ring-1 ring-amber-400/60"
-                      : "baroque-bronze-btn text-amber-200/80 hover:text-amber-100 disabled:opacity-35 disabled:cursor-not-allowed"
+                    isMeleeHighlight
+                      ? "bg-rose-900/60 border-rose-400 text-rose-100 ring-2 ring-rose-400 shadow-[0_0_12px_rgba(244,63,94,0.6)] animate-pulse"
+                      : visibleMeleeTargets.length > 0 && hasAp && canCommand
+                        ? "bg-amber-950/90 border-amber-400 text-amber-100 ring-1 ring-amber-400/60"
+                        : "baroque-bronze-btn text-amber-200/80 hover:text-amber-100 disabled:opacity-35 disabled:cursor-not-allowed"
                   }`}
                 >
                   <Swords className="w-4 h-4 text-amber-400" />

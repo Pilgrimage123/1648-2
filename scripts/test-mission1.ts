@@ -12,7 +12,9 @@ import {
   isAdjacentForMelee,
   isCompanionProtectedByCount,
   isInPreparedVolleyCone,
+  isInstantOverkill,
   resolveTargetCoverAgainstShot,
+  resolveUnitDamageResolution,
   rollMeleeAttack,
   rollRangedAttack,
 } from "../src/core/CombatSystem.ts";
@@ -56,7 +58,7 @@ import {
   resolvePrimaryCoverDirection,
   shouldTriggerActionCamForMove,
 } from "../src/core/CameraDirector.ts";
-import type { FloorLevel, GridCoord } from "../src/core/types.ts";
+import type { FloorLevel, GridCoord, UnitData } from "../src/core/types.ts";
 
 console.log("=== TEST MISSION 1: ESCAPE OF MARSHAL COLLOREDO (GRAND PRIORY PALACE) ===");
 
@@ -246,6 +248,13 @@ assert(
   "Václav starts on the 1st-floor Piano Nobile Arcade Gallery (y = 1)",
 );
 assert(odowalsky && odowalsky.faction === "enemy", "Odowalsky must be an enemy");
+assert(odowalsky.maxHp === 10, "Odowalsky must have 10 maxHp (ADR-0012)");
+assert(
+  units
+    .filter((u) => u.faction === "enemy" && u.id !== "enemy-odowalsky")
+    .every((e) => e.maxHp === 8),
+  "All initial enemy musketeers must have 8 maxHp (ADR-0012)",
+);
 assert(
   units.filter((u) => u.faction === "enemy").every((e) => e.archetype === "trooper"),
   "All initial enemies must be musketeers (archetype trooper)",
@@ -2289,6 +2298,90 @@ assert(
 
 console.log(
   "✓ Dynamic Smoke, Blast Shockwave & Cumulative Concealment (ADR-0011) validated.",
+);
+
+// 29. Test Poslední vzepětí (Death Throes) & Negative HP Thresholds (ADR-0012)
+console.log("--- 29. Poslední vzepětí (Death Throes) & Negative HP Thresholds (ADR-0012) ---");
+
+// A) 8 HP Musketeer suffering lethal damage without overkill -> enters Poslední vzepětí
+const sampleEnemyMusketeer = units.find((u) => u.id === "enemy-garden-musketeer")!;
+assert(sampleEnemyMusketeer.maxHp === 8, "Musketeer must have 8 maxHp");
+const damageOutcome1 = resolveUnitDamageResolution(sampleEnemyMusketeer, 12);
+assert(damageOutcome1.nextHp === -4, "8 HP - 12 damage = -4 HP");
+assert(damageOutcome1.alive === true, "Unit must remain alive during Poslední vzepětí");
+assert(damageOutcome1.inDeathThroes === true, "Unit must enter Poslední vzepětí");
+assert(damageOutcome1.instantKilled === false, "Instant overkill threshold not reached at -4 HP");
+
+// B) Instant Overkill threshold <= -(maxHp + 1)
+// For 8 HP Musketeer, instant threshold is <= -9 HP (e.g. 17 damage)
+const damageOutcome2 = resolveUnitDamageResolution(sampleEnemyMusketeer, 17);
+assert(damageOutcome2.nextHp === -9, "8 HP - 17 damage = -9 HP");
+assert(damageOutcome2.alive === false, "Unit must instantly drop dead at <= -9 HP");
+assert(damageOutcome2.instantKilled === true, "Instant overkill flag must be true");
+assert(damageOutcome2.inDeathThroes === false, "Instant killed unit must not enter Poslední vzepětí");
+
+// For 10 HP Odowalsky, instant threshold is <= -11 HP
+const sampleOdowalsky = units.find((u) => u.id === "enemy-odowalsky")!;
+assert(sampleOdowalsky.maxHp === 10, "Odowalsky must have 10 maxHp");
+const odoOutcome1 = resolveUnitDamageResolution(sampleOdowalsky, 15);
+assert(odoOutcome1.nextHp === -5, "10 HP - 15 damage = -5 HP");
+assert(odoOutcome1.alive === true && odoOutcome1.inDeathThroes === true, "Odowalsky enters Poslední vzepětí at -5 HP");
+const odoOutcome2 = resolveUnitDamageResolution(sampleOdowalsky, 21);
+assert(odoOutcome2.nextHp === -11, "10 HP - 21 damage = -11 HP");
+assert(odoOutcome2.alive === false && odoOutcome2.instantKilled === true, "Odowalsky instantly dies at <= -11 HP");
+
+// C) Cumulative damage into negative HP while already in Poslední vzepětí
+const dyingMusketeer: UnitData = {
+  ...sampleEnemyMusketeer,
+  hp: -4,
+  inDeathThroes: true,
+  deathThroesTurns: 1,
+};
+const followUpOutcome = resolveUnitDamageResolution(dyingMusketeer, 5);
+assert(followUpOutcome.nextHp === -9, "-4 HP - 5 damage = -9 HP");
+assert(followUpOutcome.alive === false && followUpOutcome.instantKilled === true, "Cumulative damage to -9 HP must finish the unit");
+
+// D) Dying enemy in Poslední vzepětí is strictly barred from capturing Colloredo
+const dyingAdjacentEnemy: UnitData = {
+  ...sampleEnemyMusketeer,
+  pos: { x: 10, y: 0, z: 15 },
+  hp: -2,
+  inDeathThroes: true,
+  deathThroesTurns: 1,
+  firearmLoaded: true,
+};
+const testColloredoUnit: UnitData = {
+  ...colloredo,
+  pos: { x: 10, y: 0, z: 14 },
+};
+const dyingCaptureCheck = checkEnemyColloredoCapture(grid, dyingAdjacentEnemy, testColloredoUnit);
+assert(dyingCaptureCheck.canCapture === false, "Dying enemy in Poslední vzepětí MUST NOT be allowed to capture Colloredo");
+
+// E) Hero Poslední vzepětí: Companion in death throes counts as active rescuer
+const testStoreUnits = units.map((u) => {
+  if (u.id === "player-colloredo") return { ...u, detainedTurns: 1 };
+  if (u.id === "player-jan-matej") return { ...u, hp: -2, inDeathThroes: true, deathThroesTurns: 1 };
+  if (u.faction === "player") return { ...u, alive: false };
+  return u;
+});
+const activeRescuerOutcome = checkMissionOutcome(grid, testStoreUnits);
+assert(activeRescuerOutcome.outcome === "ongoing", "Companion in Poslední vzepětí must count as active rescuer (defeat not triggered)");
+
+// F) Annihilation victory is not triggered while enemies in death throes are still alive
+const almostWonUnits = units.map((u) => {
+  if (u.faction === "enemy") {
+    if (u.id === "enemy-odowalsky") {
+      return { ...u, hp: -3, inDeathThroes: true, alive: true };
+    }
+    return { ...u, alive: false };
+  }
+  return u;
+});
+const delayedVictoryOutcome = checkMissionOutcome(grid, almostWonUnits);
+assert(delayedVictoryOutcome.outcome === "ongoing", "Victory must not trigger while enemy in Poslední vzepětí is still alive");
+
+console.log(
+  "✓ Poslední vzepětí (Death Throes), Negative HP Thresholds & Capture Prohibition (ADR-0012) validated.",
 );
 
 console.log("=== ALL MISSION 1 TESTS PASSED SUCCESSFULLY! ===");

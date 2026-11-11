@@ -22,6 +22,7 @@ import { TacticalAdvisorWidget } from "./components/ui/TacticalAdvisorWidget";
 import { InspectDossier } from "./components/ui/InspectDossier";
 import { TacticalUtilitiesCapsule } from "./components/ui/TacticalUtilitiesCapsule";
 import { TurnSplashBanner } from "./components/ui/TurnSplashBanner";
+import { TutorialOrderBanner } from "./components/ui/TutorialOrderBanner";
 import { useGameStore } from "./store/useGameStore";
 
 function isInspectKey(e: KeyboardEvent): boolean {
@@ -142,10 +143,15 @@ export default function App() {
         return;
       }
 
-      // H: Přepínání Taktického rádce (Tutoriál)
+      // H / Shift+H: Přepínání rádce a přeskočení výcviku
       if (e.key === "h" || e.key === "H") {
         e.preventDefault();
-        state.toggleTutorial();
+        if (e.shiftKey) {
+          state.skipGuidedTutorial();
+        } else {
+          state.toggleTutorial();
+          state.toggleGuidedTutorial();
+        }
         return;
       }
 
@@ -275,6 +281,9 @@ export default function App() {
 
       {/* 2. Filmový středový banner změny tahu */}
       <TurnSplashBanner />
+
+      {/* 2c. Horní rozkazový pruh skriptovaného tutoriálu (XCOM 2 Style) */}
+      <TutorialOrderBanner />
 
       {/* 2b. Krátká dramatická animace na mapě v okamžiku dokonání zajetí maršála (2/2 kola) */}
       {isCapturingAnim && (

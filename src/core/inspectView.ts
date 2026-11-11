@@ -300,7 +300,7 @@ function buildUnit(ctx: InspectContext, unit: UnitData): InspectUnitView {
     faction: unit.faction,
     archetype: unit.archetype,
     isVip: Boolean(unit.isVip),
-    alive: unit.alive && unit.hp > 0,
+    alive: unit.alive,
     detained,
     place: `${FLOOR_LABEL[unit.pos.y]} · ${unit.pos.x}, ${unit.pos.z}`,
     facing: FACING_LABEL[unit.facing],
@@ -337,7 +337,12 @@ function unitStats(unit: UnitData): InspectLabeledValue[] {
 
 function unitConditions(unit: UnitData): string[] {
   const chips: string[] = [];
-  if (!unit.alive || unit.hp <= 0) chips.push("Padl");
+  if (!unit.alive) {
+    chips.push("Padl");
+  } else if (unit.inDeathThroes || unit.hp <= 0) {
+    chips.push("Poslední vzepětí (1 tah do pádu)");
+    chips.push(`Okamžitá smrt při ≤ ${-(unit.maxHp + 1)} HP`);
+  }
   if ((unit.detainedTurns ?? 0) > 0) {
     const reason = captureLabel(unit.captureReason);
     chips.push(
@@ -562,7 +567,7 @@ function terrainOccupant(
   visibility: FogVisibilityState,
 ): string | null {
   if (visibility !== "visible") return null;
-  const occupant = ctx.units.find((unit) => unit.alive && unit.hp > 0 && sameCoord(unit.pos, coord));
+  const occupant = ctx.units.find((unit) => unit.alive && sameCoord(unit.pos, coord));
   if (!occupant) return null;
   if (occupant.faction === "enemy" && !enemyIsRevealed(ctx, occupant.id)) return null;
   return occupant.name;

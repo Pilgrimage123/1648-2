@@ -245,6 +245,10 @@ export interface UnitData {
   ability?: SpecialAbilityDef;
   /** Zda má postava v tomto kole aktivní posílení ze své zvláštní schopnosti */
   abilityBuffActive?: boolean;
+  /** Zda je jednotka v Posledním vzepětí (agónie po smrtelném zranění hp <= 0, ADR-0012) */
+  inDeathThroes?: boolean;
+  /** Zbývající počet tahů v Posledním vzepětí před definitivním pádem k zemi (obvykle 1) */
+  deathThroesTurns?: number;
   alive: boolean;
 }
 
@@ -390,6 +394,10 @@ export interface AttackOutcome {
   flanked: boolean;
   heightAdvantage: boolean;
   killed: boolean;
+  /** Zda zásah uvrhl cíl do Posledního vzepětí (ADR-0012) */
+  enteredDeathThroes?: boolean;
+  /** Zda byl cíl zabit okamžitým překročením prahu hp <= -(maxHp + 1) */
+  instantKilled?: boolean;
 }
 
 export interface CombatLogEntry {
@@ -436,4 +444,48 @@ export interface FogOfWarSnapshot {
   /** Efektivní poloměr dohledu (v polích) pro každou hráčovu jednotku */
   unitSightRadii: Record<string, number>;
 }
+
+export type ActionMode = "move" | "shoot" | "grenade" | "melee" | "reload";
+
+/**
+ * Fáze skriptovaného tutoriálu ve stylu XCOM 2 (Mission 1 Onboarding).
+ */
+export type GuidedTutorialStep =
+  | "step_1_matej_move"        // 1. Jan Matěj: Pohyb do krytu za balustrádu (1 AP vs 2 AP, Half/Full Cover)
+  | "step_2_colloredo_escort"  // 2. Hrabě Colloredo: Těžké kulhání (3 pole/AP) & Pravidlo zajetí
+  | "step_3_vaclav_aim"        // 3. Václav z Michalovic: Výšková převaha (+15 %) & Křídlení (Flank +40 % Crit)
+  | "step_4_vaclav_shoot"      // 4. Míření, rozpad šance a výstřel (Akční kamera)
+  | "step_5_enemy_turn_react"  // 5. Tah nepřítele: Odveta a demonstrace záchrany kamenným krytem
+  | "step_6_vaclav_reload"     // 6. Fázové nabíjení po 1 AP (Černoprachý realismus 17. století)
+  | "step_7_keg_explosion"     // 7. Bratr Bartoloměj: Prachový sud & Zničení krytu petardou (plocha 3x3)
+  | "step_8_melee_finish"      // 8. Zteč zblízka (Melee Rush na PKM) pro doražení cíle bez plýtvání prachem
+  | "step_9_free_combat";      // 9. Schodiště, patra [V] a volná taktika k rybářské pramici na Čertovce
+
+export interface GuidedTutorialInstruction {
+  step: GuidedTutorialStep;
+  speaker: string;
+  role: string;
+  portrait: UnitArchetype;
+  title: string;
+  orderText: string;
+  tacticalTip: string;
+  allowedUnitId: string | null;
+  allowedTileCoords: GridCoord[] | null;
+  allowedActionMode: ActionMode | null;
+  beacon: {
+    coord: GridCoord;
+    label: string;
+    color: string;
+    icon?: "shield" | "crosshair" | "keg" | "melee" | "dock";
+  } | null;
+}
+
+export interface GuidedTutorialState {
+  enabled: boolean;
+  currentStep: GuidedTutorialStep;
+  dismissed: boolean;
+  rejectFeedback: string | null;
+  rejectTimestamp: number;
+}
+
 
