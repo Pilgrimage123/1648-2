@@ -227,6 +227,8 @@ export interface UnitData {
   movedThisTurn: boolean;
   /** Zda je morálka jednotky otřesena (Suppressed / Shaken: -20 % k zásahu) */
   isShaken: boolean;
+  /** Zda jednotka trpí záchvatem kašle po setrvání v zakouřeném interiéru (-1 Pohyblivost na 1 tah, ADR-0011) */
+  isChoking?: boolean;
   /** Zda je jednotka klíčovým velitelem (pokud je zadržen po 2 kola, mise končí prohrou) */
   isVip?: boolean;
   /** Počet kol, po která je VIP maršál nepřetržitě zadržen nepřáteli (0 = volný, 1 = 1. kolo, 2 = zajat / Game Over) */
@@ -269,6 +271,21 @@ export interface StatModifier {
   unit: "%" | "HP" | "ZBROJ";
   /** Typ položky určující barvu v UI (bonus = zelená/zlatá, penalty = červená, base = neutrální) */
   kind: "base" | "bonus" | "penalty" | "neutral";
+}
+
+/**
+ * Dynamický záblesk pro fond osvětlení bojiště (ADR-0011).
+ * Spravuje max 2 explozivní světla a 1 výstřelové světlo se stmíváním dle kvadratického zákona.
+ */
+export interface ActiveLightFlash {
+  id: number;
+  kind: "blast" | "muzzle";
+  coord: GridCoord;
+  color: string;
+  intensity: number;
+  radius: number;
+  durationMs: number;
+  createdAt: number;
 }
 
 /**

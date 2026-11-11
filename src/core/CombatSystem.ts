@@ -5,7 +5,13 @@
  * Striktně bez importů Three.js nebo Reactu.
  */
 
-import { bestTileCover, GridSystem, sameCoord } from "./GridSystem";
+import {
+  bestTileCover,
+  GridSystem,
+  isEnclosedRoofedCoord,
+  sameCoord,
+  soldierMovePerAp,
+} from "./GridSystem";
 import { computeReachableTiles, findPathAStar } from "./Pathfinding";
 import type {
   AttackOutcome,
@@ -134,37 +140,83 @@ function checkDirectRay3D(
 
   const maxEndpointFloor = Math.max(from.y, to.y);
   const upperEnd = from.y >= to.y ? from : to;
+  const isPointBlank = gridDistance3D(from, to) <= 1.5;
+  const isHighGround = from.y > to.y;
 
-  for (let i = 1; i < ray.length - 1; i++) {
+  let consecutiveSmoke = 0;
+  let maxConsecutiveSmoke = 0;
+
+  for (let i = 0; i < ray.length; i++) {
     const cell = ray[i]!;
     const tile = grid.getTile(cell);
-    if (!tile) return { clear: false, ray };
-
-    // Vysoké zdi a zavřené dveře blokují vždy; pilíř na sousedním poli (i === 1 nebo i === ray.length - 2)
-    // umožňuje vyklonění (step-out peek)
-    if (tile.obstacle === "high_wall" || grid.isDoorClosedAt(cell)) {
-      return { clear: false, ray };
+    if (!tile) {
+      if (i > 0 && i < ray.length - 1) return { clear: false, ray };
+      continue;
     }
-    if (tile.obstacle === "pillar") {
-      const isEndpointNeighbor = i === 1 || i === ray.length - 2;
-      if (!allowAdjacentPillarPeek || !isEndpointNeighbor) {
-        return { clear: false, ray };
+
+    let hasSmoke = (tile?.smokeTurns ?? 0) > 0;
+    if (!hasSmoke && cell.y > 0) {
+      const groundTile = grid.getTile({ x: cell.x, y: 0, z: cell.z });
+      if (groundTile && groundTile.smokeTurns > 0) {
+        hasSmoke = true;
       }
     }
 
-    // Přechod paprsku mezi patry: plná podlaha vyššího patra blokuje výhled dovnitř nižšího patra,
-    // pokud nejde o schodišťový průvlak nebo střelbu přes okraj balustrády.
-    if (from.y !== to.y && cell.y < maxEndpointFloor) {
-      const nextFloorAbove = Math.min(2, cell.y + 1) as FloorLevel;
-      const roofAbove = grid.getTile({ x: cell.x, y: nextFloorAbove, z: cell.z });
-      if (roofAbove && roofAbove.hasFloor && !roofAbove.isLadder) {
-        const distFromUpper = Math.max(
-          Math.abs(cell.x - upperEnd.x),
-          Math.abs(cell.z - upperEnd.z),
-        );
-        if (distFromUpper > 1) {
+    if (hasSmoke) {
+      consecutiveSmoke++;
+      if (consecutiveSmoke > maxConsecutiveSmoke) {
+        maxConsecutiveSmoke = consecutiveSmoke;
+      }
+    } else {
+      consecutiveSmoke = 0;
+    }
+
+    if (i > 0 && i < ray.length - 1) {
+      // Vysoké zdi a zavřené dveře blokují vždy; pilíř na sousedním poli (i === 1 nebo i === ray.length - 2)
+      // umožňuje vyklonění (step-out peek)
+      if (tile.obstacle === "high_wall" || grid.isDoorClosedAt(cell)) {
+        return { clear: false, ray };
+      }
+      if (tile.obstacle === "pillar") {
+        const isEndpointNeighbor = i === 1 || i === ray.length - 2;
+        if (!allowAdjacentPillarPeek || !isEndpointNeighbor) {
           return { clear: false, ray };
         }
+      }
+
+      // Přechod paprsku mezi patry: plná podlaha vyššího patra blokuje výhled dovnitř nižšího patra,
+      // pokud nejde o schodišťový průvlak nebo střelbu přes okraj balustrády.
+      if (from.y !== to.y && cell.y < maxEndpointFloor) {
+        const nextFloorAbove = Math.min(2, cell.y + 1) as FloorLevel;
+        const roofAbove = grid.getTile({ x: cell.x, y: nextFloorAbove, z: cell.z });
+        if (roofAbove && roofAbove.hasFloor && !roofAbove.isLadder) {
+          const distFromUpper = Math.max(
+            Math.abs(cell.x - upperEnd.x),
+            Math.abs(cell.z - upperEnd.z),
+          );
+          if (distFromUpper > 1) {
+            return { clear: false, ray };
+          }
+        }
+      }
+    }
+  }
+
+  // Kumulativní clona kouře (ADR-0011):
+  // 1. Výjimka kontaktního dosahu (Point-Blank Proximity Rule: vzdálenost <= 1.5):
+  //    boj zblízka zachovává přímou viditelnost i přes kouř.
+  // 2. Výjimka výškové převahy (Smoke Horizon Piercing: from.y > to.y):
+  //    střelec shora prorazí až 2 kouřová pole; zablokováno je až při > 2.
+  // 3. Střelba ve stejné rovině či zdola nahoru:
+  //    2 a více po sobě jdoucích kouřových polí zcela přeruší zrakovou linii.
+  if (!isPointBlank) {
+    if (isHighGround) {
+      if (maxConsecutiveSmoke > 2) {
+        return { clear: false, ray };
+      }
+    } else {
+      if (maxConsecutiveSmoke >= 2) {
+        return { clear: false, ray };
       }
     }
   }
@@ -532,6 +584,40 @@ export class CombatCalculator {
           unit: "%",
           kind: "penalty",
         });
+      }
+    } else {
+      // Clona dýmu mezi střelcem a cílem (ADR-0011)
+      let rayHasIntermediateSmoke = false;
+      const ray = bresenham3D(fromPos, target.pos);
+      for (let i = 1; i < ray.length - 1; i++) {
+        const stepTile = grid.getTile(ray[i]!);
+        if (stepTile && stepTile.smokeTurns > 0) {
+          rayHasIntermediateSmoke = true;
+          break;
+        }
+      }
+      if (rayHasIntermediateSmoke) {
+        if (fromPos.y > target.pos.y && !shooterInSmoke) {
+          smokeModifier -= 10;
+          hitModifiers.push({
+            id: "smoke-horizon-piercing",
+            label: "Průhled z výšky přes dým (Smoke Piercing)",
+            detail: "Střelba shora přes přízemní kouř z černého prachu (-10 %)",
+            value: -10,
+            unit: "%",
+            kind: "penalty",
+          });
+        } else {
+          smokeModifier -= 15;
+          hitModifiers.push({
+            id: "black-powder-smoke",
+            label: "Clona dýmu v dráze střely (+15 Obrana)",
+            detail: "Střela prolétá kouřem z černého prachu (+15 % Obrana cíle)",
+            value: -15,
+            unit: "%",
+            kind: "penalty",
+          });
+        }
       }
     }
 
@@ -1735,4 +1821,51 @@ export function computeEnemyAiDecision(
     doorToOpen,
     isCaptureAction: Boolean(isCaptureAction),
   };
+}
+
+/**
+ * Aplikuje nebo ruší zadýmení a záchvat kašle (ADR-0011):
+ * - Jednotka v uzavřeném zastřešeném interiéru (isEnclosedRoofedCoord) s aktivním kouřem (smokeTurns > 0)
+ *   obdrží záchvat kašle (-1 Pohyb pro nadcházející tah).
+ * - Vojáci s neporušenou těžkou zbrojí (armor > 0 a hp === maxHp, např. maršál Colloredo a kyrysníci)
+ *   jsou díky nákrčníku a morionu imunní (Cuirassier Respiratory Resistance).
+ */
+export function applyBlackPowderChoking(
+  units: UnitData[],
+  grid: GridSystem,
+): UnitData[] {
+  return units.map((u) => {
+    if (!u.alive) return u;
+    const tile = grid.getTile(u.pos);
+    const inIndoorSmoke =
+      isEnclosedRoofedCoord(u.pos.x, u.pos.y, u.pos.z) &&
+      (tile?.smokeTurns ?? 0) > 0;
+
+    // Cuirassier Respiratory Resistance: plná zbroj a plné zdraví chrání dýchací cesty
+    const hasRespiratoryResistance = u.armor > 0 && u.hp === u.maxHp;
+    const isChoking = inIndoorSmoke && !hasRespiratoryResistance;
+
+    const basePace =
+      u.id === "player-colloredo"
+        ? 3
+        : soldierMovePerAp(u.weapon);
+
+    const nextMovePerAp = isChoking ? Math.max(1, basePace - 1) : basePace;
+
+    let buffTitle = u.buffTitle;
+    if (isChoking) {
+      if (!buffTitle || buffTitle.includes("Záchvat kašle")) {
+        buffTitle = "Záchvat kašle (zadýmení interiéru: -1 Pohyb)";
+      }
+    } else if (buffTitle === "Záchvat kašle (zadýmení interiéru: -1 Pohyb)") {
+      buffTitle = undefined;
+    }
+
+    return {
+      ...u,
+      isChoking,
+      movePerAp: (u.detainedTurns ?? 0) > 0 ? 0 : nextMovePerAp,
+      buffTitle,
+    };
+  });
 }

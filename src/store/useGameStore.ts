@@ -6,6 +6,7 @@
 
 import { create } from "zustand";
 import {
+  applyBlackPowderChoking,
   calculateMeleeAttack,
   calculateShot,
   checkEnemyColloredoCapture,
@@ -61,6 +62,7 @@ import {
 } from "../utils/audioSystem";
 import type { InspectPin } from "../core/inspectView";
 import type {
+  ActiveLightFlash,
   AttackOutcome,
   CaptureReason,
   CardinalDir,
@@ -224,6 +226,9 @@ interface GameStoreState {
     interactionKind?: StepInteractionKind;
   } | null;
   activeProjectile: ProjectileVisual | null;
+  /** Dynamické záblesky exploze a výstřelů pro osvětlení a rozptyl v dýmu (ADR-0011) */
+  lightFlashes: ActiveLightFlash[];
+  triggerLightFlash: (flash: Omit<ActiveLightFlash, "id" | "createdAt">) => void;
   unitFx: Record<string, UnitVisualFX>;
   combatLog: CombatLogEntry[];
 
@@ -305,6 +310,35 @@ function makeLog(
     text,
     tone,
   };
+}
+
+/**
+ * Fond dynamických záblesků (ADR-0011):
+ * Udržuje max 2 explozivní světla a max 1 výstřelové světlo, vyřazuje prošlé.
+ */
+function addLightFlash(
+  existing: ActiveLightFlash[],
+  newFlash: Omit<ActiveLightFlash, "id" | "createdAt">,
+  now = Date.now(),
+): ActiveLightFlash[] {
+  const active = existing.filter((f) => now - f.createdAt < f.durationMs);
+  const blasts = active.filter((f) => f.kind === "blast");
+  const muzzles = active.filter((f) => f.kind === "muzzle");
+
+  const prunedBlasts =
+    newFlash.kind === "blast" && blasts.length >= 2 ? blasts.slice(1) : blasts;
+  const prunedMuzzles =
+    newFlash.kind === "muzzle" && muzzles.length >= 1 ? [] : muzzles;
+
+  return [
+    ...prunedBlasts,
+    ...prunedMuzzles,
+    {
+      ...newFlash,
+      id: fxSeq++,
+      createdAt: now,
+    },
+  ];
 }
 
 function delay(ms: number): Promise<void> {
@@ -1001,6 +1035,7 @@ function processExplosions(
   blastCoord: GridCoord,
   damage = 5,
   armorShred = 2,
+  weather: WeatherType = "clear",
 ): ExplosionResult {
   const detonatedKegs: GridCoord[] = [];
   const victims: string[] = [];
@@ -1036,7 +1071,8 @@ function processExplosions(
       }
     }
 
-    grid.addSmoke(center, 1, 3);
+    // Fyzika rázové vlny exploze (ADR-0011): Epicentrum je vyfouknuto (0), obvod absorbuje kouř
+    grid.applyExplosionShockwave(center, 1, weather);
 
     currentUnits = currentUnits.map((u) => {
       if (!u.alive) return u;
@@ -1688,6 +1724,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           impactObstacle: impactMeta.impactObstacle,
           missImpactCoord: impactMeta.missImpactCoord,
         },
+        lightFlashes: addLightFlash(s.lightFlashes, {
+          kind: "muzzle",
+          coord: freshWatcher.pos,
+          color: "#fde047",
+          intensity: 8,
+          radius: 6,
+          durationMs: 140,
+        }),
       }));
 
       triggerUnitFx(freshWatcher.id, {
@@ -1866,6 +1910,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     revealedPodEnemyIds: new Set(derived.fogSnapshot.visibleEnemyIds),
     activeMovement: null,
     activeProjectile: null,
+    lightFlashes: [],
+    triggerLightFlash: (flash) => {
+      set((s) => ({
+        lightFlashes: addLightFlash(s.lightFlashes, flash),
+      }));
+    },
     unitFx: {},
     combatLog: [
       makeLog(
@@ -2932,6 +2982,24 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               bloodSeverity: 0,
               detonatedKegs: [coord],
             },
+            lightFlashes: addLightFlash(
+              addLightFlash(s.lightFlashes, {
+                kind: "muzzle",
+                coord: activeUnit.pos,
+                color: "#fde047",
+                intensity: 8,
+                radius: 6,
+                durationMs: 140,
+              }),
+              {
+                kind: "blast",
+                coord,
+                color: "#f97316",
+                intensity: 14,
+                radius: 12,
+                durationMs: 550,
+              },
+            ),
           }));
 
           triggerUnitFx(activeUnit.id, {
@@ -3784,6 +3852,33 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             missImpactCoord: impactMeta.missImpactCoord,
             detonatedKegs: willDetonateKegPos ? [willDetonateKegPos] : undefined,
           },
+          lightFlashes: willDetonateKegPos
+            ? addLightFlash(
+                addLightFlash(s.lightFlashes, {
+                  kind: "muzzle",
+                  coord: attacker.pos,
+                  color: "#fde047",
+                  intensity: 8,
+                  radius: 6,
+                  durationMs: 140,
+                }),
+                {
+                  kind: "blast",
+                  coord: willDetonateKegPos,
+                  color: "#f97316",
+                  intensity: 14,
+                  radius: 12,
+                  durationMs: 550,
+                },
+              )
+            : addLightFlash(s.lightFlashes, {
+                kind: "muzzle",
+                coord: attacker.pos,
+                color: "#fde047",
+                intensity: 8,
+                radius: 6,
+                durationMs: 140,
+              }),
         }));
 
         triggerUnitFx(attacker.id, {
@@ -5179,6 +5274,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
         await delay(560);
         playExplosionSound();
+        get().triggerLightFlash({
+          kind: "blast",
+          coord: targetCoord,
+          color: "#f97316",
+          intensity: 14,
+          radius: 12,
+          durationMs: 550,
+        });
 
         const grenadeDamage = 4;
         const grenadeShred = 2;
@@ -5418,7 +5521,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           actionMode: "move",
           reachableTiles: new Map(),
           hoveredPath: [],
-          units: s.units.map((u) =>
+          units: applyBlackPowderChoking(s.units, s.grid).map((u) =>
             u.faction === "enemy" && u.alive
               ? {
                   ...u,
@@ -5790,6 +5893,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                   impactObstacle: impactMeta.impactObstacle,
                   missImpactCoord: impactMeta.missImpactCoord,
                 },
+                lightFlashes: addLightFlash(s.lightFlashes, {
+                  kind: "muzzle",
+                  coord: updatedEnemy.pos,
+                  color: "#fde047",
+                  intensity: 8,
+                  radius: 6,
+                  durationMs: 140,
+                }),
               }));
 
               triggerUnitFx(updatedEnemy.id, {
@@ -5997,8 +6108,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           return;
         }
 
-        // Rozptýlení starého kouře na přelomu kola a zahájení tahu hráče
-        get().grid.decaySmoke();
+        // Rozptýlení starého kouře na přelomu kola a zahájení tahu hráče (ADR-0011)
+        get().grid.decaySmoke(get().weather);
 
         set((s) => {
           const nextRound = s.round + 1;
@@ -6042,8 +6153,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           }
 
           const combinedUnits = [...s.units, ...incomingUnits];
+          const unitsWithChoking = applyBlackPowderChoking(combinedUnits, s.grid);
           const refreshedUnits = syncColloredoMobility(
-            combinedUnits.map((u) => {
+            unitsWithChoking.map((u) => {
               if (u.faction !== "player" || !u.alive) return u;
               const isDetained = (u.detainedTurns ?? 0) > 0 || u.hp <= 0;
               return {
@@ -6178,6 +6290,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         revealedPodEnemyIds: new Set(nextDerived.fogSnapshot.visibleEnemyIds),
         activeMovement: null,
         activeProjectile: null,
+        lightFlashes: [],
         unitFx: {},
         combatLog: [
           makeLog(

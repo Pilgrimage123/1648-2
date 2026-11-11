@@ -157,6 +157,54 @@ _Avoid_: Tooltip, breakdown wings
 **Black Powder Smoke** (*Kouř z černého prachu*):
 A dense cloud left on a tile after firing a black-powder weapon or detonating a grenade. A shooter standing in smoke takes `-10%` aim. A target standing in smoke takes `-15%` to hit (`+15` defense). Firing downward through ground smoke, while the shooter is not in smoke, takes only `-10%` (Smoke Horizon Piercing).
 
+**Cumulative Smoke Concealment** (*Kumulativní clona kouře*):
+The tactical visibility rule where a 3D Bresenham line of sight traversing $\ge 2$ consecutive black-powder smoke tiles is completely severed, blocking direct targeting and overwatch reactions. Elevated shooters with High Ground retain partial visibility (Smoke Horizon Piercing) through up to 2 smoke tiles at a `-20%` aim penalty.
+_Avoid_: Smoke invisibility, total blindess
+
+**Smoke Overwatch Disruption** (*Přerušení hlídky kouřem*):
+The tactical rule where an unbroken line of sight required for an Overwatch reaction shot is immediately broken if the moving target passes into or behind a dense black-powder smoke cloud, suppressing the ambush trigger.
+_Avoid_: Smoke dodge, overwatch cancel
+
+**Black-Powder Choking Debuff** (*Zadýmení a záchvat kašle*):
+The environmental condition applied to any soldier ending their turn inside an enclosed, unventilated room (`isEnclosedRoofedCoord`) with active black-powder smoke (`smokeTurns > 0`), causing `-1 Mobility` on the following turn due to acrid sulfurous fumes.
+_Avoid_: Poison gas, toxic cloud
+
+**Blast Shockwave Displacement** (*Rázová vlna výbuchu*):
+The physical blast dynamic where an explosive detonation (powder keg, grenade) instantaneously purges smoke and airborne dust from its epicenter ($r \le 1$), propelling a concentrated ring of smoke, soot, and masonry debris into the surrounding perimeter tiles ($r = 2..3$).
+_Avoid_: Explosion blow, smoke despawn
+
+**Indoor Smoke Stagnation** (*Vnitřní stagnace kouře a prachu*):
+The environmental rule governed by `isEnclosedRoofedCoord` wherein smoke and masonry plaster dust inside enclosed palace halls persist for 3–4 turns and bleed horizontally through open doorways, whereas outdoor garden smoke dissipates in 2 turns (or 1 turn during rain).
+_Avoid_: Indoor persistence, infinite smoke
+
+**Unified Chiaroscuro Particle Field** (*Sjednocené částicové pole šerosvitu*):
+The shared instanced soft-particle rendering pipeline blending sulfurous black-powder smoke (`#1e293b` to `#334155`), pale masonry plaster dust (`#d6d3d1`), and explosive amber flashes (`#f97316`) into a depth-faded, non-occluding volumetric atmosphere that honors the 60-30-10 color rule and preserves tactical grid readability.
+_Avoid_: Per-tile smoke meshes, billboard sprites
+
+**Combat Atmosphere Field** (`CombatAtmosphereField`):
+The consolidated instanced particle manager mounted in `TacticalScene.tsx` managing up to 600 soft-depth quads across three distinct behavioral buffers (dense ground smoke, light tumbling masonry dust, and buoyant embers).
+_Avoid_: Particle manager, scene effects container
+
+**Dynamic Light Flash Pool** (*Fond dynamických záblesků*):
+The strict hardware-safe lighting queue managing at most 2 concurrent blast point lights (`#f97316`) and 1 muzzle flash point light (`#fde047`) that directly injects position and intensity uniforms into atmospheric shaders for volumetric forward-scattering.
+_Avoid_: Explosion light spawner, unlimited point lights
+
+**Point-Blank Proximity Rule** (*Výjimka kontaktního dosahu v kouři*):
+The tactical rule permitting units within contact distance ($\le 1.5$ tiles) to maintain direct line of sight and target one another through dense smoke, subject only to close-quarters firearm penalties.
+_Avoid_: Smoke melee bypass, blind stab
+
+**Cuirassier Respiratory Resistance** (*Odolnost těžké zbroje proti zadýmení*):
+The passive environmental immunity possessed by armored soldiers with intact cuirasses and morion helmets (`armor > 0 && hp === maxHp`), nullifying the indoor Black-Powder Choking mobility debuff.
+_Avoid_: Gas mask, poison immunity
+
+**Muzzle Flash & Sound Contact** (*Zábleskový a zvukový kontakt v kouři*):
+The tactical Fog of War event triggered when a weapon fires from behind or within dense smoke ($\ge 2$ smoke tiles): direct line of sight remains blocked, but a fleeting sound/flash indicator appears at the source coordinate for 1 round without revealing the unit's exact model, stats, or health.
+_Avoid_: Full smoke reveal, invisible gunshot
+
+**Through-Draft Portal Venting** (*Průvanové odvětrávání portálů*):
+The environmental dissipation rule wherein smoke tiles within 2 tiles of an open exterior doorway or breached facade (`isDoorOpen === true` bordering garden tiles) dissipate at double speed (decrementing `smokeTurns` by 2 per round) due to natural courtyard cross-drafts.
+_Avoid_: Instant smoke clear, draft wind cheat
+
 **Musket Rest / Fork** (*Furketa*):
 A fork stand used by the heavy matchlock (`supportsRestFork`). A prepared shot costs `2 AP` and adds no aim bonus. If the shooter has already moved or has only `1 AP` left, the same musket may hip-fire for `1 AP` at `-35%` aim and the shooter becomes Shaken. Swedish muskets and wheellocks fire for `1 AP` and do not use the fork.
 

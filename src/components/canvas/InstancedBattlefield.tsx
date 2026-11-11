@@ -157,83 +157,7 @@ function TutorialWaypointBeacon({
   );
 }
 
-/**
- * Animated creeping black-powder smoke cloud that hugs the ground and slowly churns.
- */
-function CreepingSmokeTile({
-  coord,
-  dim,
-}: {
-  coord: GridCoord;
-  dim: number;
-}) {
-  const groupRef = useRef<THREE.Group>(null);
-  const puff1Ref = useRef<THREE.Mesh>(null);
-  const puff2Ref = useRef<THREE.Mesh>(null);
-  const [wx, wy, wz] = gridToWorld(coord);
-  const phase = (coord.x * 1.7 + coord.z * 2.3) % (Math.PI * 2);
 
-  useFrame(({ clock }) => {
-    const t = clock.getElapsedTime() + phase;
-    if (groupRef.current) {
-      groupRef.current.rotation.y = Math.sin(t * 0.45) * 0.35;
-    }
-    if (puff1Ref.current) {
-      puff1Ref.current.position.x = -0.2 + Math.sin(t * 0.9) * 0.14;
-      puff1Ref.current.position.z = 0.14 + Math.cos(t * 0.7) * 0.12;
-    }
-    if (puff2Ref.current) {
-      puff2Ref.current.position.x = 0.22 + Math.cos(t * 0.8) * 0.14;
-      puff2Ref.current.position.z = -0.16 + Math.sin(t * 1.1) * 0.12;
-    }
-  });
-
-  return (
-    <group ref={groupRef} position={[wx, wy, wz]}>
-      <mesh
-        ref={puff1Ref}
-        position={[-0.2, 0.28, 0.14]}
-        scale={[0.78, 0.32, 0.78]}
-        geometry={SMOKE_PUFF_GEO}
-      >
-        <meshStandardMaterial
-          color="#94a3b8"
-          roughness={1}
-          transparent
-          opacity={dim}
-          depthWrite={false}
-        />
-      </mesh>
-      <mesh
-        ref={puff2Ref}
-        position={[0.22, 0.42, -0.16]}
-        scale={[0.65, 0.36, 0.65]}
-        geometry={SMOKE_PUFF_GEO}
-      >
-        <meshStandardMaterial
-          color="#64748b"
-          roughness={1}
-          transparent
-          opacity={dim * 0.9}
-          depthWrite={false}
-        />
-      </mesh>
-      <mesh
-        position={[0.02, 0.62, 0.06]}
-        scale={[0.5, 0.34, 0.5]}
-        geometry={SMOKE_PUFF_GEO}
-      >
-        <meshStandardMaterial
-          color="#cbd5e1"
-          roughness={1}
-          transparent
-          opacity={dim * 0.7}
-          depthWrite={false}
-        />
-      </mesh>
-    </group>
-  );
-}
 
 /**
  * 3D Monumentální císařské schodiště (Imperial Grand Staircase - `grand_stairs`)
@@ -1410,7 +1334,6 @@ function BaroqueLivingDecor({
 export function InstancedBattlefield() {
   const grid = useGameStore((s) => s.grid);
   const gridVersion = useGameStore((s) => s.gridVersion);
-  const smokeVersion = useGameStore((s) => s.smokeVersion);
   const activeFloor = useGameStore((s) => s.activeFloor);
   const cameraStep = useGameStore((s) => s.cameraStep);
   const reachableTiles = useGameStore((s) => s.reachableTiles);
@@ -1469,10 +1392,6 @@ export function InstancedBattlefield() {
     () => grid.getFloorTiles(2),
     [grid, gridVersion],
   );
-  const smokeTiles = useMemo(() => {
-    void smokeVersion;
-    return grid.getSmokeTiles();
-  }, [grid, smokeVersion]);
 
   // Separate obstacles by floor and type for InstancedMesh rendering + Roof Cutaway
   const obstacles = useMemo(() => {
@@ -2880,18 +2799,6 @@ export function InstancedBattlefield() {
           </group>
         );
       })()}
-
-      {/* 9. Animated Creeping 3D Black Powder Smoke Clouds */}
-      {smokeTiles.map((smokeTile) => {
-        const dim = smokeTile.coord.y > effectiveViewFloor ? 0.12 : 0.38;
-        return (
-          <CreepingSmokeTile
-            key={`smoke-${smokeTile.coord.x}-${smokeTile.coord.y}-${smokeTile.coord.z}`}
-            coord={smokeTile.coord}
-            dim={dim}
-          />
-        );
-      })}
 
       {/* 10. Hovered Tile Cursor & 3x3 Grenade AoE Preview & Dynamic Tile Cover Preview */}
       {hoveredTile && (

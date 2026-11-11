@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - 2026-11-11
 
+### Added
+- **Dynamic Smoke, Blast Shockwave & Chiaroscuro Lighting System (ADR-0011)**:
+  - **Unified Chiaroscuro Combat Atmosphere Field (`CombatAtmosphereField.tsx`)**: Replaced disjoint per-tile meshes with an instanced soft-depth particle manager ($\le 600$ particles total). Uses true spherical camera-facing billboarding (`camera.quaternion`) and a procedural 128×128 multi-stage Gaussian radial alpha texture with mipmapping, ensuring seamless multi-tile blending without polygonal terrain intersections. Supports three material buffers: dense black powder (`#1e293b` to `#334155`), masonry plaster dust (`#d6d3d1`), and floating embers (`#ea580c`).
+  - **Dynamic Light Flash Pool (`useGameStore.ts`, `TacticalScene.tsx`)**: Implemented a strictly budgeted FIFO point-light pool (max 2 blast lights `#f97316` + 1 muzzle flash light `#fde047` with quadratic decay $I(t) = I_0 (1 - t/T)^2$) that physically illuminates the scene and injects internal amber forward-scattering (`#fb923c` / `#f97316`) into local smoke volumes during detonations.
+  - **Blast Shockwave Displacement (`GridSystem.ts`)**: Explosions from powder kegs and petards instantaneously clear smoke and airborne dust from the epicenter ($r = 0$, setting `smokeTurns = 0`), creating scorched craters while violently compressing displaced smoke into perimeter rings ($r = 1..2$, `smokeTurns = 3` indoors, `2` outdoors, `1` during rain).
+  - **Cumulative Smoke Concealment (`CombatSystem.ts`)**: 3D Bresenham sightlines crossing $\ge 2$ consecutive smoke tiles are completely severed, breaking direct targeting and Swedish Overwatch ambush sightlines.
+  - **Point-Blank Proximity Rule (`CombatSystem.ts`)**: Units within contact melee range (distance $\le 1.5$ tiles) bypass smoke concealment, maintaining direct line of sight subject only to close-quarters penalties.
+  - **High Ground Smoke Piercing (`CombatSystem.ts`)**: Elevated marksmen (`from.y > to.y`) overlook ground smoke and pierce up to 2 consecutive smoke tiles (severed if $> 2$).
+  - **Indoor Stagnation & Through-Draft Portal Venting (`GridSystem.ts`)**: Smoke in enclosed palace rooms (`isEnclosedRoofedCoord`) lingers 3–4 turns; smoke within $\le 2$ tiles of open exterior doors dissipates at double speed ($-2$ per round) via natural cross-drafts. Outdoor smoke clears twice as fast in rain.
+  - **Black-Powder Choking & Cuirassier Respiratory Resistance (`CombatSystem.ts`, `useGameStore.ts`)**: Unarmored or wounded troops ending their turn inside enclosed palace smoke suffer `-1 Mobility` next round. Armored soldiers with intact cuirasses and morions (`armor > 0 && hp === maxHp`, such as Marshal Colloredo) are immune.
+  - **Legacy Cleanup**: Removed obsolete `CreepingSmokeTile` and per-tile mesh instances from `InstancedBattlefield.tsx`.
+  - **Automated Test Suite**: Added Section 28 to `scripts/test-mission1.ts`, verifying all new tactical and environmental rules.
+
 ### Fixed
 - Holding `F1` or `0` and clicking a distant door, a stair that is not a legal move, or a soldier on a higher floor opens the dossier. Those clicks do not open the door or change the viewed floor. A held right-click stays in aim mode.
 - Tutorial step 3 now beacons the palace-side powder keg `(7, 0, 13)`. Step 4 and the advisor text beacon the Čertovka escape dock `(3, 0, 2)`, the same tile the skiff model uses. Both come from the live grid.

@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import {
+  applyBlackPowderChoking,
   calculateMeleeAttack,
   calculateShot,
   checkEnemyColloredoCapture,
@@ -2158,6 +2159,136 @@ assert(
 
 console.log(
   "✓ Baroque Firearm System (Heavy Musket 4 AP vs. Swedish M1624 2 AP Segmented Reload, Hip-Fire, Smoke, 20% Rain Misfire & Prepared Volley Cone) validated.",
+);
+
+// --- 28. Dynamic Smoke, Dust, Blast Shockwave & Tactical Concealment (ADR-0011) ---
+console.log("--- 28. Dynamic Smoke, Blast Shockwave & Cumulative Concealment (ADR-0011) ---");
+
+// A) Test Blast Shockwave Displacement: epicenter cleared (0), perimeter compressed (2 outdoors, 3 indoors)
+const shockGrid = createInitialGrid();
+const outdoorBlastCenter = { x: 5, y: 0 as const, z: 8 }; // Outdoor garden path
+shockGrid.applyExplosionShockwave(outdoorBlastCenter, 1, "clear");
+assert(
+  shockGrid.getTile(outdoorBlastCenter)?.smokeTurns === 0,
+  "Explosion epicenter must be completely purged of smoke (smokeTurns === 0) by shockwave expansion",
+);
+assert(
+  (shockGrid.getTile({ x: 6, y: 0, z: 8 })?.smokeTurns ?? 0) === 2,
+  "Outdoor blast perimeter tile must have smokeTurns === 2",
+);
+
+const indoorBlastCenter = { x: 5, y: 0 as const, z: 20 }; // Grand Priory Palace Hall (isEnclosedRoofedCoord)
+shockGrid.applyExplosionShockwave(indoorBlastCenter, 1, "clear");
+assert(
+  shockGrid.getTile(indoorBlastCenter)?.smokeTurns === 0,
+  "Indoor explosion epicenter must be purged of smoke (smokeTurns === 0)",
+);
+assert(
+  (shockGrid.getTile({ x: 6, y: 0, z: 20 })?.smokeTurns ?? 0) === 3,
+  "Indoor blast perimeter tile must have smokeTurns === 3 (stagnant indoor dissipation)",
+);
+
+// B) Test Cumulative Smoke Concealment in checkLineOfSight3D
+const losSmokeGrid = createInitialGrid();
+// 1 smoke tile on path: should NOT block LoS
+losSmokeGrid.addSmoke({ x: 5, y: 0, z: 5 }, 0, 2);
+const los1Tile = checkLineOfSight3D(losSmokeGrid, { x: 5, y: 0, z: 3 }, { x: 5, y: 0, z: 7 });
+assert(
+  los1Tile.clear === true,
+  "Single smoke tile along trajectory must NOT break direct Line of Sight",
+);
+
+// 3x3 smoke cloud (radius 1): should completely break LoS across corridor at distance > 1.5
+losSmokeGrid.addSmoke({ x: 5, y: 0, z: 5 }, 1, 2);
+const los2Tiles = checkLineOfSight3D(losSmokeGrid, { x: 5, y: 0, z: 3 }, { x: 5, y: 0, z: 7 });
+assert(
+  los2Tiles.clear === false,
+  "Two consecutive smoke tiles must trigger Cumulative Smoke Concealment and sever Line of Sight",
+);
+
+// Point-Blank Proximity Rule: distance <= 1.5 maintains LoS despite consecutive smoke tiles
+const losPointBlank = checkLineOfSight3D(losSmokeGrid, { x: 5, y: 0, z: 4 }, { x: 5, y: 0, z: 5 });
+assert(
+  losPointBlank.clear === true,
+  "Point-Blank Proximity Rule (distance <= 1.5) must maintain LoS between adjacent units through smoke",
+);
+
+// High Ground Exception: elevated shooter (P1 -> P0) pierces 2 smoke tiles, but is blocked by 3
+const p1ShooterCoord = { x: 14, y: 1 as const, z: 16 };
+const p0TargetCoord = { x: 14, y: 0 as const, z: 12 };
+const elevatedSmokeGrid = createInitialGrid();
+// Add 2 smoke rows across corridor (z=15 and z=14)
+for (let x = 13; x <= 15; x++) {
+  elevatedSmokeGrid.addSmoke({ x, y: 0, z: 15 }, 0, 2);
+  elevatedSmokeGrid.addSmoke({ x, y: 0, z: 14 }, 0, 2);
+}
+const losElevatedPierces = checkLineOfSight3D(elevatedSmokeGrid, p1ShooterCoord, p0TargetCoord);
+assert(
+  losElevatedPierces.clear === true,
+  "Elevated shooter (P1 -> P0) must pierce up to 2 consecutive smoke tiles (Smoke Horizon Piercing)",
+);
+
+// Add a 3rd consecutive smoke row (z=13): now 3 rows (z=15, 14, 13) -> LoS severed even from high ground
+for (let x = 13; x <= 15; x++) {
+  elevatedSmokeGrid.addSmoke({ x, y: 0, z: 13 }, 0, 2);
+}
+const losElevatedBlocked = checkLineOfSight3D(elevatedSmokeGrid, p1ShooterCoord, p0TargetCoord);
+assert(
+  losElevatedBlocked.clear === false,
+  "Elevated shooter must have LoS severed when sightline crosses > 2 consecutive smoke tiles",
+);
+
+// C) Test Through-Draft Portal Venting: smoke near open exterior door decays at double speed
+const draftGrid = createInitialGrid();
+const doorCoord = { x: 10, y: 0 as const, z: 16 }; // South palace portal bordering courtyard
+draftGrid.setDoorState(doorCoord, "open");
+const nearDoorSmoke = { x: 10, y: 0 as const, z: 17 }; // dist 1 from open door
+draftGrid.getTile(nearDoorSmoke)!.smokeTurns = 3;
+const deepIndoorSmoke = { x: 5, y: 0 as const, z: 23 }; // deep inside palace, far from doors
+draftGrid.getTile(deepIndoorSmoke)!.smokeTurns = 3;
+
+draftGrid.decaySmoke("clear");
+assert(
+  draftGrid.getTile(nearDoorSmoke)?.smokeTurns === 1,
+  "Smoke tile adjacent to open exterior door must decay by 2 turns per round (Through-Draft Venting)",
+);
+assert(
+  draftGrid.getTile(deepIndoorSmoke)?.smokeTurns === 2,
+  "Deep indoor smoke tile far from doors must decay by standard 1 turn per round",
+);
+
+// D) Test Black-Powder Choking Debuff & Cuirassier Respiratory Resistance
+const chokeUnits = createInitialUnits();
+const testBarto = chokeUnits.find((u) => u.id === "player-bartolomej")!;
+testBarto.pos = { x: 5, y: 0, z: 22 }; // indoor palace hall
+testBarto.armor = 0; // unarmored monk
+draftGrid.getTile(testBarto.pos)!.smokeTurns = 2;
+
+const chokeColloredoUnit = chokeUnits.find((u) => u.id === "player-colloredo")!;
+chokeColloredoUnit.pos = { x: 6, y: 0, z: 22 }; // adjacent indoor hall
+chokeColloredoUnit.armor = 2;
+chokeColloredoUnit.hp = chokeColloredoUnit.maxHp;
+draftGrid.getTile(chokeColloredoUnit.pos)!.smokeTurns = 2;
+
+const afterChokeUnits = applyBlackPowderChoking(chokeUnits, draftGrid);
+const bartoAfter = afterChokeUnits.find((u) => u.id === "player-bartolomej")!;
+const colloredoAfter = afterChokeUnits.find((u) => u.id === "player-colloredo")!;
+
+assert(
+  bartoAfter.isChoking === true,
+  "Unarmored monk ending turn in indoor smoke must receive Black-Powder Choking debuff",
+);
+assert(
+  bartoAfter.movePerAp === 3, // Heavy musket base is 4, minus 1 = 3
+  `Choking soldier must suffer -1 Mobility (expected 3, got ${bartoAfter.movePerAp})`,
+);
+assert(
+  colloredoAfter.isChoking === false,
+  "Armored Marshal Colloredo (armor > 0, full HP) must resist smoke choking via Cuirassier Resistance",
+);
+
+console.log(
+  "✓ Dynamic Smoke, Blast Shockwave & Cumulative Concealment (ADR-0011) validated.",
 );
 
 console.log("=== ALL MISSION 1 TESTS PASSED SUCCESSFULLY! ===");

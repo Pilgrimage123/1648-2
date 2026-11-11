@@ -11,11 +11,13 @@ import { useRef } from "react";
 import * as THREE from "three";
 import type { WeatherType } from "../../core/types";
 import { useGameStore } from "../../store/useGameStore";
+import { CombatAtmosphereField } from "./CombatAtmosphereField";
 import { CombatLines3D } from "./CombatLines3D";
 import { InstancedBattlefield } from "./InstancedBattlefield";
 import { RainParticles } from "./RainParticles";
 import { TacticalCamera } from "./TacticalCamera";
 import { UnitActor } from "./UnitActor";
+import { gridToWorld } from "./worldCoords";
 
 function ChiaroscuroLightingRig({ weather }: { weather: WeatherType }) {
   const torch1Ref = useRef<THREE.PointLight>(null);
@@ -161,6 +163,79 @@ function ChiaroscuroLightingRig({ weather }: { weather: WeatherType }) {
   );
 }
 
+/**
+ * Fond dynamických záblesků (Dynamic Light Flash Pool, ADR-0011):
+ * Spravuje max 2 explozivní bodová světla a 1 světlo záblesku hlavně s kvadratickým útlumem.
+ */
+function DynamicLightFlashPool() {
+  const lightFlashes = useGameStore((s) => s.lightFlashes);
+  const flash1Ref = useRef<THREE.PointLight>(null);
+  const flash2Ref = useRef<THREE.PointLight>(null);
+  const muzzleRef = useRef<THREE.PointLight>(null);
+
+  useFrame(() => {
+    const now = performance.now();
+    const blasts = lightFlashes.filter((f) => f.kind === "blast");
+    const muzzles = lightFlashes.filter((f) => f.kind === "muzzle");
+
+    if (flash1Ref.current) {
+      const b = blasts[0];
+      if (b) {
+        const age = now - b.createdAt;
+        const p = Math.min(1, Math.max(0, age / b.durationMs));
+        const decay = Math.pow(1 - p, 2);
+        flash1Ref.current.visible = decay > 0.01;
+        flash1Ref.current.intensity = b.intensity * decay;
+        flash1Ref.current.distance = b.radius;
+        const [wx, wy, wz] = gridToWorld(b.coord);
+        flash1Ref.current.position.set(wx, wy + 0.6, wz);
+      } else {
+        flash1Ref.current.visible = false;
+      }
+    }
+
+    if (flash2Ref.current) {
+      const b = blasts[1];
+      if (b) {
+        const age = now - b.createdAt;
+        const p = Math.min(1, Math.max(0, age / b.durationMs));
+        const decay = Math.pow(1 - p, 2);
+        flash2Ref.current.visible = decay > 0.01;
+        flash2Ref.current.intensity = b.intensity * decay;
+        flash2Ref.current.distance = b.radius;
+        const [wx, wy, wz] = gridToWorld(b.coord);
+        flash2Ref.current.position.set(wx, wy + 0.6, wz);
+      } else {
+        flash2Ref.current.visible = false;
+      }
+    }
+
+    if (muzzleRef.current) {
+      const m = muzzles[0];
+      if (m) {
+        const age = now - m.createdAt;
+        const p = Math.min(1, Math.max(0, age / m.durationMs));
+        const decay = Math.pow(1 - p, 2);
+        muzzleRef.current.visible = decay > 0.01;
+        muzzleRef.current.intensity = m.intensity * decay;
+        muzzleRef.current.distance = m.radius;
+        const [wx, wy, wz] = gridToWorld(m.coord);
+        muzzleRef.current.position.set(wx, wy + 1.2, wz);
+      } else {
+        muzzleRef.current.visible = false;
+      }
+    }
+  });
+
+  return (
+    <group>
+      <pointLight ref={flash1Ref} color="#f97316" decay={2} visible={false} />
+      <pointLight ref={flash2Ref} color="#f97316" decay={2} visible={false} />
+      <pointLight ref={muzzleRef} color="#fde047" decay={2} visible={false} />
+    </group>
+  );
+}
+
 export function TacticalScene() {
   const units = useGameStore((s) => s.units);
   const weather = useGameStore((s) => s.weather);
@@ -179,6 +254,10 @@ export function TacticalScene() {
         <fog attach="fog" args={[fogColor, 18, fogFar]} />
 
         <ChiaroscuroLightingRig weather={weather} />
+        <DynamicLightFlashPool />
+
+        {/* Sjednocené částicové pole černoprachového dýmu, omítkového prachu a jisker (ADR-0011) */}
+        <CombatAtmosphereField />
 
         {/* Atmospheric 3D Rain, Drifting Ash & Rising Torch Embers */}
         <RainParticles />

@@ -19,6 +19,7 @@ import type {
   UnitData,
   WeaponStats,
   MeleeWeaponStats,
+  WeatherType,
 } from "./types";
 
 export const GRID_WIDTH = 24;
@@ -228,6 +229,27 @@ export class GridSystem {
     return Array.from(this.doors.values());
   }
 
+  /**
+   * Vrátí všechny otevřené venkovní dveře hraničící s exteriérem zahrady (ADR-0011).
+   * Slouží pro výpočet přirozeného průvanového odvětrávání (Through-Draft Portal Venting).
+   */
+  public getOpenExteriorDoors(): DoorData[] {
+    const offsets = [
+      { dx: 1, dz: 0 },
+      { dx: -1, dz: 0 },
+      { dx: 0, dz: 1 },
+      { dx: 0, dz: -1 },
+    ];
+    return this.getAllDoors().filter((door) => {
+      if (door.state !== "open") return false;
+      const c = door.coord;
+      if (!isEnclosedRoofedCoord(c.x, c.y, c.z)) return true;
+      return offsets.some(
+        (off) => !isEnclosedRoofedCoord(c.x + off.dx, c.y, c.z + off.dz),
+      );
+    });
+  }
+
   public isDoorClosedAt(c: GridCoord): boolean {
     const door = this.getDoor(c);
     return door ? door.state === "closed" : false;
@@ -374,13 +396,68 @@ export class GridSystem {
   }
 
   /**
-   * Na konci kola sníží zbývající trvání kouře z černého prachu o 1.
+   * Aplikuje fyziku rázové vlny exploze (ADR-0011):
+   * - Epicentrum (r = 0): je expanzí horkých plynů okamžitě vyfouknuto a zbaveno dýmu (smokeTurns = 0).
+   * - Obvodový prstenec (r = 1..radius): stlačí vytlačený dým a prach:
+   *   - V interiéru (isEnclosedRoofedCoord): 3 tahy (nebo 4).
+   *   - V exteriéru: 2 tahy (v dešti 1 tah).
    */
-  public decaySmoke(): void {
-    for (const tile of this.tiles.values()) {
-      if (tile.smokeTurns > 0) {
-        tile.smokeTurns = Math.max(0, tile.smokeTurns - 1);
+  public applyExplosionShockwave(
+    center: GridCoord,
+    radius = 1,
+    weather: WeatherType = "clear",
+  ): void {
+    for (let dz = -radius; dz <= radius; dz++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        const c: GridCoord = {
+          x: center.x + dx,
+          y: center.y,
+          z: center.z + dz,
+        };
+        const tile = this.getTile(c);
+        if (!tile || !tile.hasFloor || tile.obstacle === "high_wall") continue;
+
+        const isEpicenter = dx === 0 && dz === 0;
+        if (isEpicenter) {
+          tile.smokeTurns = 0;
+        } else {
+          const indoor = isEnclosedRoofedCoord(c.x, c.y, c.z);
+          const turns = indoor ? 3 : weather === "rain" ? 1 : 2;
+          tile.smokeTurns = Math.max(tile.smokeTurns, turns);
+        }
       }
+    }
+  }
+
+  /**
+   * Na konci kola sníží zbývající trvání kouře z černého prachu (ADR-0011):
+   * - Běžný úbytek o 1 tah.
+   * - Průvanové odvětrávání (Through-Draft): dlaždice v dosahu <= 2 polí od otevřených venkovních dveří
+   *   ztrácejí 2 tahy za kolo.
+   * - Déšť (rain): venkovní dým a polétavý prach usedají dvakrát rychleji (úbytek o 2 tahy).
+   */
+  public decaySmoke(weather: WeatherType = "clear"): void {
+    const openDoors = this.getOpenExteriorDoors();
+    for (const tile of this.tiles.values()) {
+      if (tile.smokeTurns <= 0) continue;
+      const c = tile.coord;
+      const isIndoor = isEnclosedRoofedCoord(c.x, c.y, c.z);
+
+      // Průvanové odvětrávání otevřenými portály
+      let hasDraft = false;
+      for (const door of openDoors) {
+        if (
+          door.coord.y === c.y &&
+          Math.max(Math.abs(door.coord.x - c.x), Math.abs(door.coord.z - c.z)) <= 2
+        ) {
+          hasDraft = true;
+          break;
+        }
+      }
+
+      const rainDampening = !isIndoor && weather === "rain";
+      const decayAmount = hasDraft || rainDampening ? 2 : 1;
+      tile.smokeTurns = Math.max(0, tile.smokeTurns - decayAmount);
     }
   }
 
