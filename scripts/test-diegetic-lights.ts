@@ -29,6 +29,9 @@ import {
   selectSteadySlots,
   TORCHES,
   FOG_RADIUS_SCALE,
+  MISSION1_MOON_POSITION,
+  MISSION2_SUN_POSITION,
+  VLTAVA_SUN_SPECULAR_COLOR,
 } from "../src/components/canvas/diegeticLights.ts";
 import { gridToWorld } from "../src/components/canvas/worldCoords.ts";
 import {
@@ -224,5 +227,11 @@ assert.ok(m2Torches.some((t) => t.coord.x === 4 && t.coord.z === 11 && t.exposed
 assert.ok(m2Torches.some((t) => t.coord.x === 4 && t.coord.z === 16 && t.exposed));
 assert.ok(m2Sconces.some((s) => s.coord.y === 1 && !s.exposed));
 assert.ok(m2Sconces.some((s) => s.coord.y === 2 && !s.exposed));
+
+// --- ADR-0018: Celestial Lighting & Vltava Specular Reflection ---
+assert.deepEqual(MISSION1_MOON_POSITION, [14, 28, 13]);
+assert.deepEqual(MISSION2_SUN_POSITION, [22, 24, 8]);
+assert.ok(MISSION2_SUN_POSITION[0] > 0, "Morning sun in Mission 2 must be on the East (+X)");
+assert.equal(VLTAVA_SUN_SPECULAR_COLOR, "#fef3c7");
 
 console.log("diegetic lights ok");

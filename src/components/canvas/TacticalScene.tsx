@@ -1,8 +1,9 @@
 /**
  * Top-Level R3F Tactical 3D Scene (/src/components/canvas/TacticalScene.tsx).
- * Baroque chiaroscuro (ADR-0007, ADR-0015): a cool low moon, and warm light
- * only from a visible flame — candelabra, torches, the skiff lantern, a
- * matchcord, or a muzzle flash.
+ * Třívrstvá hierarchie osvětlení (ADR-0007, ADR-0011, ADR-0015, ADR-0018):
+ * 1. Nebeský světelný zdroj (Celestial Directional Light): noční měsíc v M1 vs ranní východní slunce v M2.
+ * 2. Praktická diegetická světla (Diegetic Practical Lights): svícny, pochodně, lucerna, doutnáky.
+ * 3. Bojový zábleskový fond (Dynamic Combat Flash Pool): krátkodobé záblesky hlavní a detonací.
  */
 
 import { Canvas, useFrame } from "@react-three/fiber";
@@ -22,6 +23,8 @@ import {
   MAX_CANDELABRA_SLOTS,
   MAX_MATCHCORD_SLOTS,
   MAX_TORCH_SLOTS,
+  MISSION1_MOON_POSITION,
+  MISSION2_SUN_POSITION,
   selectSteadySlots,
   type PracticalSample,
 } from "./diegeticLights";
@@ -185,9 +188,14 @@ function DiegeticLightingRig({ weather }: { weather: WeatherType }) {
         intensity={hemiIntensity}
       />
 
-      {/* Mission 1: cool night moon. Mission 2: early-morning light angled onto Charles Bridge & West Gate. */}
+      {/* 
+        * 1. NEBESKÝ SVĚTELNÝ ZDROJ (Celestial Directional Light, ADR-0018):
+        * Mission 1: chladný půlnoční měsíc [14, 28, 13].
+        * Mission 2: ranní slunce vycházející na východě [22, 24, 8] nad Starým Městem,
+        * vrhající dlouhé ranní stíny mostecké věže směrem na západ na Karlův most.
+        */}
       <directionalLight
-        position={isMorningBridge ? [-14, 30, 16] : [14, 28, 13]}
+        position={isMorningBridge ? [...MISSION2_SUN_POSITION] : [...MISSION1_MOON_POSITION]}
         intensity={keyIntensity}
         color={isMorningBridge ? "#dce7f3" : "#9db4c8"}
         castShadow

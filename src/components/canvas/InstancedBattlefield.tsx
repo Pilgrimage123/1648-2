@@ -50,7 +50,16 @@ import { useGameStore } from "../../store/useGameStore";
 import { BaroqueCoverBadge } from "../ui/BaroqueCoverBadge";
 import { wasRecentRightCameraPan } from "./TacticalCamera";
 import { WorldHtml } from "./WorldHtml";
-import { continuousGridToWorld, FLOOR_HEIGHT, gridToWorld, TILE_SIZE } from "./worldCoords";
+import {
+  continuousGridToWorld,
+  FLOOR_HEIGHT,
+  gridToWorld,
+  TILE_SIZE,
+} from "./worldCoords";
+import {
+  MISSION2_SUN_POSITION,
+  VLTAVA_SUN_SPECULAR_COLOR,
+} from "./diegeticLights";
 
 const _dummy = new THREE.Object3D();
 const _color = new THREE.Color();
@@ -1302,9 +1311,13 @@ function BaroqueLivingDecor({
 }
 
 /**
- * Dynamická Vltava / Čertovka (ADR-0007 / ThreeJS):
- * PBR vodní plocha se zrcadlovým leskem (metalness 0.35, roughness 0.08), dynamickým Fresnelovým odrazem,
- * jemným vlněním v useFrame a reakcí na okolní směrové slunce, pochodně i záblesky mušket.
+ * Dynamická Vltava / Čertovka (ADR-0007, ADR-0018 / ThreeJS):
+ * 1. PBR vodní plocha se zrcadlovým leskem a reakcí na nebeský zdroj (Měsíc v M1, ranní Slunce v M2).
+ * 2. Vltava v Misi 2 (ADR-0018): Ranní sluneční odlesk (Vltava Morning Sun Specular Reflection)
+ *    podél vektoru ranního slunce z východu [22, 24, 8]. Proud řeky směřuje k severu (-Z).
+ *    Odlesk dynamicky reaguje na počasí (plný lesk za jasna, tlumený za deště, rozpuštěný v mlze)
+ *    a respektuje pravidlo 60-30-10 (bledě zlatý akcent #fef3c7 / #fde68a na temně břidlicovém podkladu).
+ * 3. Čertovka v Misi 1: Noční hladina pod chladným měsíčním svitem a teplou září lucerny pramice.
  */
 function DynamicWaterField({ waterTiles }: { waterTiles: TileData[] }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
@@ -1312,16 +1325,30 @@ function DynamicWaterField({ waterTiles }: { waterTiles: TileData[] }) {
   const weather = useGameStore((s) => s.weather);
   const isMission2 = scenario === "mission2";
 
+  const sunDir = useMemo(
+    () => new THREE.Vector3(...MISSION2_SUN_POSITION).normalize(),
+    [],
+  );
+  const baseCol = useMemo(
+    () => new THREE.Color(isMission2 ? 0x18455b : 0x0a2a38),
+    [isMission2],
+  );
+  const waveCol = useMemo(
+    () => new THREE.Color(isMission2 ? 0x225c75 : 0x0f3647),
+    [isMission2],
+  );
+  const sunGoldCol = useMemo(
+    () => new THREE.Color(VLTAVA_SUN_SPECULAR_COLOR),
+    [],
+  );
+  const tempCol = useMemo(() => new THREE.Color(), []);
+  const dummyVec = useMemo(() => new THREE.Vector3(), []);
+  const normalVec = useMemo(() => new THREE.Vector3(), []);
+  const halfVec = useMemo(() => new THREE.Vector3(), []);
+
   useEffect(() => {
     const mesh = meshRef.current;
     if (!mesh) return;
-    const baseCol = new THREE.Color(
-      isMission2 ? 0x1b4b62 : 0x0a2a38,
-    );
-    const waveCol = new THREE.Color(
-      isMission2 ? 0x24627d : 0x0f3647,
-    );
-    const tempCol = new THREE.Color();
 
     waterTiles.forEach((tile, i) => {
       const [wx, wy, wz] = gridToWorld(tile.coord);
@@ -1338,28 +1365,84 @@ function DynamicWaterField({ waterTiles }: { waterTiles: TileData[] }) {
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.computeBoundingSphere();
-  }, [waterTiles, isMission2]);
+  }, [waterTiles, isMission2, baseCol, waveCol, tempCol]);
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock, camera }) => {
     const mesh = meshRef.current;
     if (!mesh || waterTiles.length === 0) return;
     const t = clock.getElapsedTime();
     const rainRipples = weather === "rain" ? 1.6 : 1.0;
 
-    // Jemná vertikální oscilace hladiny vody (proudění řeky Vltavy)
-    for (let i = 0; i < waterTiles.length; i++) {
-      const tile = waterTiles[i]!;
-      const [wx, wy, wz] = gridToWorld(tile.coord);
-      const wave =
-        Math.sin(t * 2.2 * rainRipples + tile.coord.x * 0.85 + tile.coord.z * 1.2) * 0.024 +
-        Math.cos(t * 1.6 * rainRipples + tile.coord.x * 1.4 - tile.coord.z * 0.6) * 0.016;
-      _dummy.position.set(wx, wy - 0.16 + wave, wz);
-      _dummy.rotation.set(wave * 0.25, 0, wave * -0.2);
-      _dummy.scale.set(1, 1, 1);
-      _dummy.updateMatrix();
-      mesh.setMatrixAt(i, _dummy.matrix);
+    if (isMission2) {
+      // Vltava: Proud řeky na sever (-Z) + ranní sluneční odlesk (ADR-0018)
+      const weatherSpecular =
+        weather === "clear" ? 1.0 : weather === "rain" ? 0.32 : 0.04;
+
+      for (let i = 0; i < waterTiles.length; i++) {
+        const tile = waterTiles[i]!;
+        const [wx, wy, wz] = gridToWorld(tile.coord);
+
+        // Vltava proudí k severu (-Z) s příčnou interferencí vln
+        const flowZ = t * 2.2 * rainRipples - tile.coord.z * 1.35;
+        const crossX = tile.coord.x * 0.85;
+        const wave =
+          Math.sin(flowZ + crossX) * 0.024 +
+          Math.cos(flowZ * 1.5 - crossX * 0.7) * 0.016;
+
+        _dummy.position.set(wx, wy - 0.16 + wave, wz);
+        _dummy.rotation.set(wave * 0.25, 0, wave * -0.2);
+        _dummy.scale.set(1, 1, 1);
+        _dummy.updateMatrix();
+        mesh.setMatrixAt(i, _dummy.matrix);
+
+        // Analytický odhad normály pro Fresnelův a zrcadlový třpyt
+        const dw_dx =
+          Math.cos(flowZ + crossX) * 0.85 * 0.024 +
+          Math.sin(flowZ * 1.5 - crossX * 0.7) * 0.7 * 0.016;
+        const dw_dz =
+          -Math.cos(flowZ + crossX) * 1.35 * 0.024 -
+          Math.sin(flowZ * 1.5 - crossX * 0.7) * 2.025 * 0.016;
+        normalVec.set(-dw_dx * 3.5, 1.0, -dw_dz * 3.5).normalize();
+
+        // Pohledový vektor ke kameře
+        dummyVec
+          .set(camera.position.x - wx, camera.position.y - wy, camera.position.z - wz)
+          .normalize();
+        halfVec.copy(sunDir).add(dummyVec).normalize();
+        const nDotH = Math.max(0, normalVec.dot(halfVec));
+        const specular = Math.pow(nDotH, 18);
+
+        // Lokalizace na otevřenou Vltavu: jižní tok (z >= 17) a severní otevřený tok (z <= 9)
+        const exposure = tile.coord.z >= 17 ? 1.0 : tile.coord.z <= 9 ? 0.88 : 0.62;
+        const shimmer =
+          Math.sin(t * 4.8 + tile.coord.x * 2.9 + tile.coord.z * 3.1) * 0.15 + 0.85;
+        const glint = Math.min(1.0, specular * exposure * weatherSpecular * shimmer * 1.75);
+
+        const checker = (tile.coord.x + tile.coord.z) % 2 === 0;
+        tempCol.copy(checker ? baseCol : waveCol);
+        if (glint > 0.01) {
+          tempCol.lerp(sunGoldCol, glint);
+        }
+        mesh.setColorAt(i, tempCol);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    } else {
+      // Čertovka v Misi 1: Klidné noční vlnění bez zlatého slunečního třpytu
+      for (let i = 0; i < waterTiles.length; i++) {
+        const tile = waterTiles[i]!;
+        const [wx, wy, wz] = gridToWorld(tile.coord);
+        const wave =
+          Math.sin(t * 1.8 * rainRipples + tile.coord.x * 0.85 + tile.coord.z * 1.2) * 0.02 +
+          Math.cos(t * 1.4 * rainRipples + tile.coord.x * 1.2 - tile.coord.z * 0.6) * 0.012;
+        _dummy.position.set(wx, wy - 0.16 + wave, wz);
+        _dummy.rotation.set(wave * 0.2, 0, wave * -0.15);
+        _dummy.scale.set(1, 1, 1);
+        _dummy.updateMatrix();
+        mesh.setMatrixAt(i, _dummy.matrix);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
     }
-    mesh.instanceMatrix.needsUpdate = true;
   });
 
   if (waterTiles.length === 0) return null;
@@ -1375,9 +1458,9 @@ function DynamicWaterField({ waterTiles }: { waterTiles: TileData[] }) {
       <boxGeometry args={[TILE_SIZE * 0.98, 0.12, TILE_SIZE * 0.98]} />
       <meshStandardMaterial
         color={isMission2 ? "#18455b" : "#0c2b3a"}
-        roughness={0.08}
-        metalness={0.38}
-        envMapIntensity={1.8}
+        roughness={isMission2 ? 0.06 : 0.08}
+        metalness={isMission2 ? 0.42 : 0.38}
+        envMapIntensity={isMission2 ? 2.2 : 1.8}
       />
     </instancedMesh>
   );

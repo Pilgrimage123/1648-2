@@ -336,6 +336,10 @@ In the Clementinum afterwards, Plachý offers the blood-and-iron oath to Havel �
 **Barokní šerosvit** (*Chiaroscuro Lighting*):
 The Caravaggio/Rembrandt lighting hierarchy contrasting the brightly illuminated playable mid-ground (golden God-rays, warm torchlight) against deeply shadowed non-playable map borders and foreground vignettes.
 
+**Nebeský světelný zdroj** (*Celestial Light Source*):
+The primary directional light casting global shadows and establishing the astronomical hour and atmospheric tone: cool nocturnal moonlight in Mission 1 versus low morning sunlight over Prague's Old Town in Mission 2.
+_Avoid_: Ambient sun, ungrounded directional light, flat skybox light
+
 **Praktické světlo** (*Practical Light*):
 Illumination that begins at a visible flame or flash — a beeswax candelabrum in Colloredo's house, a wrought-iron torch, the skiff lantern, a burning matchcord, or a muzzle flash — and falls off with distance. Rain gutters flames that stand in the open. Candles under the palace roof keep their strength. A wheellock stays dark until it fires.
 _Avoid_: Ambient fill, orphan point light, global sun
@@ -351,6 +355,14 @@ The intact interior of the Grand Priory Palace (`x: 2..21`, `z: 16..27`, `damage
 
 **Zaprášená malostranská ulice a nádvoří** (*Dusty Street & Courtyard Biome*):
 The Grand Priory garden (`z: 5..15`, `x: 1..22`, `damageLevel === 0`) characterized by cool matte slate-mud cobblestones (`cobble`), weathered mossy sandstone walls, and rough field stone gabions. The Čertovka canal is `z: 0..4`.
+
+**Vltava**:
+The broad river crossed by Charles Bridge in Mission 2 (`x: 1..9, z: 8..10` and `17..19`), flowing beneath the bridge arches and flanking the Old Town Bridge Tower.
+_Avoid_: Čertovka, moat, generic river
+
+**Ranní sluneční odlesk Vltavy** (*Vltava Morning Sun Specular Reflection*):
+The directional Fresnel specular shimmer cast by the low morning sun across the open waters of the Vltava flanking Charles Bridge in Mission 2, rippling with the river current and diffusing under rain or morning river fog.
+_Avoid_: Flat water sheen, static water texture, Čertovka sun reflection
 
 **Zdevastovaná rozstřílená ruina** (*Devastated Shot-Up & Scorched Ruin Biome*):
 The dynamic battle-scarred state (`damageLevel: 1 | 2`, `rubble` / `scorched_ruin`) applied to any tile struck by gunfire (`damageLevel = 1`, fallen plaster/mortar rubble) or a 3×3 explosion (`damageLevel = 2`, charred soot crater, glowing ember cracks, blackened neighboring walls, and low-profile perimeter debris that keeps the tile center clear for tactical grid readability).

@@ -37,6 +37,17 @@ export const MAX_MATCHCORD_SLOTS = 2;
 export const MAX_BLAST_LIGHTS = 2;
 export const MAX_MUZZLE_LIGHTS = 1;
 
+/**
+ * 1. Nebeský světelný zdroj (Celestial Directional Light, ADR-0018).
+ * Mission 1: Chladný půlnoční měsíc [14, 28, 13].
+ * Mission 2: Ranní slunce vycházející na východě [22, 24, 8] nad Starým Městem.
+ */
+export const MISSION1_MOON_POSITION: readonly [number, number, number] = [14, 28, 13];
+export const MISSION2_SUN_POSITION: readonly [number, number, number] = [22, 24, 8];
+
+/** Ranní sluneční odlesk Vltavy (ADR-0018) */
+export const VLTAVA_SUN_SPECULAR_COLOR = "#fef3c7";
+
 /** Barrel tip, metres in the soldier's local frame (ADR-0007). */
 export const MUZZLE_FORWARD_M = 0.58;
 export const MUZZLE_RIGHT_M = 0.14;
