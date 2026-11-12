@@ -37,3 +37,4 @@ To establish deep narrative continuity and emotional weight for the overarching 
 - Creates an unforgettable emotional climax that subverts typical extraction tropes.
 - Empowers high player agency with meaningful gameplay differentiation across repeated playthroughs.
 - Seamlessly bridges Mission 1's Malá Strana escape with the upcoming defense of the Old Town Bridge Tower.
+- Who the player commands after that night, where the Vigil is based, and the Catholic pairing of faith with learning are decided in ADR-0014. The survivor's induction in this ADR is unchanged.

@@ -1,6 +1,6 @@
 # Malá Strana 1648
 
-Turn-based 2.5D tactical strategy in the spirit of XCOM 2, set on the night of July 26, 1648 in Prague's Malá Strana during the Thirty Years' War, featuring a multi-floor 3D battlefield, hot-swappable 2D billboard sprites (casting 3D shadows) and 3D models, and a 17th-century XCOM-2 Aiming HUD & Shot Breakdown System.
+Turn-based tactical strategy in the spirit of XCOM 2, set in Prague in 1648 during the Swedish assault. The player commands the Železná vigilie, an elite company drawn from different parts of society and organized by the Jesuit Father Jiří Plachý, with the Clementinum as its base. The work is told from a Catholic perspective and holds faith together with Jesuit learning and the other science of the age (ADR-0014). The playable battlefield so far is the night of July 26 on Malá Strana: a multi-floor 3D grid, hot-swappable 2D billboard sprites (casting 3D shadows) and 3D models, and a 17th-century XCOM-2 Aiming HUD and Shot Breakdown.
 
 ## Language
 
@@ -222,11 +222,25 @@ The probability (`0–100%`) that a 17th-century firearm fails to discharge due 
 **Armor Cuirass & Pierce/Shred** (*Kyrys, Průraz a Zničení zbroje*):
 Armor points (`armor / maxArmor`) worn by 17th-century soldiers (cuirass, morion helmet) that absorb incoming damage unless bypassed by the weapon's `armorPierce` or permanently destroyed by `armorShred`. Armor also reduces incoming critical hit chance by `-8%` per armor point.
 
-### Mission 1: Escape of the Grand Prior (Mise 1: Útěk polního maršála)
+### The Iron Vigil and the Clementinum (ADR-0014)
 
 **Železná vigilie** (*The Iron Vigil / Fidelitas Ferrea*):
-The clandestine elite shock brotherhood forged by Jesuit Father Jiří Plachý in the Clementinum, binding university students, seasoned veterans, burghers, artisans, and Prague underworld fighters by a blood-and-iron oath to defend the Old Town Bridge Tower and Charles Bridge to the last drop of blood.
-_Avoid_: Jesuit militia, student guard, holy order
+The elite company the player commands in Prague in 1648. Jesuit Father Jiří Plachý organizes it from the Clementinum, drawing individuals from different parts of society — university students, seasoned veterans, burghers, artisans, and fighters from Prague's underworld — and binding them by a blood-and-iron oath to hold the Old Town Bridge Tower and Charles Bridge.
+_Avoid_: Jesuit militia, student guard, holy order, mercenary band
+
+**Jiří Plachý**:
+The Jesuit who organizes the Iron Vigil and inducts its members at the Clementinum. He is not the player character.
+_Avoid_: Commander, Central, player avatar
+
+**Klementinum** (*Clementinum*):
+The Jesuit college in Prague's Old Town, and the base of the Iron Vigil.
+_Avoid_: Avenger, ship, strategic-layer HQ
+
+**Víra a věda** (*Faith and learning*):
+The twin emphasis of the work: Catholic faith, together with Jesuit learning and the other science of the age. The two support each other.
+_Avoid_: Faith versus science, reason against the Church, secular research
+
+### Mission 1: Escape of the Grand Prior (Mise 1: Útěk polního maršála)
 
 **Švédské zajetí a výkupné** (*Ransom & High-Value Capture Directive*):
 The historical Swedish objective orchestrated by Hans Christoph von Königsmarck and Ernst Odowalsky to encircle and capture Bohemia's supreme commander and wealthy nobility alive for immense ransom (over 100,000 thalers) and strategic paralysis, prioritizing subduing and encircling Colloredo over executing him.
