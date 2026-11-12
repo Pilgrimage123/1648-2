@@ -166,12 +166,14 @@ export function RainParticles() {
         ),
       )
       .filter((state) => !state.snuffed && state.coord.y <= activeFloor);
-    const lantern = evaluateLantern(
-      escape ? escape.coord : null,
-      weather,
-      escape ? (grid.getTile(escape.coord)?.damageLevel ?? 0) : 0,
-      escape ? isFixtureDucked(escape.coord, nowMs, lightFlashes, blastZones) : false,
-    );
+    const lantern = escape
+      ? evaluateLantern(
+          escape.coord,
+          weather,
+          grid.getTile(escape.coord)?.damageLevel ?? 0,
+          isFixtureDucked(escape.coord, nowMs, lightFlashes, blastZones),
+        )
+      : null;
     const cords = matchcordCandidates(
       units,
       fogOfWarEnabled,
@@ -183,7 +185,7 @@ export function RainParticles() {
         position: torch.position,
         exposed: torch.exposed && !torch.snuffed,
       })),
-      ...(escape
+      ...(lantern
         ? [
             {
               position: lantern.position,

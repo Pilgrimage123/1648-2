@@ -255,6 +255,7 @@ export function createMission2Explored(grid: GridSystem): Set<string> {
 function blankUnit(partial: Pick<UnitData, "id" | "name" | "roleTitle" | "faction" | "archetype" | "pos" | "facing" | "hp" | "armor" | "movePerAp"> & {
   weapon: UnitData["weapon"];
   melee?: UnitData["meleeWeapon"];
+  isVip?: boolean;
 }): UnitData {
   return {
     id: partial.id,
@@ -262,6 +263,7 @@ function blankUnit(partial: Pick<UnitData, "id" | "name" | "roleTitle" | "factio
     roleTitle: partial.roleTitle,
     faction: partial.faction,
     archetype: partial.archetype,
+    isVip: partial.isVip,
     pos: partial.pos,
     facing: partial.facing,
     hp: partial.hp,
@@ -298,6 +300,7 @@ export function createMission2Units(): UnitData[] {
       roleTitle: "Jezuitský páter",
       faction: "player",
       archetype: "commander",
+      isVip: true,
       pos: { x: 14, y: 2, z: 14 },
       facing: "W",
       hp: 12,

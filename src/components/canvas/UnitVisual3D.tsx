@@ -105,8 +105,16 @@ export function UnitVisual3D({
   const isPlayer = faction === "player";
   const isPlachy = unitId === "player-plachy";
   const isHavel = unitId === "player-havel";
+  const isOndrej = unitId === "player-ondrej";
   const isHarrier = unitId?.startsWith("enemy-harrier") ?? false;
   const isOccultist = unitId === "enemy-occultist";
+  const isPistolUser =
+    isPlachy ||
+    isHavel ||
+    isOndrej ||
+    isHarrier ||
+    isOccultist ||
+    (isPlayer && archetype === "commander");
   const coatColor =
     hitFlashIntensity > 0.05
       ? "#ef4444"
@@ -561,7 +569,7 @@ export function UnitVisual3D({
         {/* Wooden Stock */}
         <mesh position={[0, -0.03, -0.12]} castShadow>
           <boxGeometry
-            args={[0.08, 0.11, archetype === "commander" ? 0.24 : 0.45]}
+            args={[0.08, 0.11, isPistolUser ? 0.24 : 0.45]}
           />
           <meshStandardMaterial
             color="#5c3a21"
@@ -572,7 +580,7 @@ export function UnitVisual3D({
         </mesh>
         {/* Steel Barrel */}
         <mesh
-          position={[0, 0.02, archetype === "commander" ? 0.15 : 0.38]}
+          position={[0, 0.02, isPistolUser ? 0.15 : 0.38]}
           rotation={[Math.PI * 0.5, 0, 0]}
           castShadow
         >
@@ -580,7 +588,7 @@ export function UnitVisual3D({
             args={[
               0.03,
               0.035,
-              archetype === "commander"
+              isPistolUser
                 ? 0.38
                 : archetype === "sniper"
                   ? 1.28
@@ -596,7 +604,7 @@ export function UnitVisual3D({
             opacity={opacity}
           />
         </mesh>
-        {archetype === "sniper" && (
+        {archetype === "sniper" && !isOndrej && (
           <group>
             <mesh position={[0, -0.42, 0.55]} castShadow>
               <cylinderGeometry args={[0.018, 0.018, 0.84, 6]} />
@@ -610,8 +618,8 @@ export function UnitVisual3D({
         <MatchcordCoal weather={weather} roofed={roofed} />
       )}
 
-      {/* 4. Marshal's walking cane in left hand */}
-      {archetype === "commander" && (
+      {/* 4. Left hand accessory: Jesuit crucifix for Plachý, Marshal's walking cane for Colloredo */}
+      {archetype === "commander" && !isPlachy && (
         <mesh position={[-0.28, 0.52, 0.08]} castShadow>
           <cylinderGeometry args={[0.022, 0.02, 1.05, 8]} />
           <meshStandardMaterial
@@ -621,6 +629,25 @@ export function UnitVisual3D({
             opacity={opacity}
           />
         </mesh>
+      )}
+      {isPlachy && (
+        <group position={[-0.26, 0.96, 0.22]} rotation={[0.2, 0, -0.15]}>
+          {/* Vertical crucifix beam */}
+          <mesh castShadow>
+            <boxGeometry args={[0.024, 0.28, 0.018]} />
+            <meshStandardMaterial color="#78350f" roughness={0.6} />
+          </mesh>
+          {/* Horizontal crucifix crosspiece */}
+          <mesh position={[0, 0.06, 0]} castShadow>
+            <boxGeometry args={[0.16, 0.024, 0.018]} />
+            <meshStandardMaterial color="#78350f" roughness={0.6} />
+          </mesh>
+          {/* Gilded corpus */}
+          <mesh position={[0, 0.04, 0.012]} castShadow>
+            <boxGeometry args={[0.06, 0.1, 0.012]} />
+            <meshStandardMaterial color="#d4a73f" metalness={0.7} roughness={0.3} />
+          </mesh>
+        </group>
       )}
     </group>
   );

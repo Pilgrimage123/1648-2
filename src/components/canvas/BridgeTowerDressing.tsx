@@ -212,7 +212,13 @@ export function BridgeTowerDressing() {
       {[12, 13, 14, 15, 16].map((z) => {
         const [wx, , wz] = gridToWorld({ x: 10, y: 0, z });
         return (
-          <mesh key={`bar-${z}`} position={[wx, grateLift + 1.05, wz]} raycast={() => null}>
+          <mesh
+            key={`bar-${z}`}
+            position={[wx, grateLift + 1.05, wz]}
+            castShadow
+            receiveShadow
+            raycast={() => null}
+          >
             <boxGeometry args={[0.08, 2.1, 0.08]} />
             <meshStandardMaterial color={IRON} metalness={0.7} roughness={0.4} />
           </mesh>
@@ -258,11 +264,14 @@ export function BridgeTowerDressing() {
         </group>
       )}
 
-      {/* St. Vitus / Old Town heraldic relief plaques */}
-      <mesh position={at(16.22, 2.7, 14)} raycast={() => null}>
-        <boxGeometry args={[0.06, 0.42, 0.7]} />
-        <meshStandardMaterial color="#e7e5e4" roughness={0.55} />
-      </mesh>
+      {/* Marian Latin inscription plaque on P2 gallery (x = 16, y = 2, z = 14) */}
+      {activeFloor >= 2 && (
+        <mesh position={at(16.22, 5.15, 14)} raycast={() => null}>
+          <boxGeometry args={[0.06, 0.42, 0.7]} />
+          <meshStandardMaterial color="#e7e5e4" roughness={0.55} />
+        </mesh>
+      )}
+      {/* St. Vitus / Old Town heraldic relief above West Gate arch */}
       <mesh position={at(10.2, 2.15, 14)} raycast={() => null}>
         <boxGeometry args={[0.12, 0.9, 1.6]} />
         <meshStandardMaterial color={SANDSTONE} roughness={0.8} />

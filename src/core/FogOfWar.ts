@@ -212,7 +212,7 @@ export function computeFogOfWar(
   // - Mise 1: Lucerna na přídi rybářské pramice na Čertovce (x: 2..3, z: 2..3, y: 0)
   // - Mise 2 (Ráno 26. července 1648): Otevřená mostovka Karlova mostu (x <= 10, y: 0) a Křižovnické náměstí (x >= 19, y: 0)
   //   jsou na ranním denním světle plně přehledné z ochozu věže i z průjezdu (pokud je nezahalí černoprachový dým).
-  const isMission2 = playerUnits.some((u) => u.id === "player-plachy");
+  const isMission2 = units.some((u) => u.id === "player-plachy");
   if (isMission2) {
     for (const tile of allFloorTiles) {
       if (

@@ -66,6 +66,10 @@ assert.equal(tile(14, 2, 17).isLadder, true);
 assert.equal(tile(11, 1, 14).walkable, true);
 assert.equal(tile(16, 2, 14).walkable, true);
 
+const plachyUnit = units.find((unit) => unit.id === PLACHY_ID);
+assert.ok(plachyUnit, "Father Jiří Plachý must be present");
+assert.equal(plachyUnit.isVip, true, "Father Jiří Plachý must be VIP");
+
 const ids = units.map((unit) => unit.id);
 for (const banned of [
   "player-colloredo",

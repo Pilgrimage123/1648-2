@@ -2282,7 +2282,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       set({
         weather,
         fogSnapshot: sel.fogSnapshot,
+        reachableTiles: sel.reachableTiles,
         visibleTargets: sel.visibleTargets,
+        visibleMeleeTargets: sel.visibleMeleeTargets,
         selectedTargetId: sel.selectedTargetId,
       });
     },
@@ -2315,6 +2317,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         fogOfWarEnabled: enabled,
         fogSnapshot: sel.fogSnapshot,
         visibleTargets: sel.visibleTargets,
+        visibleMeleeTargets: sel.visibleMeleeTargets,
         selectedTargetId: sel.selectedTargetId,
       });
     },
@@ -2377,6 +2380,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           activeFloor: unit.pos.y,
           reachableTiles: sel.reachableTiles,
           visibleTargets: sel.visibleTargets,
+          visibleMeleeTargets: sel.visibleMeleeTargets,
           selectedTargetId: sel.selectedTargetId,
           fogSnapshot: sel.fogSnapshot,
           hoveredPath: [],
@@ -3045,6 +3049,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           fogSnapshot: sel.fogSnapshot,
           reachableTiles: sel.reachableTiles,
           visibleTargets: sel.visibleTargets,
+          visibleMeleeTargets: sel.visibleMeleeTargets,
           selectedTargetId: clickedUnit.id,
           activeFloor: clickedUnit.pos.y,
           hoveredPath: [],
@@ -3267,6 +3272,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             afterState.grid,
             afterState.units,
           );
+          if (outcomeCheck.outcome === "defeat") {
+            await playCaptureFinalAnimationAndDefeat(
+              outcomeCheck.defeatReason ?? "zero_hp",
+              afterState.round,
+            );
+            return;
+          }
           const nextDerived = deriveSelectionData(
             afterState.grid,
             afterState.units,
@@ -3283,9 +3295,11 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             actionMode: "move",
             outcome: outcomeCheck.outcome,
             victoryReason: outcomeCheck.victoryReason,
+            defeatReason: outcomeCheck.defeatReason,
             fogSnapshot: nextDerived.fogSnapshot,
             reachableTiles: nextDerived.reachableTiles,
             visibleTargets: nextDerived.visibleTargets,
+            visibleMeleeTargets: nextDerived.visibleMeleeTargets,
             selectedTargetId: nextDerived.selectedTargetId,
           });
         })();
@@ -5125,6 +5139,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           fogSnapshot: nextDerived.fogSnapshot,
           reachableTiles: nextDerived.reachableTiles,
           visibleTargets: nextDerived.visibleTargets,
+          visibleMeleeTargets: nextDerived.visibleMeleeTargets,
           selectedTargetId: nextDerived.selectedTargetId,
           demonstratedAbilities: {
             ...s.demonstratedAbilities,
@@ -5198,6 +5213,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           fogSnapshot: nextDerived.fogSnapshot,
           reachableTiles: nextDerived.reachableTiles,
           visibleTargets: nextDerived.visibleTargets,
+          visibleMeleeTargets: nextDerived.visibleMeleeTargets,
           selectedTargetId: nextDerived.selectedTargetId,
           demonstratedAbilities: {
             ...s.demonstratedAbilities,
@@ -5378,6 +5394,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           fogSnapshot: nextDerived.fogSnapshot,
           reachableTiles: nextDerived.reachableTiles,
           visibleTargets: nextDerived.visibleTargets,
+          visibleMeleeTargets: nextDerived.visibleMeleeTargets,
           selectedTargetId: nextDerived.selectedTargetId,
           demonstratedAbilities: {
             ...s.demonstratedAbilities,
@@ -5479,6 +5496,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           fogSnapshot: nextDerived.fogSnapshot,
           reachableTiles: nextDerived.reachableTiles,
           visibleTargets: nextDerived.visibleTargets,
+          visibleMeleeTargets: nextDerived.visibleMeleeTargets,
           selectedTargetId: nextDerived.selectedTargetId,
           demonstratedAbilities: {
             ...s.demonstratedAbilities,
@@ -5786,6 +5804,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         fogSnapshot: sel.fogSnapshot,
         reachableTiles: sel.reachableTiles,
         visibleTargets: sel.visibleTargets,
+        visibleMeleeTargets: sel.visibleMeleeTargets,
         selectedTargetId: sel.selectedTargetId,
         combatLog: [
           ...s.combatLog,
@@ -5909,11 +5928,19 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
         const afterHeroLossOutcome = checkMissionOutcome(get().grid, get().units);
         if (afterHeroLossOutcome.outcome !== "ongoing") {
-          set({
-            outcome: afterHeroLossOutcome.outcome,
-            victoryReason: afterHeroLossOutcome.victoryReason,
-            defeatReason: afterHeroLossOutcome.defeatReason,
-          });
+          if (afterHeroLossOutcome.outcome === "defeat") {
+            await playCaptureFinalAnimationAndDefeat(
+              afterHeroLossOutcome.defeatReason ?? "all_companions_fallen",
+              get().round,
+            );
+          } else {
+            set({
+              isBusy: false,
+              outcome: afterHeroLossOutcome.outcome,
+              victoryReason: afterHeroLossOutcome.victoryReason,
+              defeatReason: afterHeroLossOutcome.defeatReason,
+            });
+          }
           return;
         }
 
@@ -5990,11 +6017,19 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
           const outcomeAfterDeath = checkMissionOutcome(get().grid, get().units);
           if (outcomeAfterDeath.outcome !== "ongoing") {
-            set({
-              outcome: outcomeAfterDeath.outcome,
-              victoryReason: outcomeAfterDeath.victoryReason,
-              defeatReason: outcomeAfterDeath.defeatReason,
-            });
+            if (outcomeAfterDeath.outcome === "defeat") {
+              await playCaptureFinalAnimationAndDefeat(
+                outcomeAfterDeath.defeatReason ?? "all_companions_fallen",
+                get().round,
+              );
+            } else {
+              set({
+                isBusy: false,
+                outcome: outcomeAfterDeath.outcome,
+                victoryReason: outcomeAfterDeath.victoryReason,
+                defeatReason: outcomeAfterDeath.defeatReason,
+              });
+            }
             return true;
           }
           return false;
@@ -6728,6 +6763,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                 defeatReason: null,
                 smokeVersion: s.smokeVersion + 1,
                 combatIntensity: s.combatIntensity + 1,
+                lightFlashes: addLightFlash(
+                  s.lightFlashes,
+                  muzzleFlashDraft(updatedEnemy.pos, shotFacing, outcome.misfired),
+                ),
                 units: s.units.map((u) =>
                   u.id === updatedEnemy.id
                     ? {
@@ -6774,7 +6813,21 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               }));
               await delay(900);
               set({ activeProjectile: null });
-              if (judged.outcome !== "ongoing") return;
+              if (judged.outcome !== "ongoing") {
+                set((s) => ({
+                  isBusy: false,
+                  combatLog: [
+                    ...s.combatLog,
+                    makeLog(
+                      s.round,
+                      "enemy",
+                      phrase(mission2LossPhrase(judged.loss ?? "windlass")),
+                      "alert",
+                    ),
+                  ],
+                }));
+                return;
+              }
             }
           } else {
             set((s) => ({
@@ -6968,6 +7021,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             fogSnapshot: nextDerived.fogSnapshot,
             reachableTiles: nextDerived.reachableTiles,
             visibleTargets: nextDerived.visibleTargets,
+            visibleMeleeTargets: nextDerived.visibleMeleeTargets,
             selectedTargetId: nextDerived.selectedTargetId,
             combatLog: [
               ...s.combatLog,
@@ -7133,6 +7187,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         hoveredTile: null,
         hoveredPath: [],
         visibleTargets: nextDerived.visibleTargets,
+        visibleMeleeTargets: nextDerived.visibleMeleeTargets,
         selectedTargetId: nextDerived.selectedTargetId,
         isBusy: false,
         cameraDirector: createInitialCameraDirectorState(),

@@ -1,6 +1,6 @@
-# Malá Strana 1648
+# Praha 1648
 
-Turn-based tactical strategy in the spirit of XCOM 2, set in Prague in 1648 during the Swedish assault. The player plays the Jesuit Father Jiří Plachý and through him commands the Železná vigilie, an elite company drawn from different parts of society, with the Clementinum as its base. The work is told from a Catholic perspective and holds faith together with Jesuit learning and the other science of the age (ADR-0014, ADR-0016). The playable battlefield so far is the night of July 26 on Malá Strana: a multi-floor 3D grid, hot-swappable 2D billboard sprites (casting 3D shadows) and 3D models, and a 17th-century XCOM-2 Aiming HUD and Shot Breakdown.
+Turn-based tactical strategy in the spirit of XCOM 2, set in Prague in 1648 during the Swedish assault. The player plays the Jesuit Father Jiří Plachý and through him commands the Železná vigilie, an elite company drawn from different parts of society, with the Clementinum as its base. The work is told from a Catholic perspective and holds faith together with Jesuit learning and the other science of the age (ADR-0014, ADR-0016). The game features two authentic scenarios: Mission 1 (the night assault of July 25/26 on Malá Strana and the palace rescue of Field Marshal Colloredo) and Mission 2 (the morning defense of the Old Town Bridge Tower, the lowering of the portcullis, and the Latin Marian inscription ward on Charles Bridge), both played on a multi-floor 3D grid with hot-swappable 2D billboard sprites and 3D models, and a 17th-century XCOM-2 Aiming HUD and Shot Breakdown.
 
 ## Language
 

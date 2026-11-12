@@ -78,7 +78,7 @@ function WallSconce({ state }: { state: FixtureState }) {
       </mesh>
       <FlameCone
         position={[0, 0.02, 0]}
-        color="#fde68a"
+        color={state.color}
         lit={!snuffed}
         phase={position.x}
         coord={state.coord}
@@ -112,7 +112,7 @@ function Candelabrum({ state }: { state: FixtureState }) {
             </mesh>
             <FlameCone
               position={[0, 0.06, 0]}
-              color="#fde68a"
+              color={state.color}
               lit={lit}
               phase={i * 1.4 + position.x}
               coord={state.coord}
@@ -138,7 +138,7 @@ function TorchCresset({ state }: { state: FixtureState }) {
       </mesh>
       <FlameCone
         position={[0, 0.08, 0.04]}
-        color="#f97316"
+        color={state.color}
         lit={!snuffed}
         phase={position.z}
         coord={state.coord}

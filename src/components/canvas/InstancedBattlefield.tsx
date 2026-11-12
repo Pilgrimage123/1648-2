@@ -902,6 +902,7 @@ function BaroqueLivingDecor({
   upperTiles: TileData[];
 }) {
   const blastZones = useGameStore((s) => s.blastZones);
+  const scenario = useGameStore((s) => s.scenario);
   const flameRefs = useRef<(THREE.Mesh | null)[]>([]);
   const bannerRefs = useRef<(THREE.Mesh | null)[]>([]);
   const mistRefs = useRef<(THREE.Mesh | null)[]>([]);
@@ -944,6 +945,53 @@ function BaroqueLivingDecor({
   );
 
   const mistPatches = useMemo(() => {
+    const baseRiverMist =
+      scenario === "mission2"
+        ? [
+            {
+              x: 4.5,
+              y: 0,
+              z: 8.5,
+              phase: 0.7,
+              baseScale: 1.45,
+              maxScale: 1.45,
+              createdAt: 0,
+              opacity: 0.11,
+            },
+            {
+              x: 4.5,
+              y: 0,
+              z: 18.5,
+              phase: 2.4,
+              baseScale: 1.55,
+              maxScale: 1.55,
+              createdAt: 0,
+              opacity: 0.11,
+            },
+          ]
+        : [
+            {
+              x: 3.2,
+              y: 0,
+              z: 1.8,
+              phase: 0.7,
+              baseScale: 1.45,
+              maxScale: 1.45,
+              createdAt: 0,
+              opacity: 0.11,
+            },
+            {
+              x: 9.5,
+              y: 0,
+              z: 1.5,
+              phase: 2.4,
+              baseScale: 1.55,
+              maxScale: 1.55,
+              createdAt: 0,
+              opacity: 0.11,
+            },
+          ];
+
     const patches: {
       x: number;
       y: number;
@@ -953,28 +1001,7 @@ function BaroqueLivingDecor({
       maxScale: number;
       createdAt: number;
       opacity: number;
-    }[] = [
-      {
-        x: 3.2,
-        y: 0,
-        z: 1.8,
-        phase: 0.7,
-        baseScale: 1.45,
-        maxScale: 1.45,
-        createdAt: 0,
-        opacity: 0.11,
-      },
-      {
-        x: 9.5,
-        y: 0,
-        z: 1.5,
-        phase: 2.4,
-        baseScale: 1.55,
-        maxScale: 1.55,
-        createdAt: 0,
-        opacity: 0.11,
-      },
-    ];
+    }[] = [...baseRiverMist];
 
     blastZones.slice(-10).forEach((bz, idx) => {
       patches.push({
@@ -990,7 +1017,7 @@ function BaroqueLivingDecor({
     });
 
     return patches;
-  }, [blastZones]);
+  }, [blastZones, scenario]);
 
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime();
@@ -1339,6 +1366,7 @@ function DynamicWaterField({ waterTiles }: { waterTiles: TileData[] }) {
 
   return (
     <instancedMesh
+      key={`water-mesh-${waterTiles.length}-${isMission2}`}
       ref={meshRef}
       args={[undefined, undefined, waterTiles.length]}
       receiveShadow

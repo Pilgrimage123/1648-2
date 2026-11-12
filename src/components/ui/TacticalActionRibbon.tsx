@@ -31,7 +31,8 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
-import { bestTileCover } from "../../core/GridSystem";
+import { bestTileCover, sameCoord } from "../../core/GridSystem";
+import { INSCRIPTION } from "../../core/mission2";
 import type { StatModifier } from "../../core/types";
 import {
   formatMeasure,
@@ -1287,9 +1288,7 @@ export function TacticalActionRibbon() {
                 m2 &&
                 !m2.knelt &&
                 selectedUnit?.id === "player-plachy" &&
-                selectedUnit.pos.x === 16 &&
-                selectedUnit.pos.y === 2 &&
-                selectedUnit.pos.z === 14 && (
+                sameCoord(selectedUnit.pos, INSCRIPTION) && (
                   <button
                     type="button"
                     disabled={!hasAp}
