@@ -98,6 +98,7 @@ const STEP_COPY: Record<
 
 export function TutorialOrderBanner() {
   const locale = useLocale();
+  const scenario = useGameStore((s) => s.scenario);
   const guidedTutorial = useGameStore((s) => s.guidedTutorial);
   const skipGuidedTutorial = useGameStore((s) => s.skipGuidedTutorial);
   const toggleGuidedTutorial = useGameStore((s) => s.toggleGuidedTutorial);
@@ -123,8 +124,9 @@ export function TutorialOrderBanner() {
     return () => clearTimeout(timer);
   }, [guidedTutorial.rejectFeedback, guidedTutorial.rejectTimestamp]);
 
-  // Skrýt během letu střely, filmové akční kamery a po skončení mise
+  // Skrýt během letu střely, filmové akční kamery, po skončení mise a mimo Misi 1
   if (
+    scenario !== "mission1" ||
     !guidedTutorial.enabled ||
     guidedTutorial.dismissed ||
     outcome !== "ongoing" ||

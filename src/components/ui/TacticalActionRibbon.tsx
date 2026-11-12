@@ -1310,12 +1310,14 @@ export function TacticalActionRibbon() {
                 sameCoord(selectedUnit.pos, WINDLASS) && (
                   <button
                     type="button"
-                    disabled={!hasAp}
+                    disabled={!hasAp || m2.windlassArmed}
                     onClick={unpinWindlassPawl}
                     aria-label={text("ui.ribbon.unpin.aria", undefined, locale)}
                     className="h-10 px-3 rounded-lg border border-amber-300 bg-amber-500 hover:bg-amber-400 text-stone-950 font-cinzel text-xs font-bold cursor-pointer shadow-[0_2px_8px_rgba(245,158,11,0.4)] disabled:opacity-35"
                   >
-                    {text("ui.ribbon.unpin", undefined, locale)}
+                    {m2.windlassArmed
+                      ? text("ui.mission.ropeTaut", undefined, locale)
+                      : text("ui.ribbon.unpin", undefined, locale)}
                   </button>
                 )}
 

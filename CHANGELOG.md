@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - 2026-11-12
 
 ### Added
+- **Ověření životního cyklu a integrity scénářů (`test-scenario-lifecycle.ts`, `verify-all.ts`)**:
+  - Testovací ověření přepínání scénářů (Mise 1 <-> Mise 2), izolačních masek střech a konzistence lokalizačních klíčů.
+
+### Fixed
+- **Izolace skriptovaného tutoriálu mezi misemi (`useGameStore.ts`, `TutorialOrderBanner.tsx`, `TacticalAdvisorWidget.tsx`)**:
+  - Zajištěno striktní omezení vstupních masek (Input Guards), rozkazového pruhu i rádce výhradně na `scenario === "mission1"`, čímž se zabránilo zablokování pohybu či cílů v Misi 2.
+- **Oprava klávesové zkratky [H] (`App.tsx`)**:
+  - Odstraněno vzájemné vyrušení příznaků skrytí rádce při stisku `[H]` v důsledku duplicitního volání toggle funkcí; klávesa nově spolehlivě zobrazuje a minimalizuje výcvikový panel.
+- **Ochrana akce vyrážení západky vrátku (`TacticalActionRibbon.tsx`, `useGameStore.ts`)**:
+  - Přidána kontrola stavu `windlassArmed`, zabraňující vícenásobné zbytečné spotřebě akčních bodů v témže tahu, s korektní vizuální indikací probíhajícího vyrážení západky.
+- **Konzistence stavu porážky a vítězství Mise 2 (`useGameStore.ts`)**:
+  - Zajištěno korektní předávání výsledného stavu `loss` a důvodu vítězství `victoryReason: "portcullis"` při přeseknutí lana a pádu padací mříže.
+
 - **Kampaň & Mise 2: Staroměstská mostecká věž a obrana Karlova mostu (ADR-0016, ADR-0017, `src/core/mission2.ts`)**:
   - **Titulní obrazovka kampaně (`TitleScreen.tsx`)**: Barokní rozcestník s historickým zasazením švédského obležení Prahy, výběrem mise (Mise 1: Útěk z Velkopřevorského paláce, Mise 2: Obrana Staroměstské mostecké věže), audio-vizuální atmosférou a plynulým startem.
   - **Spuštění padací mříže & Přetínání lan (`cable_winch`, `cable_severing`)**: Taktická mechanika přetnutí zvedacích lan kované mříže pro zatarasení vstupu do Starého Města před postupujícími švédskými kolonami.

@@ -83,6 +83,7 @@ export function TacticalAdvisorWidget() {
   const locale = useLocale();
   const tutorialStep = useGameStore((s) => s.tutorialStep);
   const tutorialDismissed = useGameStore((s) => s.tutorialDismissed);
+  const scenario = useGameStore((s) => s.scenario);
   const actionMode = useGameStore((s) => s.actionMode);
   const activeProjectile = useGameStore((s) => s.activeProjectile);
   const isBusy = useGameStore((s) => s.isBusy);
@@ -97,14 +98,14 @@ export function TacticalAdvisorWidget() {
   const [expanded, setExpanded] = useState(false);
   const { dragStyle, onPointerDown, hasMoved, resetOffset } = useDraggableHud();
 
-  // Stavový automat HUDu (Pillar 4): Skrýt v akční kameře přes rameno a při střelbě
+  // Stavový automat HUDu (Pillar 4): Skrýt v akční kameře přes rameno, při střelbě a mimo Misi 1
   const isHiddenInActionCam =
     actionMode === "shoot" ||
     actionMode === "melee" ||
     activeProjectile !== null ||
     Boolean(isBusy && activeMovement?.isActionCam);
 
-  if (isHiddenInActionCam || tutorialDismissed || tutorialStep === null) {
+  if (scenario !== "mission1" || isHiddenInActionCam || tutorialDismissed || tutorialStep === null) {
     return null;
   }
 

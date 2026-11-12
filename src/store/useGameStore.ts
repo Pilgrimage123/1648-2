@@ -2190,7 +2190,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       const unit = state.units.find((u) => u.id === unitId);
       if (!unit || !unit.alive || unit.faction !== "player") return;
 
-      if (state.guidedTutorial.enabled && !state.guidedTutorial.dismissed) {
+      if (state.scenario === "mission1" && state.guidedTutorial.enabled && !state.guidedTutorial.dismissed) {
         const step = state.guidedTutorial.currentStep;
         if (
           unitId === "player-vaclav-michalovic" &&
@@ -2337,7 +2337,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       const state = get();
       if (state.turn !== "player") return;
 
-      if (state.guidedTutorial.enabled && !state.guidedTutorial.dismissed) {
+      if (state.scenario === "mission1" && state.guidedTutorial.enabled && !state.guidedTutorial.dismissed) {
         const step = state.guidedTutorial.currentStep;
         if (step === "step_3_vaclav_aim" && mode === "shoot") {
           get().setGuidedTutorialStep("step_4_vaclav_shoot");
@@ -3344,7 +3344,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       )
         return;
 
-      if (state.guidedTutorial.enabled && !state.guidedTutorial.dismissed) {
+      if (state.scenario === "mission1" && state.guidedTutorial.enabled && !state.guidedTutorial.dismissed) {
         const step = state.guidedTutorial.currentStep;
         if (!isTileAllowedForGuidedMove(step, coord)) {
           get().setGuidedTutorialReject(getGuidedRejectFeedback(step, "tile"));
@@ -3624,7 +3624,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               : s.tutorialStep;
 
           let nextGuidedStep = s.guidedTutorial.currentStep;
-          if (s.guidedTutorial.enabled && !s.guidedTutorial.dismissed) {
+          if (s.scenario === "mission1" && s.guidedTutorial.enabled && !s.guidedTutorial.dismissed) {
             if (s.guidedTutorial.currentStep === "step_1_matej_move") {
               nextGuidedStep = "step_2_colloredo_escort";
               guidedHandoffUnitId = "player-colloredo";
@@ -4516,6 +4516,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       let nextSelId = autoNextId;
       let nextFlr = autoNextUnit ? autoNextUnit.pos.y : unit.pos.y;
       if (
+        state.scenario === "mission1" &&
         state.guidedTutorial.enabled &&
         !state.guidedTutorial.dismissed &&
         state.guidedTutorial.currentStep === "step_6_vaclav_reload"
@@ -4792,7 +4793,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           }
 
           let nextGuidedStep = s.guidedTutorial.currentStep;
-          if (s.guidedTutorial.enabled && !s.guidedTutorial.dismissed) {
+          if (s.scenario === "mission1" && s.guidedTutorial.enabled && !s.guidedTutorial.dismissed) {
             if (s.guidedTutorial.currentStep === "step_8_melee_finish") {
               nextGuidedStep = "step_9_free_combat";
             }
@@ -7062,7 +7063,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           let finalFloor = nextSelectedUnit ? nextSelectedUnit.pos.y : 0;
           let nextGuidedStep = s.guidedTutorial.currentStep;
 
-          if (s.guidedTutorial.enabled && !s.guidedTutorial.dismissed) {
+          if (s.scenario === "mission1" && s.guidedTutorial.enabled && !s.guidedTutorial.dismissed) {
             if (
               s.guidedTutorial.currentStep === "step_5_enemy_turn_react" ||
               s.guidedTutorial.currentStep === "step_4_vaclav_shoot"
@@ -7329,6 +7330,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       if (
         state.scenario !== "mission2" ||
         !state.m2 ||
+        state.m2.windlassArmed ||
         state.isBusy ||
         state.turn !== "player" ||
         state.outcome !== "ongoing"
@@ -7398,7 +7400,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       );
       playExplosionSound();
       set({
-        m2: nextClock,
+        m2: { ...nextClock, loss: judged.loss },
         outcome: judged.outcome,
         victoryReason: judged.victoryReason,
         defeatReason: null,

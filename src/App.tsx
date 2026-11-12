@@ -173,14 +173,15 @@ export default function App() {
         return;
       }
 
-      // H / Shift+H: Přepínání rádce a přeskočení výcviku
+      // H / Shift+H: Přepínání rádce a přeskočení výcviku (pouze v Misi 1)
       if (e.key === "h" || e.key === "H") {
         e.preventDefault();
-        if (e.shiftKey) {
-          state.skipGuidedTutorial();
-        } else {
-          state.toggleTutorial();
-          state.toggleGuidedTutorial();
+        if (state.scenario === "mission1") {
+          if (e.shiftKey) {
+            state.skipGuidedTutorial();
+          } else {
+            state.toggleGuidedTutorial();
+          }
         }
         return;
       }
