@@ -62,12 +62,16 @@ import {
   createMission2Grid,
   createMission2Units,
   freshClock,
+  applyDouseAction,
+  applySeverRopeAction,
+  applyUnpinAction,
   HAVEL_ID,
   INSCRIPTION,
   judgeMission2,
   ONDREJ_ID,
   PLACHY_ID,
   readMission2Clock,
+  ROPE,
   windlassDummy,
   WINDLASS,
   type Mission2Clock,
@@ -350,6 +354,9 @@ interface GameStoreState {
   beginScenario: (scenario: "mission1" | "mission2") => void;
   openBriefing: () => void;
   kneelAtInscription: () => void;
+  unpinWindlassPawl: () => void;
+  severPortcullisRope: () => void;
+  douseWindlassFire: () => void;
   chooseOath: (which: "both" | "havel" | "ondrej" | "neither") => void;
 }
 
@@ -6719,6 +6726,68 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             }
           } else if (
             get().scenario === "mission2" &&
+            plan.throwPitch &&
+            windlassClock &&
+            !windlassClock.seated &&
+            windlassClock.windlassHp > 0
+          ) {
+            const clockNow = windlassClock;
+            const nextClock = { ...clockNow, windlassBurning: true };
+            const judged = judgeMission2(nextClock, get().units);
+            const shotFacing = facingFromDelta(
+              updatedEnemy.pos,
+              WINDLASS,
+              updatedEnemy.facing,
+            );
+            playExplosionSound();
+            const nowTs = performance.now();
+            set((s) => ({
+              m2: { ...nextClock, loss: judged.loss },
+              outcome: judged.outcome,
+              victoryReason: judged.victoryReason,
+              defeatReason: null,
+              combatIntensity: s.combatIntensity + 1,
+              units: s.units.map((u) =>
+                u.id === updatedEnemy.id
+                  ? {
+                      ...u,
+                      facing: shotFacing,
+                      ap: Math.max(0, u.ap - 1),
+                    }
+                  : u,
+              ),
+              activeProjectile: {
+                id: fxSeq++,
+                from: updatedEnemy.pos,
+                to: WINDLASS,
+                hitChance: 100,
+                kind: "grenade",
+                createdAt: nowTs,
+                durationMs: 1200,
+                hit: true,
+                critical: false,
+                misfired: false,
+                damage: 0,
+                bloodSeverity: 0,
+                armorShredded: 0,
+                armorAbsorbed: 0,
+                killed: false,
+                missImpactCoord: WINDLASS,
+              },
+              combatLog: [
+                ...s.combatLog,
+                makeLog(
+                  s.round,
+                  "enemy",
+                  phrase("log.m2.pitch.thrown"),
+                  "alert",
+                ),
+              ],
+            }));
+            await delay(1250);
+            set({ activeProjectile: null });
+          } else if (
+            get().scenario === "mission2" &&
             plan.strikeWindlass &&
             windlassClock &&
             !windlassClock.seated &&
@@ -7251,6 +7320,140 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         combatLog: [
           ...state.combatLog,
           makeLog(state.round, "player", phrase("log.m2.kneel"), "story"),
+        ],
+      });
+    },
+
+    unpinWindlassPawl: () => {
+      const state = get();
+      if (
+        state.scenario !== "mission2" ||
+        !state.m2 ||
+        state.isBusy ||
+        state.turn !== "player" ||
+        state.outcome !== "ongoing"
+      ) {
+        return;
+      }
+      const selected = state.units.find((u) => u.id === state.selectedUnitId);
+      if (!selected) return;
+      const nextClock = applyUnpinAction(state.m2, selected);
+      if (!nextClock) return;
+      const units = state.units.map((unit) =>
+        unit.id === selected.id ? { ...unit, ap: Math.max(0, unit.ap - 1) } : unit,
+      );
+      const derived = deriveSelectionData(
+        state.grid,
+        units,
+        selected.id,
+        state.weather,
+        state.selectedTargetId,
+        state.fogSnapshot.exploredCoords,
+        state.blastZones,
+        state.fogOfWarEnabled,
+      );
+      set({
+        m2: nextClock,
+        units: derived.units,
+        reachableTiles: derived.reachableTiles,
+        visibleTargets: derived.visibleTargets,
+        visibleMeleeTargets: derived.visibleMeleeTargets,
+        selectedTargetId: derived.selectedTargetId,
+        fogSnapshot: derived.fogSnapshot,
+        combatLog: [
+          ...state.combatLog,
+          makeLog(state.round, "player", phrase("log.m2.unpin"), "story"),
+        ],
+      });
+    },
+
+    severPortcullisRope: () => {
+      const state = get();
+      if (
+        state.scenario !== "mission2" ||
+        !state.m2 ||
+        state.isBusy ||
+        state.turn !== "player" ||
+        state.outcome !== "ongoing"
+      ) {
+        return;
+      }
+      const selected = state.units.find((u) => u.id === state.selectedUnitId);
+      if (!selected) return;
+      const nextClock = applySeverRopeAction(state.m2, selected);
+      if (!nextClock) return;
+      const judged = judgeMission2(nextClock, state.units);
+      const units = state.units.map((unit) =>
+        unit.id === selected.id ? { ...unit, ap: Math.max(0, unit.ap - 1) } : unit,
+      );
+      const derived = deriveSelectionData(
+        state.grid,
+        units,
+        selected.id,
+        state.weather,
+        state.selectedTargetId,
+        state.fogSnapshot.exploredCoords,
+        state.blastZones,
+        state.fogOfWarEnabled,
+      );
+      playExplosionSound();
+      set({
+        m2: nextClock,
+        outcome: judged.outcome,
+        victoryReason: judged.victoryReason,
+        defeatReason: null,
+        units: derived.units,
+        reachableTiles: derived.reachableTiles,
+        visibleTargets: derived.visibleTargets,
+        visibleMeleeTargets: derived.visibleMeleeTargets,
+        selectedTargetId: derived.selectedTargetId,
+        fogSnapshot: derived.fogSnapshot,
+        combatLog: [
+          ...state.combatLog,
+          makeLog(state.round, "player", phrase("log.m2.ropeCut"), "alert"),
+        ],
+      });
+    },
+
+    douseWindlassFire: () => {
+      const state = get();
+      if (
+        state.scenario !== "mission2" ||
+        !state.m2 ||
+        state.isBusy ||
+        state.turn !== "player" ||
+        state.outcome !== "ongoing"
+      ) {
+        return;
+      }
+      const selected = state.units.find((u) => u.id === state.selectedUnitId);
+      if (!selected) return;
+      const nextClock = applyDouseAction(state.m2, selected);
+      if (!nextClock) return;
+      const units = state.units.map((unit) =>
+        unit.id === selected.id ? { ...unit, ap: Math.max(0, unit.ap - 1) } : unit,
+      );
+      const derived = deriveSelectionData(
+        state.grid,
+        units,
+        selected.id,
+        state.weather,
+        state.selectedTargetId,
+        state.fogSnapshot.exploredCoords,
+        state.blastZones,
+        state.fogOfWarEnabled,
+      );
+      set({
+        m2: nextClock,
+        units: derived.units,
+        reachableTiles: derived.reachableTiles,
+        visibleTargets: derived.visibleTargets,
+        visibleMeleeTargets: derived.visibleMeleeTargets,
+        selectedTargetId: derived.selectedTargetId,
+        fogSnapshot: derived.fogSnapshot,
+        combatLog: [
+          ...state.combatLog,
+          makeLog(state.round, "player", phrase("log.m2.douse"), "story"),
         ],
       });
     },

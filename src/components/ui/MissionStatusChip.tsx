@@ -129,21 +129,34 @@ export function MissionStatusChip() {
                 ·
               </span>
               <span className="font-literata">
-                {m2.seated
-                  ? text("ui.epilogue.m2.title", undefined, locale)
-                  : text(
-                      "ui.mission.windlass",
-                      {
-                        progress: m2.windlassProgress,
-                        required: m2.windlassWorkerId === "player-ondrej" ? 1 : 2,
-                      },
-                      locale,
-                    )}
+                {m2.seated ? (
+                  text("ui.epilogue.m2.title", undefined, locale)
+                ) : m2.pawlUnpinned ? (
+                  <strong className="font-cinzel text-rose-400 animate-pulse">
+                    {text("ui.mission.ropeTaut", undefined, locale)}
+                  </strong>
+                ) : (
+                  text(
+                    "ui.mission.windlass",
+                    {
+                      progress: m2.windlassProgress,
+                      required: m2.windlassWorkerId === "player-ondrej" ? 1 : 2,
+                    },
+                    locale,
+                  )
+                )}
               </span>
               <span className="text-amber-500/60" aria-hidden="true">
                 ·
               </span>
-              <span className="font-literata">
+              <span
+                className={`font-literata ${
+                  m2.windlassBurning ? "text-amber-400 font-bold animate-pulse" : ""
+                }`}
+              >
+                {m2.windlassBurning
+                  ? `${text("ui.mission.windlassBurning", undefined, locale)} · `
+                  : ""}
                 {text("ui.mission.windlassHp", { hp: m2.windlassHp }, locale)}
               </span>
             </>

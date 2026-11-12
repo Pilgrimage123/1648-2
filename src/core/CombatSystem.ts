@@ -1622,6 +1622,8 @@ export interface EnemyAiDecision {
   isCaptureAction?: boolean;
   /** Mission 2: no person in sight, so the shot goes into the windlass. */
   strikeWindlass?: boolean;
+  /** Mission 2: harrier at threshold hurls incendiary pitch at the timber windlass. */
+  throwPitch?: boolean;
 }
 
 /**

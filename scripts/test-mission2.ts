@@ -12,7 +12,11 @@ import {
 } from "../src/core/GridSystem.ts";
 import { computeReachableTiles, findPathAStar } from "../src/core/Pathfinding.ts";
 import {
+  applyDouseAction,
   applyKneel,
+  applySeverRopeAction,
+  applyThrowPitch,
+  applyUnpinAction,
   applyWindlassHit,
   closeEnemyTurn,
   closePlayerTurn,
@@ -28,6 +32,7 @@ import {
   OCCULTIST_ID,
   ONDREJ_ID,
   PLACHY_ID,
+  ROPE,
   THRESHOLD_X,
   WINDLASS,
   type Mission2Clock,
@@ -55,6 +60,14 @@ const passage = [12, 13, 14, 15, 16].filter((z) => tile(14, 0, z).walkable);
 assert.equal(passage.length, 5, "passage clear width is 5 tiles, 8 m");
 assert.equal(tile(14, 0, 11).walkable, false);
 assert.equal(tile(14, 0, 11).obstacle, "high_wall");
+
+// Western machicolations and loopholes on P1 and P2
+for (const y of [1, 2] as const) {
+  for (let z = 12; z <= 16; z++) {
+    const t = tile(10, y, z);
+    assert.equal(t.cover.W, "half", `machicolation on y=${y}, z=${z} has W: half cover`);
+  }
+}
 
 assert.equal(tile(KEYSTONE.x, 0, KEYSTONE.z).walkable, true);
 assert.ok(KEYSTONE.x <= THRESHOLD_X);
@@ -150,10 +163,19 @@ const onWindlass = units.map((unit) =>
 clock = closePlayerTurn(clock, onWindlass);
 assert.equal(clock.windlassArmed, true);
 assert.equal(clock.windlassProgress, 0);
+assert.equal(clock.pawlUnpinned, false);
 assert.equal(clock.seated, false);
 clock = closeEnemyTurn(clock, onWindlass);
-assert.equal(clock.seated, true);
-assert.equal(judgeMission2(clock, onWindlass).victoryReason, "portcullis");
+assert.equal(clock.pawlUnpinned, true);
+assert.equal(clock.seated, false);
+
+// Now cut the rope at ROPE with Plachý
+const plachy = units.find((unit) => unit.id === PLACHY_ID)!;
+const severed = applySeverRopeAction(clock, { ...plachy, pos: ROPE, ap: 1 });
+assert.ok(severed, "rope must be cut");
+assert.equal(severed!.ropeSevered, true);
+assert.equal(severed!.seated, true);
+assert.equal(judgeMission2(severed!, onWindlass).victoryReason, "portcullis");
 
 clock = freshClock(units);
 const havelThere = units.map((unit) =>
@@ -161,11 +183,37 @@ const havelThere = units.map((unit) =>
 );
 clock = closePlayerTurn(clock, havelThere);
 clock = closeEnemyTurn(clock, havelThere);
-assert.equal(clock.seated, false);
+assert.equal(clock.pawlUnpinned, false);
 assert.equal(clock.windlassProgress, 1);
 clock = closePlayerTurn(clock, havelThere);
 clock = closeEnemyTurn(clock, havelThere);
-assert.equal(clock.seated, true);
+assert.equal(clock.pawlUnpinned, true);
+assert.equal(clock.seated, false);
+const havelCut = applySeverRopeAction(clock, { ...plachy, pos: ROPE, ap: 1 })!;
+assert.equal(havelCut.seated, true);
+
+// Test wound stalls progress rather than wiping
+clock = freshClock(units);
+clock = closePlayerTurn(clock, havelThere);
+clock = closeEnemyTurn(clock, havelThere);
+assert.equal(clock.windlassProgress, 1);
+clock = closePlayerTurn(clock, havelThere);
+const shotHavel = havelThere.map((unit) =>
+  unit.id === HAVEL_ID ? { ...unit, hp: unit.hp - 2 } : unit,
+);
+clock = closeEnemyTurn(clock, shotHavel);
+assert.equal(clock.windlassProgress, 1, "progress stalled, not wiped to 0");
+
+// Test incendiary pitch and dousing
+clock = freshClock(units);
+clock = applyThrowPitch(clock);
+assert.equal(clock.windlassBurning, true);
+clock = closeEnemyTurn(clock, units);
+assert.equal(clock.windlassHp, 15);
+const ondrejOnY1 = { ...units.find((u) => u.id === ONDREJ_ID)!, pos: { x: 11, y: 1 as const, z: 15 }, ap: 1 };
+const doused = applyDouseAction(clock, ondrejOnY1);
+assert.ok(doused);
+assert.equal(doused!.windlassBurning, false);
 
 clock = freshClock(units);
 clock = closePlayerTurn(clock, onWindlass);
@@ -181,11 +229,11 @@ clock = applyWindlassHit(clock, 18);
 assert.equal(judgeMission2(clock, units).loss, "windlass");
 
 clock = freshClock(units);
-const plachy = units.find((unit) => unit.id === PLACHY_ID)!;
-const kneeling = applyKneel(clock, { ...plachy, pos: INSCRIPTION });
+const plachyHero = units.find((unit) => unit.id === PLACHY_ID)!;
+const kneeling = applyKneel(clock, { ...plachyHero, pos: INSCRIPTION });
 assert.ok(kneeling);
 assert.equal(kneeling!.riteRequired, 4);
-assert.equal(applyKneel(clock, plachy), null);
+assert.equal(applyKneel(clock, plachyHero), null);
 
 function placeOccultist(pos: GridCoord, hp = 10): UnitData[] {
   return units.map((unit) =>
@@ -241,10 +289,12 @@ const both = closeEnemyTurn(
     unit.id === ONDREJ_ID ? withPos(unit, WINDLASS) : unit,
   ),
 );
-assert.equal(both.seated, true);
+assert.equal(both.pawlUnpinned, true);
+const bothCut = applySeverRopeAction(both, { ...plachy, pos: ROPE, ap: 1 })!;
+assert.equal(bothCut.seated, true);
 assert.equal(
   judgeMission2(
-    both,
+    bothCut,
     placeOccultist(KEYSTONE).map((unit) =>
       unit.id === ONDREJ_ID ? withPos(unit, WINDLASS) : unit,
     ),

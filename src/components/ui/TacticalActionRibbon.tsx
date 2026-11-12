@@ -32,7 +32,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { bestTileCover, sameCoord } from "../../core/GridSystem";
-import { INSCRIPTION } from "../../core/mission2";
+import { INSCRIPTION, ROPE, WINDLASS } from "../../core/mission2";
 import type { StatModifier } from "../../core/types";
 import {
   formatMeasure,
@@ -127,6 +127,9 @@ export function TacticalActionRibbon() {
   const scenario = useGameStore((s) => s.scenario);
   const m2 = useGameStore((s) => s.m2);
   const kneelAtInscription = useGameStore((s) => s.kneelAtInscription);
+  const unpinWindlassPawl = useGameStore((s) => s.unpinWindlassPawl);
+  const severPortcullisRope = useGameStore((s) => s.severPortcullisRope);
+  const douseWindlassFire = useGameStore((s) => s.douseWindlassFire);
 
   const [hoveredAbilityId, setHoveredAbilityId] = useState<string | null>(null);
   const locale = useLocale();
@@ -1297,6 +1300,60 @@ export function TacticalActionRibbon() {
                     className="h-10 px-3 rounded-lg border border-amber-300 bg-amber-500 text-stone-950 font-cinzel text-xs font-bold cursor-pointer disabled:opacity-35"
                   >
                     {text("ui.ribbon.kneel", undefined, locale)}
+                  </button>
+                )}
+
+              {scenario === "mission2" &&
+                m2 &&
+                !m2.pawlUnpinned &&
+                selectedUnit &&
+                sameCoord(selectedUnit.pos, WINDLASS) && (
+                  <button
+                    type="button"
+                    disabled={!hasAp}
+                    onClick={unpinWindlassPawl}
+                    aria-label={text("ui.ribbon.unpin.aria", undefined, locale)}
+                    className="h-10 px-3 rounded-lg border border-amber-300 bg-amber-500 hover:bg-amber-400 text-stone-950 font-cinzel text-xs font-bold cursor-pointer shadow-[0_2px_8px_rgba(245,158,11,0.4)] disabled:opacity-35"
+                  >
+                    {text("ui.ribbon.unpin", undefined, locale)}
+                  </button>
+                )}
+
+              {scenario === "mission2" &&
+                m2 &&
+                m2.pawlUnpinned &&
+                !m2.seated &&
+                selectedUnit &&
+                (sameCoord(selectedUnit.pos, ROPE) ||
+                  (selectedUnit.pos.y === 1 &&
+                    Math.abs(selectedUnit.pos.x - WINDLASS.x) <= 1 &&
+                    Math.abs(selectedUnit.pos.z - WINDLASS.z) <= 1)) && (
+                  <button
+                    type="button"
+                    disabled={!hasAp}
+                    onClick={severPortcullisRope}
+                    aria-label={text("ui.ribbon.severRope.aria", undefined, locale)}
+                    className="h-10 px-3 rounded-lg border border-red-500 bg-rose-600 hover:bg-rose-500 text-amber-50 font-cinzel text-xs font-black cursor-pointer shadow-[0_0_12px_rgba(244,63,94,0.7)] animate-pulse disabled:opacity-35"
+                  >
+                    {text("ui.ribbon.severRope", undefined, locale)}
+                  </button>
+                )}
+
+              {scenario === "mission2" &&
+                m2 &&
+                m2.windlassBurning &&
+                selectedUnit &&
+                selectedUnit.pos.y === 1 &&
+                Math.abs(selectedUnit.pos.x - WINDLASS.x) <= 1 &&
+                Math.abs(selectedUnit.pos.z - WINDLASS.z) <= 1 && (
+                  <button
+                    type="button"
+                    disabled={!hasAp}
+                    onClick={douseWindlassFire}
+                    aria-label={text("ui.ribbon.douse.aria", undefined, locale)}
+                    className="h-10 px-3 rounded-lg border border-blue-400 bg-blue-600 hover:bg-blue-500 text-white font-cinzel text-xs font-bold cursor-pointer shadow-[0_0_10px_rgba(59,130,246,0.5)] disabled:opacity-35"
+                  >
+                    {text("ui.ribbon.douse", undefined, locale)}
                   </button>
                 )}
 

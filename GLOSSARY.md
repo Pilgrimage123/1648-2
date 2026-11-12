@@ -283,15 +283,15 @@ _Avoid_: Mission 1 companion
 Three floors, `y = 0 | 1 | 2`. Ground is the passage, the Threshold, the near bridge, and Křižovnické náměstí. The middle floor is the windlass chamber, one stair, and the loopholes over the bridge. The gallery under the roof holds the statues of St Vitus, St Wenceslas, and St Sigismund, and the inscription *Signa te, signa…*. West is the bridge. East is the square. There are no side streets, no cellar, and no fourth floor. At the start the harriers are on the bridge and the tower is still held. Rain from the night of Mission 1 still falls on the open bridge. The stair and the windlass chamber are roofed and dry.
 
 **Ochrana věže** (*Tower Ward*):
-The holy hold on the Old Town Bridge Tower. While it holds, Swedish harriers cannot enter the tower or Křižovnické náměstí. Father Plachý names it grace. The Swedish occultist treats it as a formula he alone can undo.
+The holy hold on the Old Town Bridge Tower. While it holds, Swedish harriers cannot cross the threshold into the tower or Křižovnické náměstí; a shimmering golden Marian ward effect manifests along the threshold archway (*Signa te, signa...*). Father Plachý names it grace; the Swedish occultist treats it as a formula he alone can undo.
 _Avoid_: Spell slot, magic item, activated trap
 
 **Práh** (*Threshold*):
-The outer line of the Tower Ward, on the bridge side of the gate. Harriers stop on it and may shoot across it. The occultist's rite is done on its keystone, on the bridge side.
+The outer line of the Tower Ward, on the bridge side of the gate (`x = 9`). Harriers stop on it, shoot across it, and fling pitch from it. The occultist's rite is done on its keystone (`x = 9, y = 0, z = 14`), on the bridge side.
 _Avoid_: Trigger volume, hitbox
 
 **Harcovník** (*Swedish Harrier*):
-A demonic Swedish skirmisher on foot, without a horse, inhumanly fast, with few hit points, no cuirass, and a short blade. He covers the playable bridge in one action and stands on the Threshold in the first enemy turn.
+A demonic Swedish skirmisher on foot, without a horse, inhumanly fast, with few hit points, no cuirass, and a short blade. He covers the playable bridge in one action, stands on the Threshold, hurls incendiary pitch at the timber windlass, suppresses the archway, and strikes with cold steel in melee.
 _Avoid_: Cavalry, horse, ordinary musketeer
 
 **Švédský okultista** (*Swedish Occultist*):
@@ -299,10 +299,23 @@ The one man who can unbind the Tower Ward. He walks slowly, several turns behind
 _Avoid_: Demon prince, second occultist, Odowalsky
 
 **Obřad** (*Unbinding Rite*):
-Three uninterrupted turns by the Swedish occultist on the keystone. A hit, or being forced off that tile, resets the count. His death ends the rite for the mission.
+Three uninterrupted turns by the Swedish occultist on the keystone, marked by billowing sulfurous censer smoke and dark unbinding glyphs. A hit, or being forced off that tile, resets the count. His death ends the rite for the mission.
 
 **Naviják** (*Windlass*):
-The rope housing on `y = 1` that seats the portcullis. Ondřej Štěrba releases it in one uninterrupted turn standing there. Any other living defender needs two. A hit during a counting turn breaks that count. Destroying the windlass before the rope is released loses the mission.
+The timber winch housing on `y = 1` (`x = 11, y = 1, z = 14`). Operating it unpins the safety locking pawl to transfer the full portcullis load onto the hoisting cable. Ondřej Štěrba unpins it in one turn; other defenders need two turns. Incoming wounds stall the active turn's effort rather than wiping past progress. Destroying the windlass (18 HP) before the cable is severed loses the mission.
+_Avoid_: Winch engine, automatic crane
+
+**Přetnutí lana** (*Severing the Hoisting Cable*):
+The final mechanical act that drops the iron portcullis. Once the windlass pawl is freed, the taut hemp cable on `y = 1` (`x = 12, y = 1, z = 14`) can be severed for 1 AP by Father Plachý (or any defender wielding a knife or cleaver), immediately dropping the gate.
+_Avoid_: Rope cut quicktime, cord pull
+
+**Smolná láhev** (*Incendiary Pitch Flask*):
+A throwable ceramic vessel filled with burning black pitch used by Swedish harriers at the threshold. Deals 3 ongoing burn damage per round to the wooden windlass across a 3-tile range unless doused by an adjacent defender on `y = 1` for 1 AP.
+_Avoid_: Molotov cocktail, fire grenade
+
+**Střílny a podsebití věže** (*Machicolation Loopholes*):
+The western embrasures and plunging floor openings on `y = 1` and `y = 2` that give defenders half-cover and clear line of sight with High Ground Advantage (+15% aim) down onto the bridge deck and threshold.
+_Avoid_: Balcony window, sniper ledge
 
 **Pokleknutí u nápisu** (*Kneeling at the Inscription*):
 Once in the mission, Father Plachý spends 1 AP to kneel at the inscription on `y = 2`. The ward then requires one more turn of the rite. It is a tile, not a ribbon ability.

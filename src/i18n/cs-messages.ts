@@ -751,6 +751,14 @@ export const csMessages = {
     `${ctx.unit(p.unitId, "nom")} přísahu odmítá. Jeho jméno zůstává.`,
   "log.m2.oath.fallen": (p, ctx) =>
     `${ctx.unit(p.unitId, "nom")} se přísahy nedožil.`,
+  "log.m2.unpin": () =>
+    "Západka rumpálu je vyražena! Zátěž mříže drží napnuté konopné kotevní lano.",
+  "log.m2.ropeCut": () =>
+    "Kotevní lano je přeťato! Železná mříž se řítí dolů a s hromovým rachotem dosedá do prahu.",
+  "log.m2.douse": () =>
+    "Oheň na dřevěném rumpálu byl uhašen pískem a vodou!",
+  "log.m2.pitch.thrown": () =>
+    "Harcovník mrštil smolnou láhev! Dřevěný rumpál vzplanul (3 poškození za kolo).",
 } satisfies Record<string, MessageFn>;
 
 export type MessageId = keyof typeof csMessages;

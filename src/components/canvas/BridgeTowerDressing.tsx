@@ -8,6 +8,8 @@
  * not by these bars.
  */
 import * as THREE from "three";
+import { useRef } from "react";
+import { useFrame } from "@react-three/fiber";
 import { gridToWorld } from "./worldCoords";
 import { useGameStore } from "../../store/useGameStore";
 
@@ -20,11 +22,41 @@ const TIMBER = "#5c3d28";
 
 export function BridgeTowerDressing() {
   const scenario = useGameStore((s) => s.scenario);
-  const seated = useGameStore((s) => s.m2?.seated ?? false);
+  const m2 = useGameStore((s) => s.m2);
+  const seated = m2?.seated ?? false;
+  const ropeSevered = m2?.ropeSevered ?? false;
+  const windlassBurning = m2?.windlassBurning ?? false;
   const activeFloor = useGameStore((s) => s.activeFloor);
+
+  const grateGroupRef = useRef<THREE.Group>(null);
+  const currentLiftRef = useRef(seated ? 0.2 : 2.55);
+  const velocityRef = useRef(0);
+
+  useFrame((_, delta) => {
+    if (scenario !== "mission2") return;
+    const targetLift = seated ? 0.2 : 2.55;
+    if (seated) {
+      if (currentLiftRef.current > targetLift) {
+        velocityRef.current += 18.0 * delta;
+        currentLiftRef.current = Math.max(
+          targetLift,
+          currentLiftRef.current - velocityRef.current * delta,
+        );
+        if (currentLiftRef.current === targetLift) {
+          velocityRef.current = 0;
+        }
+      }
+    } else {
+      currentLiftRef.current = 2.55;
+      velocityRef.current = 0;
+    }
+    if (grateGroupRef.current) {
+      grateGroupRef.current.position.y = currentLiftRef.current;
+    }
+  });
+
   if (scenario !== "mission2") return null;
 
-  const grateLift = seated ? 0.2 : 2.55;
   const showFullRoof = activeFloor >= 2;
   const corners: [number, number][] = [
     [10, 10],
@@ -208,22 +240,62 @@ export function BridgeTowerDressing() {
         )}
       </group>
 
-      {/* Iron portcullis bars at West Gate (x = 10, z = 12..16) */}
-      {[12, 13, 14, 15, 16].map((z) => {
-        const [wx, , wz] = gridToWorld({ x: 10, y: 0, z });
-        return (
-          <mesh
-            key={`bar-${z}`}
-            position={[wx, grateLift + 1.05, wz]}
-            castShadow
-            receiveShadow
-            raycast={() => null}
-          >
-            <boxGeometry args={[0.08, 2.1, 0.08]} />
-            <meshStandardMaterial color={IRON} metalness={0.7} roughness={0.4} />
+      {/* Marian Tower Ward Barrier (Signa te, signa... archway shimmer across threshold) */}
+      {!seated && (
+        <group position={at(9.5, 1.4, 14)}>
+          <mesh raycast={() => null}>
+            <boxGeometry args={[0.08, 2.8, 8.0]} />
+            <meshStandardMaterial
+              color="#fbbf24"
+              emissive="#f59e0b"
+              emissiveIntensity={0.65}
+              transparent
+              opacity={0.25}
+              depthWrite={false}
+              side={THREE.DoubleSide}
+            />
           </mesh>
+        </group>
+      )}
+
+      {/* Western Machicolation Embrasures on y = 1 and y = 2 overlooking the bridge (x = 10, z = 12..16) */}
+      {[1, 2].map((floorY) => {
+        if (activeFloor < floorY) return null;
+        const [mX, mY, mZ] = at(9.9, floorY === 1 ? 2.6 : 5.2, 14);
+        return (
+          <group key={`machicolation-floor-${floorY}`} position={[mX, mY, mZ]}>
+            {/* Low stone parapet with directional cover */}
+            <mesh position={[0, 0.38, 0]} castShadow receiveShadow raycast={() => null}>
+              <boxGeometry args={[0.28, 0.76, 8.0]} />
+              <meshStandardMaterial color={SANDSTONE} roughness={0.84} />
+            </mesh>
+            {/* Machicolation floor corbels projecting slightly west */}
+            <mesh position={[-0.18, 0.05, 0]} castShadow raycast={() => null}>
+              <boxGeometry args={[0.36, 0.22, 8.04]} />
+              <meshStandardMaterial color={SANDSTONE_COPING} roughness={0.78} />
+            </mesh>
+          </group>
         );
       })}
+
+      {/* Iron portcullis bars at West Gate (x = 10, z = 12..16) with physics-based descent */}
+      <group ref={grateGroupRef} position={[0, currentLiftRef.current, 0]}>
+        {[12, 13, 14, 15, 16].map((z) => {
+          const [wx, , wz] = gridToWorld({ x: 10, y: 0, z });
+          return (
+            <mesh
+              key={`bar-${z}`}
+              position={[wx, 1.05, wz]}
+              castShadow
+              receiveShadow
+              raycast={() => null}
+            >
+              <boxGeometry args={[0.08, 2.1, 0.08]} />
+              <meshStandardMaterial color={IRON} metalness={0.7} roughness={0.4} />
+            </mesh>
+          );
+        })}
+      </group>
 
       {/* Keystone / Petard placement marker at (9, 0, 14) before the West Gate */}
       <group position={at(9, 0.04, 14)}>
@@ -260,6 +332,40 @@ export function BridgeTowerDressing() {
           <mesh position={[0, 0.42, 0]} raycast={() => null}>
             <boxGeometry args={[0.08, 0.62, 0.08]} />
             <meshStandardMaterial color={ GOLD } metalness={0.65} roughness={0.35} />
+          </mesh>
+          {/* Incendiary fire when burning */}
+          {windlassBurning && (
+            <group position={[0, 0.7, 0]}>
+              <pointLight color="#f97316" intensity={3.5} distance={5} />
+              <mesh raycast={() => null}>
+                <sphereGeometry args={[0.32, 8, 8]} />
+                <meshStandardMaterial
+                  color="#ea580c"
+                  emissive="#f97316"
+                  emissiveIntensity={1.4}
+                  transparent
+                  opacity={0.85}
+                />
+              </mesh>
+            </group>
+          )}
+        </group>
+      )}
+
+      {/* Hoisting hemp cable from drum (11, 1, 14) across (12, 1, 14) to the portcullis slot */}
+      {activeFloor >= 1 && (
+        <group position={at(11.6, 2.85, 14)}>
+          <mesh
+            position={[0, 0, 0]}
+            rotation={[0, 0, ropeSevered ? Math.PI * 0.2 : Math.PI * 0.42]}
+            castShadow
+            raycast={() => null}
+          >
+            <cylinderGeometry args={[0.04, 0.04, ropeSevered ? 0.45 : 1.15, 6]} />
+            <meshStandardMaterial
+              color={ropeSevered ? "#78716c" : "#d97706"}
+              roughness={0.88}
+            />
           </mesh>
         </group>
       )}

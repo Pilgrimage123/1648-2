@@ -57,6 +57,7 @@ export const WIND_HP = 18;
 
 export const KEYSTONE: GridCoord = { x: 9, y: 0, z: 14 };
 export const WINDLASS: GridCoord = { x: 11, y: 1, z: 14 };
+export const ROPE: GridCoord = { x: 12, y: 1, z: 14 };
 export const INSCRIPTION: GridCoord = { x: 16, y: 2, z: 14 };
 export const STAIR: GridCoord = { x: 14, y: 0, z: 17 };
 
@@ -81,6 +82,9 @@ export interface Mission2Clock {
   windlassWorkerId: string | null;
   windlassArmed: boolean;
   windlassHp: number;
+  windlassBurning: boolean;
+  pawlUnpinned: boolean;
+  ropeSevered: boolean;
   seated: boolean;
   knelt: boolean;
   inscriptionNoted: boolean;
@@ -234,6 +238,12 @@ export function createMission2Grid(): GridSystem {
   for (let x = BRIDGE_X0; x <= BRIDGE_X1; x++) {
     grid.setDirectionalCover({ x, y: 0, z: BRIDGE_Z0 }, "N", "half");
     grid.setDirectionalCover({ x, y: 0, z: BRIDGE_Z1 }, "S", "half");
+  }
+  // Western machicolations and loopholes on P1 and P2 overlooking the bridge
+  for (const y of [1, 2] as FloorLevel[]) {
+    for (let z = PASSAGE_Z0; z <= PASSAGE_Z1; z++) {
+      grid.setDirectionalCover({ x: 10, y, z }, "W", "half");
+    }
   }
 
   return grid;
@@ -389,6 +399,9 @@ export function freshClock(units: UnitData[]): Mission2Clock {
     windlassWorkerId: null,
     windlassArmed: false,
     windlassHp: WIND_HP,
+    windlassBurning: false,
+    pawlUnpinned: false,
+    ropeSevered: false,
     seated: false,
     knelt: false,
     inscriptionNoted: false,
@@ -412,8 +425,79 @@ function livingAt(units: UnitData[], id: string, coord: GridCoord): UnitData | u
   );
 }
 
-export function windlassTurnsNeeded(unitId: string): number {
+export function unpinPawlTurnsNeeded(unitId: string): number {
   return unitId === ONDREJ_ID ? 1 : 2;
+}
+
+export const windlassTurnsNeeded = unpinPawlTurnsNeeded;
+
+export function applyUnpinAction(clock: Mission2Clock, worker: UnitData): Mission2Clock | null {
+  if (
+    clock.pawlUnpinned ||
+    worker.ap < 1 ||
+    !worker.alive ||
+    worker.hp <= 0 ||
+    clock.windlassHp <= 0 ||
+    !sameCoord(worker.pos, WINDLASS)
+  ) {
+    return null;
+  }
+  return {
+    ...clock,
+    windlassArmed: true,
+    windlassWorkerId: worker.id,
+  };
+}
+
+export function applySeverRopeAction(clock: Mission2Clock, cutter: UnitData): Mission2Clock | null {
+  if (
+    !clock.pawlUnpinned ||
+    clock.seated ||
+    cutter.ap < 1 ||
+    !cutter.alive ||
+    cutter.hp <= 0
+  ) {
+    return null;
+  }
+  const onRope = sameCoord(cutter.pos, ROPE);
+  const nearWindlass =
+    cutter.pos.y === 1 &&
+    Math.abs(cutter.pos.x - WINDLASS.x) <= 1 &&
+    Math.abs(cutter.pos.z - WINDLASS.z) <= 1;
+  if (!onRope && !nearWindlass) {
+    return null;
+  }
+  return {
+    ...clock,
+    ropeSevered: true,
+    seated: true,
+  };
+}
+
+export function applyDouseAction(clock: Mission2Clock, douser: UnitData): Mission2Clock | null {
+  if (
+    !clock.windlassBurning ||
+    douser.ap < 1 ||
+    !douser.alive ||
+    douser.hp <= 0 ||
+    douser.pos.y !== 1 ||
+    Math.abs(douser.pos.x - WINDLASS.x) > 1 ||
+    Math.abs(douser.pos.z - WINDLASS.z) > 1
+  ) {
+    return null;
+  }
+  return {
+    ...clock,
+    windlassBurning: false,
+  };
+}
+
+export function applyThrowPitch(clock: Mission2Clock): Mission2Clock {
+  if (clock.windlassHp <= 0 || clock.seated) return clock;
+  return {
+    ...clock,
+    windlassBurning: true,
+  };
 }
 
 /** End of the player's activation. Arms the windlass. Does not drop the grate. */
@@ -431,16 +515,13 @@ export function closePlayerTurn(clock: Mission2Clock, units: UnitData[]): Missio
       unit.hp > 0 &&
       sameCoord(unit.pos, WINDLASS),
   );
-  if (!worker || wasHit(clock, worker) || next.seated || next.windlassHp <= 0) {
-    next.windlassArmed = false;
-    next.windlassProgress = worker && !wasHit(clock, worker) ? next.windlassProgress : 0;
+  if (!worker || wasHit(clock, worker) || next.pawlUnpinned || next.windlassHp <= 0) {
     if (!worker) next.windlassWorkerId = null;
-  } else if (next.windlassWorkerId !== worker.id) {
+  } else if (!next.windlassArmed) {
     next.windlassArmed = true;
-    next.windlassWorkerId = worker.id;
-    next.windlassProgress = 0;
-  } else {
-    next.windlassArmed = true;
+    if (next.windlassWorkerId !== worker.id) {
+      next.windlassWorkerId = worker.id;
+    }
   }
 
   const plachy = units.find((unit) => unit.id === PLACHY_ID);
@@ -459,22 +540,28 @@ export function closePlayerTurn(clock: Mission2Clock, units: UnitData[]): Missio
 }
 
 /**
- * End of the enemy activation. The grate, if it was already armed and the
- * worker was not hit, seats before the rite is allowed to finish.
+ * End of the enemy activation. Progresses the pawl unpinning if armed and unhit.
+ * Applies windlass burn damage if active.
  */
 export function closeEnemyTurn(clock: Mission2Clock, units: UnitData[]): Mission2Clock {
   const next: Mission2Clock = { ...clock, hpMark: { ...clock.hpMark } };
 
-  if (next.windlassArmed && !next.seated && next.windlassHp > 0 && next.windlassWorkerId) {
+  if (next.windlassBurning && !next.seated && next.windlassHp > 0) {
+    next.windlassHp = Math.max(0, next.windlassHp - 3);
+  }
+
+  if (next.windlassArmed && !next.pawlUnpinned && next.windlassHp > 0 && next.windlassWorkerId) {
     const worker = livingAt(units, next.windlassWorkerId, WINDLASS);
-    if (!worker || wasHit(clock, worker)) {
-      next.windlassProgress = 0;
+    if (!worker) {
       next.windlassArmed = false;
-      if (!worker) next.windlassWorkerId = null;
+      next.windlassWorkerId = null;
+    } else if (wasHit(clock, worker)) {
+      // Wounded while unpinning: stalls the current turn, does NOT erase past progress
+      next.windlassArmed = false;
     } else {
       next.windlassProgress += 1;
-      if (next.windlassProgress >= windlassTurnsNeeded(worker.id)) {
-        next.seated = true;
+      if (next.windlassProgress >= unpinPawlTurnsNeeded(worker.id)) {
+        next.pawlUnpinned = true;
       }
       next.windlassArmed = false;
     }
@@ -603,8 +690,15 @@ export function computeMission2Ai(
   const people = evaluateVisibleTargets(grid, viewer, units, weather, dest);
   const person = people[0];
   let strikeWindlass = false;
-  if (!person && enemy.id.startsWith("enemy-harrier") && enemy.firearmLoaded !== false) {
-    strikeWindlass = checkLineOfSight3D(grid, dest, WINDLASS).clear;
+  let throwPitch = false;
+  if (enemy.id.startsWith("enemy-harrier")) {
+    const losToWindlass = checkLineOfSight3D(grid, dest, WINDLASS).clear;
+    const distToWindlass = Math.max(Math.abs(dest.x - WINDLASS.x), Math.abs(dest.z - WINDLASS.z));
+    if (!_clock.windlassBurning && _clock.windlassHp > 0 && distToWindlass <= 3 && losToWindlass) {
+      throwPitch = true;
+    } else if (!person && enemy.firearmLoaded !== false && losToWindlass) {
+      strikeWindlass = true;
+    }
   }
 
   return {
@@ -612,5 +706,6 @@ export function computeMission2Ai(
     moveApCost: apForSteps(movePath.length, enemy.movePerAp),
     targetId: person?.targetId ?? null,
     strikeWindlass,
+    throwPitch,
   };
 }
