@@ -4,6 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { checkLineOfSight3D } from "../src/core/CombatSystem.ts";
+import { computeFogOfWar, getTileVisibility } from "../src/core/FogOfWar.ts";
 import {
   coordKey,
   createInitialGrid,
@@ -261,6 +262,25 @@ const palace = createInitialGrid();
 assert.equal(isEnclosedRoofedCoord(5, 1, 23), true, "palace bedroom stays roofed");
 assert.equal(isEnclosedRoofedCoord(11, 1, 14), false, "tower mask does not leak");
 assert.ok(palace.getTile({ x: 5, y: 1, z: 23 })?.hasFloor);
+
+// Morning daylight visibility on Charles Bridge (x: 1..9, y: 0, z: 11..16)
+const m2Fog = computeFogOfWar(grid, units, "rain", new Set());
+for (let x = 1; x <= 9; x++) {
+  for (let z = 11; z <= 16; z++) {
+    assert.equal(
+      getTileVisibility({ x, y: 0, z }, m2Fog, true),
+      "visible",
+      `Charles Bridge tile (${x},0,${z}) is visible in morning daylight`,
+    );
+  }
+}
+for (const enemy of units.filter((u) => u.faction === "enemy")) {
+  assert.equal(
+    m2Fog.visibleEnemyIds.has(enemy.id),
+    true,
+    `Enemy ${enemy.id} on open morning Charles Bridge is visible at Mission 2 start`,
+  );
+}
 
 void (null as Mission2Clock | null);
 console.log("mission 2 ok");

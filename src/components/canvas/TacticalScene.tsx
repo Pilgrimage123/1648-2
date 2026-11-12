@@ -98,12 +98,17 @@ function DiegeticLightingRig({ weather }: { weather: WeatherType }) {
         duckedAt(fixture.coord),
       ),
     );
-    const lantern = evaluateLantern(
-      escape ? escape.coord : null,
-      weather,
-      escape ? damageAt(escape.coord) : 0,
-      escape ? duckedAt(escape.coord) : false,
-    );
+    const allFixtures = escape
+      ? [
+          ...fixtures,
+          evaluateLantern(
+            escape.coord,
+            weather,
+            damageAt(escape.coord),
+            duckedAt(escape.coord),
+          ),
+        ]
+      : fixtures;
     const cords = matchcordCandidates(
       units,
       fogOfWarEnabled,
@@ -111,7 +116,7 @@ function DiegeticLightingRig({ weather }: { weather: WeatherType }) {
       fogSnapshot.soundContacts,
     );
     const slots = selectSteadySlots(
-      [...fixtures, lantern],
+      allFixtures,
       cords,
       { x: camera.position.x, y: camera.position.y, z: camera.position.z },
       activeFloor,
@@ -147,26 +152,44 @@ function DiegeticLightingRig({ weather }: { weather: WeatherType }) {
     }
   });
 
-  const moon =
-    weather === "fog" ? 0.42 : weather === "rain" ? 0.7 : 0.92;
+  const isMorningBridge = scenario === "mission2";
+  const keyIntensity = isMorningBridge
+    ? weather === "fog"
+      ? 0.95
+      : weather === "rain"
+        ? 1.45
+        : 1.75
+    : weather === "fog"
+      ? 0.42
+      : weather === "rain"
+        ? 0.7
+        : 0.92;
+  const ambientIntensity = isMorningBridge
+    ? weather === "fog"
+      ? 0.48
+      : 0.62
+    : weather === "fog"
+      ? 0.18
+      : 0.26;
+  const hemiIntensity = isMorningBridge ? 0.78 : 0.38;
 
   return (
     <group>
       <ambientLight
-        intensity={weather === "fog" ? 0.18 : 0.26}
-        color="#64748b"
+        intensity={ambientIntensity}
+        color={isMorningBridge ? "#8fa3b8" : "#64748b"}
       />
       <hemisphereLight
-        color="#9db4c8"
-        groundColor="#1c140f"
-        intensity={0.38}
+        color={isMorningBridge ? "#c7d9ec" : "#9db4c8"}
+        groundColor={isMorningBridge ? "#3d3228" : "#1c140f"}
+        intensity={hemiIntensity}
       />
 
-      {/* Cool night moon. The bedroom is lit by its candelabra, not by this. */}
+      {/* Mission 1: cool night moon. Mission 2: early-morning light angled onto Charles Bridge & West Gate. */}
       <directionalLight
-        position={[14, 28, 13]}
-        intensity={moon}
-        color="#9db4c8"
+        position={isMorningBridge ? [-14, 30, 16] : [14, 28, 13]}
+        intensity={keyIntensity}
+        color={isMorningBridge ? "#dce7f3" : "#9db4c8"}
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-camera-left={-24}
@@ -250,11 +273,11 @@ function DiegeticLightingRig({ weather }: { weather: WeatherType }) {
       </mesh>
 
       <mesh
-        position={[0, -0.15, 0]}
+        position={[0, -0.28, 0]}
         rotation={[-Math.PI * 0.5, 0, 0]}
         raycast={() => null}
       >
-        <ringGeometry args={[18.5, 52, 36]} />
+        <ringGeometry args={[21.5, 56, 36]} />
         <meshBasicMaterial
           color="#05080f"
           transparent
@@ -345,9 +368,23 @@ function DynamicLightFlashPool() {
 export function TacticalScene() {
   const units = useGameStore((s) => s.units);
   const weather = useGameStore((s) => s.weather);
+  const scenario = useGameStore((s) => s.scenario);
+  const isMorningBridge = scenario === "mission2";
 
-  const fogColor = weather === "fog" ? "#161e2b" : "#070b12";
-  const fogFar = weather === "fog" ? 44 : 68;
+  const fogColor = isMorningBridge
+    ? weather === "fog"
+      ? "#1e293b"
+      : "#111927"
+    : weather === "fog"
+      ? "#161e2b"
+      : "#070b12";
+  const fogFar = isMorningBridge
+    ? weather === "fog"
+      ? 52
+      : 78
+    : weather === "fog"
+      ? 44
+      : 68;
 
   return (
     <div className="relative w-full h-full bg-slate-950 select-none overflow-hidden">
@@ -382,8 +419,9 @@ export function TacticalScene() {
       <div
         className="pointer-events-none absolute inset-0 z-[1]"
         style={{
-          background:
-            "radial-gradient(ellipse 72% 68% at 50% 48%, rgba(7,11,18,0) 52%, rgba(7,11,18,0.48) 80%, rgba(3,5,9,0.82) 100%)",
+          background: isMorningBridge
+            ? "radial-gradient(ellipse 84% 76% at 50% 48%, rgba(7,11,18,0) 62%, rgba(7,11,18,0.28) 84%, rgba(3,5,9,0.58) 100%)"
+            : "radial-gradient(ellipse 72% 68% at 50% 48%, rgba(7,11,18,0) 52%, rgba(7,11,18,0.48) 80%, rgba(3,5,9,0.82) 100%)",
         }}
       />
     </div>

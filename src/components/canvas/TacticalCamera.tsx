@@ -232,12 +232,24 @@ export function TacticalCamera() {
   const activeMovement = useGameStore((s) => s.activeMovement);
   const actionCamEnabled = useGameStore((s) => s.actionCamEnabled);
   const cameraDirector = useGameStore((s) => s.cameraDirector);
+  const scenario = useGameStore((s) => s.scenario);
 
   const orbitCenterRef = useRef(new THREE.Vector3(0, 0, 4.2));
   const currentLookAtRef = useRef(new THREE.Vector3(0, 0, 4.2));
   const currentAngleRef = useRef(Math.PI * 0.25);
   const distanceRef = useRef(24);
   const keysPressedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (scenario === "mission2") {
+      // Frame the West Gate (x=10, z=14) and Charles Bridge (x=1..9, z=11..16)
+      orbitCenterRef.current.set(-2.4, 0, 0.8);
+      currentLookAtRef.current.set(-2.4, 0, 0.8);
+    } else {
+      orbitCenterRef.current.set(0, 0, 4.2);
+      currentLookAtRef.current.set(0, 0, 4.2);
+    }
+  }, [scenario, grid]);
   const isRightDraggingRef = useRef(false);
   const rightDragExceededThresholdRef = useRef(false);
   const rightDownOriginRef = useRef({ x: 0, y: 0 });

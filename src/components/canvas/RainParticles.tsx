@@ -183,10 +183,14 @@ export function RainParticles() {
         position: torch.position,
         exposed: torch.exposed && !torch.snuffed,
       })),
-      {
-        position: lantern.position,
-        exposed: !lantern.snuffed,
-      },
+      ...(escape
+        ? [
+            {
+              position: lantern.position,
+              exposed: !lantern.snuffed,
+            },
+          ]
+        : []),
       ...cords
         .filter((cord) => !cord.roofed)
         .map((cord) => ({ position: cord.position, exposed: true })),

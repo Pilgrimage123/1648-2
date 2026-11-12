@@ -208,15 +208,33 @@ export function computeFogOfWar(
     }
   }
 
-  // 2. Stálé majáky v šerosvitu: Lucerna na přídi rybářské pramice na Čertovce (x: 2..3, z: 2..3, y: 0)
-  for (let z = 1; z <= 3; z++) {
-    for (let x = 1; x <= 4; x++) {
-      const c: GridCoord = { x, y: 0, z };
-      const t = grid.getTile(c);
-      if (t && t.hasFloor) {
-        const k = coordKey(c);
+  // 2. Stálé majáky a otevřená ranní mostovka:
+  // - Mise 1: Lucerna na přídi rybářské pramice na Čertovce (x: 2..3, z: 2..3, y: 0)
+  // - Mise 2 (Ráno 26. července 1648): Otevřená mostovka Karlova mostu (x <= 10, y: 0) a Křižovnické náměstí (x >= 19, y: 0)
+  //   jsou na ranním denním světle plně přehledné z ochozu věže i z průjezdu (pokud je nezahalí černoprachový dým).
+  const isMission2 = playerUnits.some((u) => u.id === "player-plachy");
+  if (isMission2) {
+    for (const tile of allFloorTiles) {
+      if (
+        tile.coord.y === 0 &&
+        (tile.coord.x <= 10 || tile.coord.x >= 19) &&
+        tile.smokeTurns === 0
+      ) {
+        const k = coordKey(tile.coord);
         visibleCoords.add(k);
         exploredCoords.add(k);
+      }
+    }
+  } else {
+    for (let z = 1; z <= 3; z++) {
+      for (let x = 1; x <= 4; x++) {
+        const c: GridCoord = { x, y: 0, z };
+        const t = grid.getTile(c);
+        if (t && t.hasFloor) {
+          const k = coordKey(c);
+          visibleCoords.add(k);
+          exploredCoords.add(k);
+        }
       }
     }
   }

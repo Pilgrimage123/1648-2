@@ -1274,6 +1274,87 @@ function BaroqueLivingDecor({
   );
 }
 
+/**
+ * Dynamická Vltava / Čertovka (ADR-0007 / ThreeJS):
+ * PBR vodní plocha se zrcadlovým leskem (metalness 0.35, roughness 0.08), dynamickým Fresnelovým odrazem,
+ * jemným vlněním v useFrame a reakcí na okolní směrové slunce, pochodně i záblesky mušket.
+ */
+function DynamicWaterField({ waterTiles }: { waterTiles: TileData[] }) {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const scenario = useGameStore((s) => s.scenario);
+  const weather = useGameStore((s) => s.weather);
+  const isMission2 = scenario === "mission2";
+
+  useEffect(() => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    const baseCol = new THREE.Color(
+      isMission2 ? 0x1b4b62 : 0x0a2a38,
+    );
+    const waveCol = new THREE.Color(
+      isMission2 ? 0x24627d : 0x0f3647,
+    );
+    const tempCol = new THREE.Color();
+
+    waterTiles.forEach((tile, i) => {
+      const [wx, wy, wz] = gridToWorld(tile.coord);
+      _dummy.position.set(wx, wy - 0.16, wz);
+      _dummy.rotation.set(0, 0, 0);
+      _dummy.scale.set(1, 1, 1);
+      _dummy.updateMatrix();
+      mesh.setMatrixAt(i, _dummy.matrix);
+
+      const checker = (tile.coord.x + tile.coord.z) % 2 === 0;
+      tempCol.copy(checker ? baseCol : waveCol);
+      mesh.setColorAt(i, tempCol);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.computeBoundingSphere();
+  }, [waterTiles, isMission2]);
+
+  useFrame(({ clock }) => {
+    const mesh = meshRef.current;
+    if (!mesh || waterTiles.length === 0) return;
+    const t = clock.getElapsedTime();
+    const rainRipples = weather === "rain" ? 1.6 : 1.0;
+
+    // Jemná vertikální oscilace hladiny vody (proudění řeky Vltavy)
+    for (let i = 0; i < waterTiles.length; i++) {
+      const tile = waterTiles[i]!;
+      const [wx, wy, wz] = gridToWorld(tile.coord);
+      const wave =
+        Math.sin(t * 2.2 * rainRipples + tile.coord.x * 0.85 + tile.coord.z * 1.2) * 0.024 +
+        Math.cos(t * 1.6 * rainRipples + tile.coord.x * 1.4 - tile.coord.z * 0.6) * 0.016;
+      _dummy.position.set(wx, wy - 0.16 + wave, wz);
+      _dummy.rotation.set(wave * 0.25, 0, wave * -0.2);
+      _dummy.scale.set(1, 1, 1);
+      _dummy.updateMatrix();
+      mesh.setMatrixAt(i, _dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+  });
+
+  if (waterTiles.length === 0) return null;
+
+  return (
+    <instancedMesh
+      ref={meshRef}
+      args={[undefined, undefined, waterTiles.length]}
+      receiveShadow
+      raycast={() => null}
+    >
+      <boxGeometry args={[TILE_SIZE * 0.98, 0.12, TILE_SIZE * 0.98]} />
+      <meshStandardMaterial
+        color={isMission2 ? "#18455b" : "#0c2b3a"}
+        roughness={0.08}
+        metalness={0.38}
+        envMapIntensity={1.8}
+      />
+    </instancedMesh>
+  );
+}
+
 export function InstancedBattlefield() {
   const grid = useGameStore((s) => s.grid);
   const gridVersion = useGameStore((s) => s.gridVersion);
@@ -1297,6 +1378,7 @@ export function InstancedBattlefield() {
   const fogOfWarEnabled = useGameStore((s) => s.fogOfWarEnabled);
   const toggleDoor = useGameStore((s) => s.toggleDoor);
   const weather = useGameStore((s) => s.weather);
+  const scenario = useGameStore((s) => s.scenario);
   const locale = useLocale();
 
   const selectedUnit = units.find((u) => u.id === selectedUnitId);
@@ -1343,6 +1425,10 @@ export function InstancedBattlefield() {
   const groundFloorTiles = useMemo(
     () => grid.getFloorTiles(0),
     [grid, gridVersion],
+  );
+  const waterFloorTiles = useMemo(
+    () => groundFloorTiles.filter((t) => t.surface === "water"),
+    [groundFloorTiles],
   );
   const escapeTile = useMemo(
     () => getMission1EscapeTile(grid),
@@ -1507,29 +1593,53 @@ export function InstancedBattlefield() {
   ) => {
     const checker = (tile.coord.x + tile.coord.z) % 2 === 0;
     const dmg = tile.damageLevel ?? 0;
-    const inPalace =
-      tile.coord.z >= 15 && tile.coord.x >= 2 && tile.coord.x <= 17;
+    const isMission2 = scenario === "mission2";
+    const inPalace = isMission2
+      ? tile.coord.x >= 10 && tile.coord.x <= 18 && tile.coord.z >= 10 && tile.coord.z <= 18
+      : tile.coord.z >= 15 && tile.coord.x >= 2 && tile.coord.x <= 17;
 
     if (tile.isLadder || (tile.stairType && tHasStair(tile))) {
       _color.setHex(inPalace ? 0x6e563f : 0x78563c);
     } else if (tile.surface === "water") {
-      _color.setHex(checker ? 0x0c3547 : 0x092c3b);
+      if (isMission2) {
+        _color.setHex(checker ? 0x164459 : 0x12394b);
+      } else {
+        _color.setHex(checker ? 0x0c3547 : 0x092c3b);
+      }
     } else if (tile.surface === "wood_dock") {
       _color.setHex(checker ? 0x4a3321 : 0x412c1c);
     } else if (tile.surface === "scorched_ruin" || dmg >= 2) {
       _color.setHex(checker ? 0x221a17 : 0x1a1311);
     } else if (tile.surface === "rubble" || dmg === 1) {
-      if (inPalace) {
-        _color.setHex(checker ? 0x453d37 : 0x3c352f);
+      if (inPalace || isMission2) {
+        _color.setHex(checker ? 0x4d433b : 0x433a33);
       } else {
         _color.setHex(checker ? 0x38332f : 0x302b28);
       }
     } else if (tile.surface === "palace_carpet") {
       _color.setHex(checker ? 0x4a2226 : 0x3f1d20);
     } else if (tile.surface === "stone_floor") {
-      _color.setHex(checker ? 0x3d342e : 0x342c27);
+      if (isMission2) {
+        // Staroměstská mostecká věž: pískovcová dlažba průjezdu, rumpálové komory a ochozu
+        _color.setHex(checker ? 0x594d42 : 0x4f443a);
+      } else {
+        _color.setHex(checker ? 0x3d342e : 0x342c27);
+      }
     } else if (tile.surface === "wood_roof") {
       _color.setHex(checker ? 0x4f3928 : 0x453122);
+    } else if (isMission2) {
+      // Karlův most (x <= 9): teplá pískovcová dlažba z roku 1648 se středovým vozovým pásem
+      // Křižovnické náměstí (x >= 19): světlejší staroměstská dlažba před Klementinem
+      if (tile.coord.x <= 9) {
+        const isBridgeCenterLane = tile.coord.z === 13 || tile.coord.z === 14;
+        if (isBridgeCenterLane) {
+          _color.setHex(checker ? 0x756657 : 0x685a4c);
+        } else {
+          _color.setHex(checker ? 0x6b5d4f : 0x5e5144);
+        }
+      } else {
+        _color.setHex(checker ? 0x544b42 : 0x4a423a);
+      }
     } else {
       const isCarriagePath = tile.coord.x >= 8 && tile.coord.x <= 11;
       if (isCarriagePath) {
@@ -1561,11 +1671,10 @@ export function InstancedBattlefield() {
     return Boolean(tile.stairType && tile.stairType !== "none");
   }
 
-  // Populate Ground Floor (y = 0) InstancedMesh (dims slightly when viewing P1 or P2 for clear depth separation + Chiaroscuro Fog of War)
+  // Populate Ground Floor (y = 0) InstancedMesh (dims only tiles covered by an upper floor when viewing P1 or P2)
   useEffect(() => {
     const mesh = groundMeshRef.current;
     if (!mesh) return;
-    const dim0 = effectiveViewFloor > 0 ? 0.68 : 1.0;
     groundFloorTiles.forEach((tile, i) => {
       const [wx, wy, wz] = gridToWorld(tile.coord);
       const isWater = tile.surface === "water";
@@ -1575,6 +1684,10 @@ export function InstancedBattlefield() {
       _dummy.updateMatrix();
       mesh.setMatrixAt(i, _dummy.matrix);
 
+      const hasRoofAbove = Boolean(
+        grid.getTile({ x: tile.coord.x, y: 1, z: tile.coord.z })?.hasFloor,
+      );
+      const dim0 = effectiveViewFloor > 0 && hasRoofAbove ? 0.68 : 1.0;
       const fogVis = getTileVisibility(tile.coord, fogSnapshot, fogOfWarEnabled);
       assignFloorTileColor(tile, dim0, fogVis);
       mesh.setColorAt(i, _color);
@@ -1582,7 +1695,7 @@ export function InstancedBattlefield() {
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.computeBoundingSphere();
-  }, [groundFloorTiles, gridVersion, effectiveViewFloor, fogSnapshot, fogOfWarEnabled]);
+  }, [groundFloorTiles, grid, gridVersion, effectiveViewFloor, fogSnapshot, fogOfWarEnabled, scenario]);
 
   // Populate 1st Floor (y = 1: Piano Nobile & Garden Belvedere) InstancedMesh
   useEffect(() => {
@@ -1604,7 +1717,7 @@ export function InstancedBattlefield() {
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     if (upperFloorTiles.length > 0) mesh.computeBoundingSphere();
-  }, [upperFloorTiles, gridVersion, effectiveViewFloor, fogSnapshot, fogOfWarEnabled]);
+  }, [upperFloorTiles, gridVersion, effectiveViewFloor, fogSnapshot, fogOfWarEnabled, scenario]);
 
   // Populate 2nd Floor (y = 2: Maltese Watchtower) InstancedMesh
   useEffect(() => {
@@ -1625,7 +1738,7 @@ export function InstancedBattlefield() {
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     if (watchtowerFloorTiles.length > 0) mesh.computeBoundingSphere();
-  }, [watchtowerFloorTiles, gridVersion, fogSnapshot, fogOfWarEnabled]);
+  }, [watchtowerFloorTiles, gridVersion, fogSnapshot, fogOfWarEnabled, scenario]);
 
   // Populate Obstacles InstancedMeshes across P0, P1, P2 with Chiaroscuro Fog of War shading
   useEffect(() => {
@@ -2451,6 +2564,7 @@ export function InstancedBattlefield() {
         upperTiles={upperFloorTiles}
       />
       <PracticalFlames />
+      <DynamicWaterField waterTiles={waterFloorTiles} />
 
       {/* 6c. Nocturnal Fog of War Shroud Veil & Chiaroscuro Torchlight Frontier Rim */}
       <instancedMesh
@@ -2699,10 +2813,10 @@ export function InstancedBattlefield() {
         );
       })}
 
-      {/* 8b. 3D Rybářská pramice (Fisherman's Skiff at Čertovka - bound to escape zone tile) */}
-      {(() => {
-        const boatX = escapeTile ? escapeTile.coord.x - 0.55 : 2.45;
-        const boatZ = escapeTile ? escapeTile.coord.z : 2.0;
+      {/* 8b. 3D Rybářská pramice (Fisherman's Skiff at Čertovka - bound to escape zone tile in Mission 1) */}
+      {escapeTile && (() => {
+        const boatX = escapeTile.coord.x - 0.55;
+        const boatZ = escapeTile.coord.z;
         const [bx, by, bz] = continuousGridToWorld(boatX, 0, boatZ);
         return (
           <group position={[bx, by - 0.05, bz]} rotation={[0, 0.25, 0]}>

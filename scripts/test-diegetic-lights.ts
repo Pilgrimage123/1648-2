@@ -11,6 +11,7 @@ import {
   evaluateLantern,
   FACING_YAW,
   FIXTURES,
+  fixturesForScenario,
   LOCK_FORWARD_M,
   LOCK_HEIGHT_M,
   LOCK_RIGHT_M,
@@ -211,5 +212,17 @@ assert.equal(
   rainGlintStrength(torchPos, [{ position: torchPos, exposed: false }]),
   0,
 );
+
+const m2Fixtures = fixturesForScenario("mission2").map((f) =>
+  evaluateFixture(f, "clear", 0, false),
+);
+const m2Torches = m2Fixtures.filter((f) => f.kind === "torch");
+const m2Sconces = m2Fixtures.filter((f) => f.kind === "candelabrum");
+assert.equal(m2Torches.length, 3, "Mission 2 has 3 outdoor bridge cressets");
+assert.equal(m2Sconces.length, 4, "Mission 2 uses all 4 indoor tower sconce slots");
+assert.ok(m2Torches.some((t) => t.coord.x === 4 && t.coord.z === 11 && t.exposed));
+assert.ok(m2Torches.some((t) => t.coord.x === 4 && t.coord.z === 16 && t.exposed));
+assert.ok(m2Sconces.some((s) => s.coord.y === 1 && !s.exposed));
+assert.ok(m2Sconces.some((s) => s.coord.y === 2 && !s.exposed));
 
 console.log("diegetic lights ok");

@@ -247,34 +247,75 @@ export const TORCHES: readonly FixtureDef[] = [
 
 export const FIXTURES: readonly FixtureDef[] = [...CANDELABRA, ...TORCHES];
 
-/** Three cressets on the bridge tower. Flames sit on the tile edge, not the center. */
+/**
+ * Bridge & Old Town Bridge Tower practical fixtures (Mission 2).
+ * Outdoor wrought-iron cressets ("torch") light the sandstone bridge parapets
+ * and the west gate threshold; roofed tower sconces ("candelabrum") use the
+ * 4 candelabrum slots to light the vaulted passage, windlass hall, and gallery.
+ */
 export const BRIDGE_TORCHES: readonly FixtureDef[] = [
+  {
+    id: "torch-bridge-mid-n",
+    kind: "torch",
+    coord: { x: 4, y: 0, z: 11 },
+    offset: [0, 1.45, -0.42],
+    color: TORCH_COLOR,
+    radius: 11.5,
+    intensity: 7.4,
+  },
+  {
+    id: "torch-bridge-mid-s",
+    kind: "torch",
+    coord: { x: 4, y: 0, z: 16 },
+    offset: [0, 1.45, 0.42],
+    color: TORCH_COLOR,
+    radius: 11.5,
+    intensity: 7.4,
+  },
   {
     id: "torch-tower-west-n",
     kind: "torch",
     coord: { x: 10, y: 0, z: 12 },
-    offset: [0.35, 1.7, -0.35],
+    offset: [-0.42, 1.85, -0.35],
     color: TORCH_COLOR,
-    radius: 7.2,
-    intensity: 5.2,
+    radius: 11.0,
+    intensity: 7.6,
   },
   {
-    id: "torch-tower-west-s",
-    kind: "torch",
+    id: "sconce-tower-west-s",
+    kind: "candelabrum",
     coord: { x: 10, y: 0, z: 16 },
-    offset: [0.35, 1.7, 0.35],
+    offset: [-0.42, 1.85, 0.35],
     color: TORCH_COLOR,
-    radius: 7.2,
-    intensity: 5.2,
+    radius: 10.5,
+    intensity: 6.0,
   },
   {
-    id: "torch-tower-hall",
-    kind: "torch",
+    id: "sconce-passage-vault",
+    kind: "candelabrum",
+    coord: { x: 14, y: 0, z: 12 },
+    offset: [0, 1.75, -0.38],
+    color: CANDELABRUM_COLOR,
+    radius: 9.0,
+    intensity: 5.0,
+  },
+  {
+    id: "sconce-tower-hall",
+    kind: "candelabrum",
     coord: { x: 12, y: 1, z: 12 },
     offset: [0.35, 1.7, -0.35],
-    color: TORCH_COLOR,
-    radius: 6.4,
-    intensity: 4.4,
+    color: CANDELABRUM_COLOR,
+    radius: 8.5,
+    intensity: 4.8,
+  },
+  {
+    id: "sconce-tower-gallery",
+    kind: "candelabrum",
+    coord: { x: 15, y: 2, z: 14 },
+    offset: [0.35, 1.7, -0.35],
+    color: CANDELABRUM_COLOR,
+    radius: 8.5,
+    intensity: 4.8,
   },
 ];
 
