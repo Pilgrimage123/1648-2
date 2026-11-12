@@ -20,6 +20,7 @@ import {
   isCompanionProtectedByCount,
   isInPreparedVolleyCone,
   isInstantOverkill,
+  isUnitFighting,
   resolveTargetCoverAgainstShot,
   rollMeleeAttack,
   rollRangedAttack,
@@ -580,14 +581,20 @@ export function buildUnitCombatLoss(
 }
 
 /**
+ * Čerstvý vstup do Posledního vzepětí vždy dluží 1 aktivaci.
+ * Už probíhající agónie si ponechá uložené deathThroesTurns, včetně 0 (tah už byl vydán).
+ */
+function deathThroesTurnsAfterHit(unit: UnitData, inThroes: boolean): number {
+  if (!inThroes) return 0;
+  if (unit.inDeathThroes) return unit.deathThroesTurns ?? 1;
+  return 1;
+}
+
+/**
  * Vyhodnotí okamžitý stav zadržení nebo vyproštění maršála Colloreda:
- * 1. Zadržení (detainedTurns = 1):
- *    - HP maršála kleslo na 0 (sražen k zemi palbou nebo výbuchem), NEBO
- *    - Švédský voják stojí na sousedním poli (Chebyshev <= 1, stejné patro) a u maršála nestojí žádný živý spojenec.
- * 2. Vyproštění (detainedTurns = 0):
- *    - Pokud je maršál zadržen (detainedTurns === 1) a živý spojenec se postaví k němu (Chebyshev <= 1),
- *      přičemž v okruhu 1 pole není žádný živý Švéd (nebo měl maršál HP > 0 a obkličující Švéd byl zabit),
- *      maršál je vyproštěn (pokud měl 0 HP, spojenec jej zvedne na nohy se 3 HP!).
+ * 1. Zadržení jen živým Švédem na sousedním poli bez eskorty. HP <= 0 je Poslední vzepětí, ne pád k zemi.
+ * 2. Vyproštění eskortou zruší zadržení a nevrací záporné HP (ADR-0012: v Misi 1 není polní léčení).
+ * Umírající společník je eskortou. Umírající nepřítel zajmout nesmí.
  */
 export function syncColloredoCaptureState(units: UnitData[]): {
   units: UnitData[];
@@ -600,15 +607,17 @@ export function syncColloredoCaptureState(units: UnitData[]): {
     return { units, newlyDetained: false, rescued: false, reason: null };
   }
 
+  const besideMarshal = (u: UnitData) =>
+    u.pos.y === colloredo.pos.y &&
+    Math.abs(u.pos.x - colloredo.pos.x) <= 1 &&
+    Math.abs(u.pos.z - colloredo.pos.z) <= 1;
+
   const hasAllyEscort = units.some(
     (u) =>
       u.faction === "player" &&
-      u.alive &&
-      u.hp > 0 &&
       u.id !== colloredo.id &&
-      u.pos.y === colloredo.pos.y &&
-      Math.abs(u.pos.x - colloredo.pos.x) <= 1 &&
-      Math.abs(u.pos.z - colloredo.pos.z) <= 1,
+      isUnitFighting(u) &&
+      besideMarshal(u),
   );
 
   const hasEnemyCaptorNearby = units.some(
@@ -616,38 +625,36 @@ export function syncColloredoCaptureState(units: UnitData[]): {
       u.faction === "enemy" &&
       u.alive &&
       u.hp > 0 &&
-      u.pos.y === colloredo.pos.y &&
-      Math.abs(u.pos.x - colloredo.pos.x) <= 1 &&
-      Math.abs(u.pos.z - colloredo.pos.z) <= 1,
+      !u.inDeathThroes &&
+      besideMarshal(u),
   );
 
   const allCompanionsDead = !units.some(
     (u) =>
       u.faction === "player" &&
-      u.alive &&
-      u.hp > 0 &&
-      u.id !== colloredo.id,
+      u.id !== colloredo.id &&
+      isUnitFighting(u),
   );
 
   const prevDetained = colloredo.detainedTurns ?? 0;
+  const marshalInThroes = !!colloredo.inDeathThroes || colloredo.hp <= 0;
 
   // 1. Vyproštění maršála (pokud byl zadržen 1. kolem a ještě nebyl odvlečen)
   if (prevDetained > 0 && prevDetained < 2) {
-    const canRescueDowned = colloredo.hp <= 0 && hasAllyEscort && !hasEnemyCaptorNearby;
     const canRescueStanding =
-      colloredo.hp > 0 && (!hasEnemyCaptorNearby || hasAllyEscort);
+      !marshalInThroes && (!hasEnemyCaptorNearby || hasAllyEscort);
+    const canRescueDying =
+      marshalInThroes && hasAllyEscort && !hasEnemyCaptorNearby;
 
-    if (canRescueDowned || canRescueStanding) {
-      const restoredHp = colloredo.hp <= 0 ? 3 : colloredo.hp;
+    if (canRescueStanding || canRescueDying) {
       const nextUnits = units.map((u) =>
         u.id === colloredo.id
           ? {
               ...u,
-              hp: restoredHp,
-              ap: Math.max(1, u.ap),
+              ap: Math.max(u.ap, marshalInThroes ? u.ap : 1),
               detainedTurns: 0,
               captureReason: null,
-              isShaken: false,
+              isShaken: marshalInThroes ? u.isShaken : false,
             }
           : u,
       );
@@ -660,17 +667,13 @@ export function syncColloredoCaptureState(units: UnitData[]): {
     }
   }
 
-  // 2. Nové zadržení maršála (1. kolo zadržení)
-  const shouldDetain =
-    colloredo.hp <= 0 || (hasEnemyCaptorNearby && !hasAllyEscort);
+  // 2. Nové zadržení jen živým Švédem bez eskorty
+  const shouldDetain = hasEnemyCaptorNearby && !hasAllyEscort;
 
   if (prevDetained === 0 && shouldDetain) {
-    const reason: CaptureReason =
-      colloredo.hp <= 0
-        ? allCompanionsDead
-          ? "all_companions_fallen"
-          : "zero_hp"
-        : "surrounded_unprotected";
+    const reason: CaptureReason = allCompanionsDead
+      ? "all_companions_fallen"
+      : "surrounded_unprotected";
 
     const nextUnits = units.map((u) =>
       u.id === colloredo.id
@@ -694,11 +697,9 @@ export function syncColloredoCaptureState(units: UnitData[]): {
 
   // 3. Pokud je již zadržen, pojistíme AP = 0 a aktualizujeme důvod
   if (prevDetained >= 1) {
-    const updatedReason: CaptureReason =
-      allCompanionsDead && colloredo.hp <= 0
-        ? "all_companions_fallen"
-        : (colloredo.captureReason ??
-          (colloredo.hp <= 0 ? "zero_hp" : "surrounded_unprotected"));
+    const updatedReason: CaptureReason = allCompanionsDead
+      ? "all_companions_fallen"
+      : (colloredo.captureReason ?? "surrounded_unprotected");
 
     const nextUnits = units.map((u) =>
       u.id === colloredo.id
@@ -749,15 +750,12 @@ export function advanceColloredoDetentionTurn(units: UnitData[]): {
   const allCompanionsDead = !synced.units.some(
     (u) =>
       u.faction === "player" &&
-      u.alive &&
-      u.hp > 0 &&
-      u.id !== colloredo.id,
+      u.id !== colloredo.id &&
+      isUnitFighting(u),
   );
-  const reason: CaptureReason =
-    allCompanionsDead
-      ? "all_companions_fallen"
-      : (colloredo.captureReason ??
-        (colloredo.hp <= 0 ? "zero_hp" : "surrounded_unprotected"));
+  const reason: CaptureReason = allCompanionsDead
+    ? "all_companions_fallen"
+    : (colloredo.captureReason ?? "surrounded_unprotected");
 
   const updatedUnits = synced.units.map((u) =>
     u.id === colloredo.id
@@ -872,8 +870,7 @@ export function findNextAvailablePlayerUnit(
   const playerUnits = synced.filter(
     (u) =>
       u.faction === "player" &&
-      u.alive &&
-      u.hp > 0 &&
+      isUnitFighting(u) &&
       (u.detainedTurns ?? 0) === 0,
   );
   if (playerUnits.length === 0) return null;
@@ -893,8 +890,7 @@ export function findNextAvailablePlayerUnit(
       if (
         candidate &&
         candidate.faction === "player" &&
-        candidate.alive &&
-        candidate.hp > 0 &&
+        isUnitFighting(candidate) &&
         candidate.ap > 0 &&
         (candidate.detainedTurns ?? 0) === 0
       ) {
@@ -949,7 +945,7 @@ function deriveSelectionData(
       fogSnapshot,
     };
   }
-  const isDetained = (unit.detainedTurns ?? 0) > 0 || unit.hp <= 0;
+  const isDetained = (unit.detainedTurns ?? 0) > 0 || !isUnitFighting(unit);
   const reachableTiles = isDetained
     ? new Map<string, ReachableTile>()
     : computeReachableTiles(grid, unit, syncedUnits);
@@ -1115,7 +1111,7 @@ function processExplosions(
         isShaken: nextHp > 0,
         alive: !instantKilled,
         inDeathThroes: inThroes,
-        deathThroesTurns: inThroes ? (u.deathThroesTurns ?? 1) : 0,
+        deathThroesTurns: deathThroesTurnsAfterHit(u, inThroes),
         isOverwatch: nextHp > 0 ? u.isOverwatch : false,
       };
     });
@@ -1258,8 +1254,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     const podMembers = state.units.filter(
       (u) =>
         u.faction === "enemy" &&
-        u.alive &&
-        u.hp > 0 &&
+        isUnitFighting(u) &&
         (newlySpottedEnemies.some((s) => s.id === u.id) ||
           newlySpottedEnemies.some(
             (s) =>
@@ -1436,8 +1431,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     // Najdeme hlídkující vojáky opačné frakce s nabitou zbraní
     const potentialWatchers = state.units.filter(
       (u) =>
-        u.alive &&
-        u.hp > 0 &&
+        isUnitFighting(u) &&
         u.faction !== movedUnit.faction &&
         u.isOverwatch &&
         u.firearmLoaded !== false &&
@@ -1448,14 +1442,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
     for (const watcher of potentialWatchers) {
       const currentMoved = get().units.find((u) => u.id === movedUnitId);
-      if (!currentMoved || !currentMoved.alive || currentMoved.hp <= 0) break;
+      if (!currentMoved || !isUnitFighting(currentMoved)) break;
 
       // Zkontrolujeme, zda střelec má stále aktivní hlídku a nabitou zbraň
       const freshWatcher = get().units.find((u) => u.id === watcher.id);
       if (
         !freshWatcher ||
-        !freshWatcher.alive ||
-        freshWatcher.hp <= 0 ||
+        !isUnitFighting(freshWatcher) ||
         !freshWatcher.isOverwatch ||
         freshWatcher.firearmLoaded === false
       ) {
@@ -1632,7 +1625,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
       // Znovu ověříme stav před samotným výstřelem (zda mezitím hra neskončila)
       const targetUnitNow = get().units.find((u) => u.id === movedUnitId);
-      if (!targetUnitNow || !targetUnitNow.alive || targetUnitNow.hp <= 0) {
+      if (!targetUnitNow || !isUnitFighting(targetUnitNow)) {
         set((s) => ({
           cameraDirector: {
             ...s.cameraDirector,
@@ -1803,7 +1796,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             isShaken: nextHp > 0 ? shakenNow : false,
             alive: !instantKilled,
             inDeathThroes: inThroes,
-            deathThroesTurns: inThroes ? (u.deathThroesTurns ?? 1) : 0,
+            deathThroesTurns: deathThroesTurnsAfterHit(u, inThroes),
             isOverwatch: nextHp > 0 ? u.isOverwatch : false,
           };
         });
@@ -2358,8 +2351,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         // zkusíme najít jiného živého člena družiny s AP > 0, který má platný cíl!
         const canCurrentAct =
           !!unit &&
-          unit.alive &&
-          unit.hp > 0 &&
+          isUnitFighting(unit) &&
           unit.ap > 0 &&
           (unit.detainedTurns ?? 0) === 0;
 
@@ -2381,8 +2373,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           const readyShooter = state.units.find((u) => {
             if (
               u.faction !== "player" ||
-              !u.alive ||
-              u.hp <= 0 ||
+              !isUnitFighting(u) ||
               u.ap <= 0 ||
               (u.detainedTurns ?? 0) > 0
             ) {
@@ -2413,7 +2404,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         if (!unit || !unit.alive) return;
 
         const reachable =
-          unit.ap > 0 && (unit.detainedTurns ?? 0) === 0 && unit.hp > 0
+          unit.ap > 0 && (unit.detainedTurns ?? 0) === 0 && isUnitFighting(unit)
             ? computeReachableTiles(state.grid, unit, state.units)
             : new Map<string, ReachableTile>();
 
@@ -2442,7 +2433,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           !unit.alive ||
           unit.ap <= 0 ||
           (unit.detainedTurns ?? 0) > 0 ||
-          unit.hp <= 0 ||
+          !isUnitFighting(unit) ||
           (unit.grenades ?? 0) <= 0
         )
           return;
@@ -2461,7 +2452,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           !unit.alive ||
           unit.ap <= 0 ||
           (unit.detainedTurns ?? 0) > 0 ||
-          unit.hp <= 0
+          !isUnitFighting(unit)
         )
           return;
 
@@ -2480,8 +2471,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           const readyMeleeUser = state.units.find((u) => {
             if (
               u.faction !== "player" ||
-              !u.alive ||
-              u.hp <= 0 ||
+              !isUnitFighting(u) ||
               u.ap <= 0 ||
               (u.detainedTurns ?? 0) > 0
             ) {
@@ -2782,7 +2772,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         !currentUnit.alive ||
         currentUnit.ap <= 0 ||
         (currentUnit.detainedTurns ?? 0) > 0 ||
-        currentUnit.hp <= 0
+        !isUnitFighting(currentUnit)
       ) {
         if (state.actionMode === "melee") {
           get().setActionMode("move");
@@ -2968,8 +2958,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       const alternateShooter = state.units.find((u) => {
         if (
           u.faction !== "player" ||
-          !u.alive ||
-          u.hp <= 0 ||
+          !isUnitFighting(u) ||
           u.ap <= 0 ||
           (u.detainedTurns ?? 0) > 0
         ) {
@@ -3044,7 +3033,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         selUnit &&
         selUnit.alive &&
         (selUnit.detainedTurns ?? 0) === 0 &&
-        selUnit.hp > 0 &&
+        isUnitFighting(selUnit) &&
         selUnit.pos.y === coord.y &&
         Math.abs(selUnit.pos.x - coord.x) <= 1 &&
         Math.abs(selUnit.pos.z - coord.z) <= 1
@@ -3067,7 +3056,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         activeUnit.alive &&
         activeUnit.ap >= 1 &&
         (activeUnit.detainedTurns ?? 0) === 0 &&
-        activeUnit.hp > 0 &&
+        isUnitFighting(activeUnit) &&
         gridDistance3D(activeUnit.pos, coord) <= activeUnit.weapon.maxRange &&
         checkLineOfSight3D(state.grid, activeUnit.pos, coord).clear
       ) {
@@ -3257,7 +3246,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           activeUnit.alive &&
           activeUnit.ap > 0 &&
           (activeUnit.detainedTurns ?? 0) === 0 &&
-          activeUnit.hp > 0
+          isUnitFighting(activeUnit)
         ) {
           get().setActionMode("move");
         } else {
@@ -3275,7 +3264,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         !unit.alive ||
         unit.ap <= 0 ||
         (unit.detainedTurns ?? 0) > 0 ||
-        unit.hp <= 0
+        !isUnitFighting(unit)
       )
         return;
 
@@ -3306,8 +3295,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               (u) =>
                 u.id === state.selectedTargetId &&
                 u.faction === "enemy" &&
-                u.alive &&
-                u.hp > 0 &&
+                isUnitFighting(u) &&
                 isAdjacentForMelee(coord, u.pos) &&
                 state.hoveredSpottedEnemyIds.includes(u.id),
             ) ?? null
@@ -3350,8 +3338,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           const currentUnit = currentState.units.find((u) => u.id === unit.id);
           if (
             !currentUnit ||
-            !currentUnit.alive ||
-            currentUnit.hp <= 0 ||
+            !isUnitFighting(currentUnit) ||
             (currentUnit.detainedTurns ?? 0) > 0
           ) {
             break;
@@ -3364,8 +3351,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
           const activeWatchers = currentState.units.filter(
             (u) =>
-              u.alive &&
-              u.hp > 0 &&
+              isUnitFighting(u) &&
               u.faction !== currentUnit.faction &&
               u.isOverwatch &&
               u.firearmLoaded !== false &&
@@ -3423,8 +3409,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                 stepRevealed = currentState.units.filter(
                   (u) =>
                     u.faction === "enemy" &&
-                    u.alive &&
-                    u.hp > 0 &&
+                    isUnitFighting(u) &&
                     recon.spottedEnemyIds.includes(u.id) &&
                     !currentState.revealedPodEnemyIds.has(u.id),
                 );
@@ -3500,8 +3485,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           const afterOwUnit = get().units.find((u) => u.id === unit.id);
           if (
             !afterOwUnit ||
-            !afterOwUnit.alive ||
-            afterOwUnit.hp <= 0 ||
+            !isUnitFighting(afterOwUnit) ||
             (afterOwUnit.detainedTurns ?? 0) > 0
           ) {
             break;
@@ -3527,6 +3511,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
         let moveRescuedColloredo = false;
         let moveDetainedColloredo = false;
+        let guidedHandoffUnitId: string | null = null;
 
         set((s) => {
           const updatedUnits = s.units.map((u) =>
@@ -3568,17 +3553,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           if (s.guidedTutorial.enabled && !s.guidedTutorial.dismissed) {
             if (s.guidedTutorial.currentStep === "step_1_matej_move") {
               nextGuidedStep = "step_2_colloredo_escort";
-              setTimeout(() => {
-                const st = useGameStore.getState();
-                st.selectUnit("player-colloredo");
-              }, 120);
+              guidedHandoffUnitId = "player-colloredo";
             } else if (s.guidedTutorial.currentStep === "step_2_colloredo_escort") {
               nextGuidedStep = "step_3_vaclav_aim";
-              setTimeout(() => {
-                const st = useGameStore.getState();
-                st.selectUnit("player-vaclav-michalovic");
-                st.setActiveFloor(1);
-              }, 120);
+              guidedHandoffUnitId = "player-vaclav-michalovic";
             }
           }
 
@@ -3650,7 +3628,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
         // State 4: Cover Settle & Camera Reset (animace zakleknutí do krytu a návrat do izometrického pohledu)
         const movedSurvivor = get().units.find(
-          (u) => u.id === unit.id && u.alive && u.hp > 0,
+          (u) => u.id === unit.id && isUnitFighting(u),
         );
         if (movedSurvivor) {
           const coverInfo = resolvePrimaryCoverDirection(get().grid, finalStep);
@@ -3694,8 +3672,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             const aliveCompanions = afterState.units.filter(
               (u) =>
                 u.faction === "player" &&
-                u.alive &&
-                u.hp > 0 &&
+                isUnitFighting(u) &&
                 u.id !== "player-colloredo",
             );
             if (aliveCompanions.length > 0) {
@@ -3738,10 +3715,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         if (chainedMeleeTargetId) {
           const latestState = get();
           const attackerAfterMove = latestState.units.find(
-            (u) => u.id === unit.id && u.alive && u.hp > 0 && (u.detainedTurns ?? 0) === 0,
+            (u) => u.id === unit.id && isUnitFighting(u) && (u.detainedTurns ?? 0) === 0,
           );
           const targetAfterMove = latestState.units.find(
-            (u) => u.id === chainedMeleeTargetId && u.alive && u.hp > 0,
+            (u) => u.id === chainedMeleeTargetId && isUnitFighting(u),
           );
           if (
             attackerAfterMove &&
@@ -3767,11 +3744,19 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           }
         }
 
-        const autoNextUnit = findNextAvailablePlayerUnit(
-          afterState.units,
-          afterState.selectedUnitId,
-        );
-        const autoNextId = autoNextUnit?.id ?? afterState.selectedUnitId;
+        const handoffUnit = guidedHandoffUnitId
+          ? (afterState.units.find(
+              (u) => u.id === guidedHandoffUnitId && isUnitFighting(u),
+            ) ?? null)
+          : null;
+        const autoNextUnit = handoffUnit
+          ? null
+          : findNextAvailablePlayerUnit(
+              afterState.units,
+              afterState.selectedUnitId,
+            );
+        const autoNextId =
+          handoffUnit?.id ?? autoNextUnit?.id ?? afterState.selectedUnitId;
         const nextDerived = deriveSelectionData(
           afterState.grid,
           afterState.units,
@@ -3794,7 +3779,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             coverSettle: null,
           },
           selectedUnitId: autoNextId,
-          activeFloor: autoNextUnit ? autoNextUnit.pos.y : s.activeFloor,
+          activeFloor: (handoffUnit ?? autoNextUnit)
+            ? (handoffUnit ?? autoNextUnit)!.pos.y
+            : s.activeFloor,
           units: nextDerived.units,
           fogSnapshot: nextDerived.fogSnapshot,
           reachableTiles: nextDerived.reachableTiles,
@@ -3824,7 +3811,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         !attacker.alive ||
         attacker.ap < 1 ||
         (attacker.detainedTurns ?? 0) > 0 ||
-        attacker.hp <= 0
+        !isUnitFighting(attacker)
       )
         return;
 
@@ -4119,7 +4106,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               isShaken: nextHp > 0 ? shakenNow : false,
               alive: !instantKilled,
               inDeathThroes: inThroes,
-              deathThroesTurns: inThroes ? (u.deathThroesTurns ?? 1) : 0,
+              deathThroesTurns: deathThroesTurnsAfterHit(u, inThroes),
               isOverwatch: nextHp > 0 ? u.isOverwatch : false,
             };
           });
@@ -4369,8 +4356,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       const unit = state.units.find((u) => u.id === state.selectedUnitId);
       if (
         !unit ||
-        !unit.alive ||
-        unit.hp <= 0 ||
+        !isUnitFighting(unit) ||
         (unit.detainedTurns ?? 0) > 0
       )
         return;
@@ -4547,7 +4533,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         !attacker.alive ||
         (!isFreeChain && attacker.ap < 1) ||
         (attacker.detainedTurns ?? 0) > 0 ||
-        attacker.hp <= 0
+        !isUnitFighting(attacker)
       )
         return;
 
@@ -4572,8 +4558,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       const target = state.units.find(
         (u) =>
           u.id === chosenId &&
-          u.alive &&
-          u.hp > 0 &&
+          isUnitFighting(u) &&
           u.faction !== attacker.faction,
       );
       if (!target || !isAdjacentForMelee(attacker.pos, target.pos)) return;
@@ -4695,7 +4680,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               isShaken: nextHp > 0 ? shakenNow : false,
               alive: !instantKilled,
               inDeathThroes: inThroes,
-              deathThroesTurns: inThroes ? (u.deathThroesTurns ?? 1) : 0,
+              deathThroesTurns: deathThroesTurnsAfterHit(u, inThroes),
               isOverwatch: nextHp > 0 ? u.isOverwatch : false,
             };
           });
@@ -4879,7 +4864,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         unit.ap < 1 ||
         unit.isOverwatch ||
         (unit.detainedTurns ?? 0) > 0 ||
-        unit.hp <= 0
+        !isUnitFighting(unit)
       )
         return;
 
@@ -4989,8 +4974,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       const unit = freshState.units.find((u) => u.id === targetUnitId);
       if (
         !unit ||
-        !unit.alive ||
-        unit.hp <= 0 ||
+        !isUnitFighting(unit) ||
         (unit.detainedTurns ?? 0) > 0 ||
         !unit.ability ||
         unit.ability.currentCooldown > 0 ||
@@ -5008,6 +4992,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         // a zahalí maršálovo stanoviště do husté dýmové clony (3x3), sám získá +1 Zbroj a +1 AP!
         playSpecialAbilitySound("protector_oath");
         let rescuedMarshal = false;
+        let colloredoKeptMortalWound = false;
         const colloredo = freshState.units.find(
           (u) => u.id === "player-colloredo" && u.alive,
         );
@@ -5059,16 +5044,18 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             };
           }
           if (u.id === "player-colloredo" && u.alive) {
-            const wasDetained = (u.detainedTurns ?? 0) > 0 || u.hp <= 0;
+            const wasDetained = (u.detainedTurns ?? 0) > 0;
             if (wasDetained) rescuedMarshal = true;
+            const dying = u.hp <= 0 || !!u.inDeathThroes;
+            if (dying) colloredoKeptMortalWound = true;
             const nextMaxArmor = Math.max(2, u.maxArmor + 1);
             return {
               ...u,
-              hp: Math.min(u.maxHp, Math.max(3, u.hp + 3)),
+              hp: dying ? u.hp : Math.min(u.maxHp, u.hp + 3),
               maxArmor: nextMaxArmor,
               armor: Math.min(nextMaxArmor, u.armor + 2),
               ap: Math.min(u.maxAp + 1, Math.max(1, u.ap + 1)),
-              isShaken: false,
+              isShaken: dying ? u.isShaken : false,
               detainedTurns: 0,
               captureReason: null,
             };
@@ -5106,7 +5093,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             makeLog(
               s.round,
               "player",
-              `[SCHOPNOST — ${ability.name}] ${unit.name} přiskočil k maršálovi, přehodil přes něj těžký plášť (+2 Zbroj, +3 HP, +1 AP, kouřová clona 3×3${rescuedMarshal ? ", VYPROŠTĚN ZE ZADRŽENÍ" : ""})!`,
+              `[SCHOPNOST — ${ability.name}] ${unit.name} přiskočil k maršálovi, přehodil přes něj těžký plášť (+2 Zbroj, ${colloredoKeptMortalWound ? "" : "+3 HP, "}+1 AP, kouřová clona 3×3${rescuedMarshal ? ", VYPROŠTĚN ZE ZADRŽENÍ" : ""})!`,
               "buff",
             ),
           ],
@@ -5226,7 +5213,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               armor: nextArmor,
               alive: !instantKilled,
               inDeathThroes: inThroes,
-              deathThroesTurns: inThroes ? (u.deathThroesTurns ?? 1) : 0,
+              deathThroesTurns: deathThroesTurnsAfterHit(u, inThroes),
               isShaken: nextHp > 0 ? true : false,
               ap: Math.max(0, u.ap - 1),
               isOverwatch: false,
@@ -5475,7 +5462,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         attacker.ap < 1 ||
         attacker.grenades <= 0 ||
         (attacker.detainedTurns ?? 0) > 0 ||
-        attacker.hp <= 0
+        !isUnitFighting(attacker)
       )
         return;
 
@@ -5781,9 +5768,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           }
         }
 
-        // Vyhodnocení hrdinů v Posledním vzepětí na konci tahu hráče:
+        // Konec aktivace hráče: agónie skončí jen když byl tento tah vydán
+        // (deathThroesTurns === 0). Čerstvý vstup (1) přežije do příští aktivace.
         const dyingHeroes = get().units.filter(
-          (u) => u.faction === "player" && u.alive && u.inDeathThroes,
+          (u) =>
+            u.faction === "player" &&
+            u.alive &&
+            !!u.inDeathThroes &&
+            (u.deathThroesTurns ?? 1) === 0,
         );
         for (const hero of dyingHeroes) {
           if (hero.id === "player-colloredo") {
@@ -5848,17 +5840,19 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           actionMode: "move",
           reachableTiles: new Map(),
           hoveredPath: [],
-          units: applyBlackPowderChoking(s.units, s.grid).map((u) =>
-            u.faction === "enemy" && u.alive
-              ? {
-                  ...u,
-                  ap: u.maxAp,
-                  movedThisTurn: false,
-                  isOverwatch: false,
-                  isShaken: false,
-                }
-              : u,
-          ),
+          units: applyBlackPowderChoking(s.units, s.grid).map((u) => {
+            if (u.faction !== "enemy" || !u.alive) return u;
+            const fighting = isUnitFighting(u);
+            return {
+              ...u,
+              ap: fighting ? u.maxAp : 0,
+              movedThisTurn: false,
+              isOverwatch: false,
+              isShaken: false,
+              deathThroesTurns:
+                fighting && u.inDeathThroes ? 0 : u.deathThroesTurns,
+            };
+          }),
           combatLog: [
             ...s.combatLog,
             makeLog(
@@ -5872,13 +5866,66 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
         await delay(400);
 
+        const expireEnemyDeathThroes = async (id: string): Promise<boolean> => {
+          const finishedEnemy = get().units.find((u) => u.id === id);
+          if (
+            !finishedEnemy ||
+            !finishedEnemy.alive ||
+            !finishedEnemy.inDeathThroes ||
+            (finishedEnemy.deathThroesTurns ?? 1) !== 0
+          ) {
+            return false;
+          }
+
+          set((s) => ({
+            units: s.units.map((u) =>
+              u.id === id
+                ? {
+                    ...u,
+                    alive: false,
+                    inDeathThroes: false,
+                    ap: 0,
+                    isOverwatch: false,
+                  }
+                : u,
+            ),
+            combatLog: [
+              ...s.combatLog,
+              makeLog(
+                s.round,
+                "enemy",
+                `${finishedEnemy.name} vyčerpal své Poslední vzepětí, podlehl zraněním a padl k zemi.`,
+                "alert",
+              ),
+            ],
+          }));
+          triggerUnitFx(id, {
+            banner: { text: "PADL (AGÓNIE)", tone: "crit" },
+          });
+          playHitSound(true, 3);
+          await delay(350);
+
+          const outcomeAfterDeath = checkMissionOutcome(get().grid, get().units);
+          if (outcomeAfterDeath.outcome !== "ongoing") {
+            set({
+              outcome: outcomeAfterDeath.outcome,
+              victoryReason: outcomeAfterDeath.victoryReason,
+              defeatReason: outcomeAfterDeath.defeatReason,
+            });
+            return true;
+          }
+          return false;
+        };
+
         const enemyIds = get()
           .units.filter((u) => u.faction === "enemy" && u.alive)
           .map((u) => u.id);
 
         for (const enemyId of enemyIds) {
           if (get().outcome !== "ongoing") break;
-          const enemy = get().units.find((u) => u.id === enemyId && u.alive);
+          const enemy = get().units.find(
+            (u) => u.id === enemyId && isUnitFighting(u),
+          );
           if (!enemy) continue;
 
           set({ activeFloor: enemy.pos.y });
@@ -6060,8 +6107,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             }
           }
 
-          if (updatedEnemy.ap <= 0)
+          if (updatedEnemy.ap <= 0) {
+            if (await expireEnemyDeathThroes(enemyId)) return;
             continue;
+          }
 
           // Pokud má nepřítel vybitou mušketu:
           if (updatedEnemy.firearmLoaded === false) {
@@ -6120,7 +6169,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                           isShaken: nextHp > 0 ? shakenNow : false,
                           alive: !instantKilled,
                           inDeathThroes: inThroes,
-                          deathThroesTurns: inThroes ? (u.deathThroesTurns ?? 1) : 0,
+                          deathThroesTurns: deathThroesTurnsAfterHit(u, inThroes),
                           isOverwatch: nextHp > 0 ? u.isOverwatch : false,
                         };
                       }
@@ -6165,10 +6214,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                     ),
                   });
                   await delay(450);
+                  if (await expireEnemyDeathThroes(enemyId)) return;
                   continue;
                 }
               }
               // Pokud nemá nikoho na dosah pažby, nenabíjí a pokračuje
+              if (await expireEnemyDeathThroes(enemyId)) return;
               continue;
             }
 
@@ -6388,7 +6439,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                     isShaken: nextHp > 0 ? shakenNow : false,
                     alive: !instantKilled,
                     inDeathThroes: inThroes,
-                    deathThroesTurns: inThroes ? (u.deathThroesTurns ?? 1) : 0,
+                    deathThroesTurns: deathThroesTurnsAfterHit(u, inThroes),
                     isOverwatch: nextHp > 0 ? u.isOverwatch : false,
                   };
                 });
@@ -6540,47 +6591,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             await delay(240);
           }
 
-          // Závěr aktivace nepřítele: Pokud byl v Posledním vzepětí, jeho dodatečný tah vypršel a padá mrtev!
-          const finishedEnemy = get().units.find((u) => u.id === enemyId);
-          if (finishedEnemy && finishedEnemy.alive && finishedEnemy.inDeathThroes) {
-            set((s) => ({
-              units: s.units.map((u) =>
-                u.id === enemyId
-                  ? {
-                      ...u,
-                      alive: false,
-                      inDeathThroes: false,
-                      ap: 0,
-                      isOverwatch: false,
-                    }
-                  : u,
-              ),
-              combatLog: [
-                ...s.combatLog,
-                makeLog(
-                  s.round,
-                  "enemy",
-                  `${finishedEnemy.name} vyčerpal své Poslední vzepětí, podlehl zraněním a padl k zemi.`,
-                  "alert",
-                ),
-              ],
-            }));
-            triggerUnitFx(enemyId, {
-              banner: { text: "PADL (AGÓNIE)", tone: "crit" },
-            });
-            playHitSound(true, 3);
-            await delay(350);
-
-            const outcomeAfterDeath = checkMissionOutcome(get().grid, get().units);
-            if (outcomeAfterDeath.outcome !== "ongoing") {
-              set({
-                outcome: outcomeAfterDeath.outcome,
-                victoryReason: outcomeAfterDeath.victoryReason,
-                defeatReason: outcomeAfterDeath.defeatReason,
-              });
-              return;
-            }
-          }
+          if (await expireEnemyDeathThroes(enemyId)) return;
         }
 
         if (get().outcome !== "ongoing") {
@@ -6637,14 +6648,17 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           const refreshedUnits = syncColloredoMobility(
             unitsWithChoking.map((u) => {
               if (u.faction !== "player" || !u.alive) return u;
-              const isDetained = (u.detainedTurns ?? 0) > 0 || u.hp <= 0;
+              const detained = (u.detainedTurns ?? 0) > 0;
+              const fighting = isUnitFighting(u);
               return {
                 ...u,
-                ap: isDetained ? 0 : u.maxAp,
+                ap: fighting && !detained ? u.maxAp : 0,
                 movedThisTurn: false,
                 isOverwatch: false,
                 isShaken: false,
                 abilityBuffActive: false,
+                deathThroesTurns:
+                  fighting && u.inDeathThroes ? 0 : u.deathThroesTurns,
                 ability: u.ability
                   ? {
                       ...u.ability,
@@ -6657,16 +6671,23 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           const currentSelected = refreshedUnits.find(
             (u) =>
               u.id === s.selectedUnitId &&
-              u.alive &&
               u.faction === "player" &&
-              u.ap > 0,
+              isUnitFighting(u) &&
+              u.ap > 0 &&
+              (u.detainedTurns ?? 0) === 0,
           );
           const nextSelectedId =
             currentSelected?.id ??
             refreshedUnits.find(
-              (u) => u.faction === "player" && u.alive && u.ap > 0,
+              (u) =>
+                u.faction === "player" &&
+                isUnitFighting(u) &&
+                u.ap > 0 &&
+                (u.detainedTurns ?? 0) === 0,
             )?.id ??
-            refreshedUnits.find((u) => u.faction === "player" && u.alive)?.id ??
+            refreshedUnits.find(
+              (u) => u.faction === "player" && isUnitFighting(u),
+            )?.id ??
             null;
           const nextSelectedUnit = refreshedUnits.find(
             (u) => u.id === nextSelectedId,

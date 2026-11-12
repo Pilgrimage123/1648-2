@@ -60,7 +60,7 @@ All notable changes to this project will be documented in this file.
   - **Pre-Move LoS Target Crosshairs**: Hovering candidate movement tiles in `actionMode === "move"` evaluates line of sight in real time via `previewReconFromTile` and displays animated `🎯 V muškách po přesunu` crosshairs over targetable enemies in 3D and highlights matching cards in the Target Ribbon.
   - **Stairway Recon Preview**: Hovering staircases or ladders to unvisited floors communicates anticipated newly revealable tiles and enemy threat alerts in `TileHoverIndicator`.
   - **Floor Cutaway Fog Blackout**: Unvisited upper floors in camera cutaway remain in pitch-black Terra Incognita, preventing camera-based scouting through solid ceilings.
-  - **Smoke Horizon Piercing**: Elevated snipers peering down through low-lying black-powder ground smoke suffer only a -10% accuracy penalty instead of complete LoS blockage.
+  - **Smoke Horizon Piercing**: Elevated snipers peering down through low-lying black-powder ground smoke suffer only a -20% accuracy penalty instead of complete LoS blockage.
   - **Three-Tier Visual Hierarchy & Unit Ghosting**: Spotted units on higher floors render as semi-transparent ghosts (30% opacity) with ground anchor discs, while unrevealed enemies in Fog of War remain completely hidden (only sound/matchcord contacts). Lower floor units render with 40% desaturation for Chiaroscuro depth.
   - **3D Cursor Drop Line & Ground Anchoring**: Eliminated isometric parallax error using persistent foot pedestals and vertical dashed drop lines projecting elevated units and cursors down to the ground plane.
   - **Raycast Movement Pass-Through**: Pointer raycasts for movement pass through ghosted upper-floor units (`pointerEvents: none`), preventing accidental clicks, while allowing direct targeting in `actionMode === "shoot"`.
@@ -179,7 +179,7 @@ All notable changes to this project will be documented in this file.
     - Itemized breakdown structures providing transparent math for every modifier.
     - Full weapon catalog representing Thirty Years' War arms (wheellock dragoon carbines, heavy matchlock muskets with rest forks, trench arquebuses, officer wheellocks).
     - Authentic armor mechanics: steel cuirass absorbing damage and mitigating critical hits; armor piercing (`armorPierce`) and permanent cuirass shredding (`armorShred`).
-    - Black powder smoke mechanics (`smokeTurns`): a shooter in smoke takes -10% aim, and a target in smoke takes -15% to hit. Downward fire through ground smoke takes -10%.
+    - Black powder smoke mechanics (`smokeTurns`): a shooter in smoke takes -10% aim, and a target in smoke takes -15% to hit. Downward fire through ground smoke takes -20%.
     - Weather system (`clear`, `fog`, `rain`) influencing visibility and matchlock ignition reliability.
   - **Target Ribbon (Bottom Bar)**:
     - Period helmet and skull icons colored by tactical status: Yellow (`flanked` / exposed), Red (`covered`), and Blue/Slate (`extreme_range`).

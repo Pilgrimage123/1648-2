@@ -118,6 +118,7 @@ export function TacticalActionRibbon() {
   const executeReload = useGameStore((s) => s.executeReload);
   const executeMelee = useGameStore((s) => s.executeMelee);
   const visibleMeleeTargets = useGameStore((s) => s.visibleMeleeTargets);
+  const guidedTutorial = useGameStore((s) => s.guidedTutorial);
 
   const [hoveredAbility, setHoveredAbility] =
     useState<AbilityTooltipData | null>(null);
@@ -216,7 +217,6 @@ export function TacticalActionRibbon() {
     : null;
   const meleeCalc = activeMeleeEval?.calculation ?? null;
 
-  const guidedTutorial = useGameStore((s) => s.guidedTutorial);
   const isGuidedActive = guidedTutorial?.enabled && !guidedTutorial.dismissed;
   const guidedStep = guidedTutorial?.currentStep;
 

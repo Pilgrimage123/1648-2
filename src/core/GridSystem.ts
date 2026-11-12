@@ -397,18 +397,21 @@ export class GridSystem {
 
   /**
    * Aplikuje fyziku rázové vlny exploze (ADR-0011):
-   * - Epicentrum (r = 0): je expanzí horkých plynů okamžitě vyfouknuto a zbaveno dýmu (smokeTurns = 0).
-   * - Obvodový prstenec (r = 1..radius): stlačí vytlačený dým a prach:
-   *   - V interiéru (isEnclosedRoofedCoord): 3 tahy (nebo 4).
-   *   - V exteriéru: 2 tahy (v dešti 1 tah).
+   * - Epicentrum a sousední pole (Chebyshev r <= 1) jsou okamžitě vyfouknuta (smokeTurns = 0).
+   * - Obvodový prstenec (r = 2..3) stlačí vytlačený dým:
+   *   interiér 3 tahy, exteriér 2 tahy, déšť venku 1 tah.
+   * Parametr radius zůstává kvůli volajícím; geometrie vlny je pevná podle ADR.
    */
   public applyExplosionShockwave(
     center: GridCoord,
     radius = 1,
     weather: WeatherType = "clear",
   ): void {
-    for (let dz = -radius; dz <= radius; dz++) {
-      for (let dx = -radius; dx <= radius; dx++) {
+    const reach = Math.max(3, radius);
+    for (let dz = -reach; dz <= reach; dz++) {
+      for (let dx = -reach; dx <= reach; dx++) {
+        const dist = Math.max(Math.abs(dx), Math.abs(dz));
+        if (dist > 3) continue;
         const c: GridCoord = {
           x: center.x + dx,
           y: center.y,
@@ -417,8 +420,7 @@ export class GridSystem {
         const tile = this.getTile(c);
         if (!tile || !tile.hasFloor || tile.obstacle === "high_wall") continue;
 
-        const isEpicenter = dx === 0 && dz === 0;
-        if (isEpicenter) {
+        if (dist <= 1) {
           tile.smokeTurns = 0;
         } else {
           const indoor = isEnclosedRoofedCoord(c.x, c.y, c.z);

@@ -88,4 +88,46 @@ useGameStore.getState().toggleGuidedTutorial();
 assert(useGameStore.getState().guidedTutorial.dismissed === false);
 console.log("✓ Minimalizace a obnovení panelu funguje správně.");
 
+// 8. Předání výběru po skriptovaném přesunu (bez selectUnit uprostřed isBusy)
+async function waitForStore(pred: () => boolean, timeoutMs: number): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (pred()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+  return false;
+}
+
+useGameStore.getState().resetGame();
+useGameStore.getState().handleTileRightClick({ x: 6, y: 1, z: 20 });
+const handedToColloredo = await waitForStore(() => {
+  const st = useGameStore.getState();
+  return (
+    !st.isBusy &&
+    st.guidedTutorial.currentStep === "step_2_colloredo_escort" &&
+    st.selectedUnitId === "player-colloredo"
+  );
+}, 8000);
+const afterStep1 = useGameStore.getState();
+assert(
+  handedToColloredo,
+  `Po kroku 1 musí být vybraný maršál Colloredo (step=${afterStep1.guidedTutorial.currentStep}, selected=${afterStep1.selectedUnitId}, busy=${afterStep1.isBusy})`,
+);
+
+useGameStore.getState().handleTileRightClick({ x: 5, y: 1, z: 21 });
+const handedToVaclav = await waitForStore(() => {
+  const st = useGameStore.getState();
+  return (
+    !st.isBusy &&
+    st.guidedTutorial.currentStep === "step_3_vaclav_aim" &&
+    st.selectedUnitId === "player-vaclav-michalovic"
+  );
+}, 8000);
+const afterStep2 = useGameStore.getState();
+assert(
+  handedToVaclav,
+  `Po kroku 2 musí být vybraný Václav z Michalovic (step=${afterStep2.guidedTutorial.currentStep}, selected=${afterStep2.selectedUnitId}, busy=${afterStep2.isBusy})`,
+);
+console.log("✓ Tutoriál po kroku 1 vybere Colloreda a po kroku 2 Václava.");
+
 console.log("=== ALL GUIDED TUTORIAL TESTS PASSED SUCCESSFULLY! ===");

@@ -26,6 +26,7 @@ import {
 import {
   calculateMeleeAttack,
   isAdjacentForMelee,
+  isUnitFighting,
 } from "../../core/CombatSystem";
 import { bestTileCover, sameCoord } from "../../core/GridSystem";
 import { higherFloorUnitIgnoresClicks } from "../../core/inspectClick";
@@ -100,8 +101,7 @@ export function UnitActor({ unit }: UnitActorProps) {
 
   const isSelected = selectedUnitId === unit.id;
   const isDetainedMarshal =
-    unit.id === "player-colloredo" &&
-    ((unit.detainedTurns ?? 0) > 0 || unit.hp <= 0);
+    unit.id === "player-colloredo" && (unit.detainedTurns ?? 0) > 0;
   const isTargeted =
     actionMode === "shoot" &&
     selectedTargetId === unit.id &&
@@ -119,8 +119,7 @@ export function UnitActor({ unit }: UnitActorProps) {
       (u) =>
         u.id === selectedUnitId &&
         u.faction === "player" &&
-        u.alive &&
-        u.hp > 0 &&
+        isUnitFighting(u) &&
         u.ap > 0 &&
         (u.detainedTurns ?? 0) === 0,
     );

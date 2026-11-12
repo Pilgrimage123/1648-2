@@ -548,7 +548,7 @@ export class CombatCalculator {
 
     // E) Černý prach a dým (Black Powder Smoke):
     // - Střelba z políčka zahaleného dýmem má postih -10 % Aim
-    // - Cíl v oblaku dýmu má +15 % Obranu (-15 % k zásahu; při střelbě shora přes nízký dým -10 %)
+    // - Cíl v oblaku dýmu má +15 % Obranu (-15 % k zásahu; při střelbě shora přes nízký dým -20 %)
     const shooterInSmoke = (shooterTile?.smokeTurns ?? 0) > 0;
     const targetInSmoke = (targetTile?.smokeTurns ?? 0) > 0;
     let smokeModifier = 0;
@@ -565,12 +565,12 @@ export class CombatCalculator {
     }
     if (targetInSmoke) {
       if (fromPos.y > target.pos.y && !shooterInSmoke) {
-        smokeModifier -= 10;
+        smokeModifier -= 20;
         hitModifiers.push({
           id: "smoke-horizon-piercing",
           label: "Průhled z výšky přes dým (Smoke Piercing)",
-          detail: "Střelba shora přes přízemní kouř z černého prachu (-10 %)",
-          value: -10,
+          detail: "Střelba shora přes přízemní kouř z černého prachu (-20 %)",
+          value: -20,
           unit: "%",
           kind: "penalty",
         });
@@ -598,12 +598,12 @@ export class CombatCalculator {
       }
       if (rayHasIntermediateSmoke) {
         if (fromPos.y > target.pos.y && !shooterInSmoke) {
-          smokeModifier -= 10;
+          smokeModifier -= 20;
           hitModifiers.push({
             id: "smoke-horizon-piercing",
             label: "Průhled z výšky přes dým (Smoke Piercing)",
-            detail: "Střelba shora přes přízemní kouř z černého prachu (-10 %)",
-            value: -10,
+            detail: "Střelba shora přes přízemní kouř z černého prachu (-20 %)",
+            value: -20,
             unit: "%",
             kind: "penalty",
           });
@@ -695,8 +695,7 @@ export class CombatCalculator {
       const colloredo = battlefield.units.find(
         (u) =>
           u.id === "player-colloredo" &&
-          u.alive &&
-          u.hp > 0 &&
+          isUnitFighting(u) &&
           (u.detainedTurns ?? 0) === 0,
       );
       if (colloredo) {
@@ -996,6 +995,15 @@ export function getInstantOverkillThreshold(maxHp: number): number {
 
 export function isInstantOverkill(hp: number, maxHp: number): boolean {
   return hp <= getInstantOverkillThreshold(maxHp);
+}
+
+/** Alive and still in the fight: positive HP, or one Poslední vzepětí turn (ADR-0012). */
+export function isUnitFighting(unit: {
+  alive: boolean;
+  hp: number;
+  inDeathThroes?: boolean;
+}): boolean {
+  return unit.alive && (unit.hp > 0 || !!unit.inDeathThroes);
 }
 
 export interface UnitDamageResolution {

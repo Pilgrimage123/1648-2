@@ -136,7 +136,7 @@ The dynamic reticle indicator displayed over enemy units and within the Target R
 _Avoid_: Move target preview, sightline icon
 
 **Smoke Horizon Piercing** (*Průhled z výšky přes přízemní dým*):
-The vertical vision rule allowing marksmen stationed on elevated floors (`shooter.y > target.y`, such as the Piano Nobile balcony or Maltese Watchtower) to spot and target enemies through low-lying ground smoke with a reduced -10% accuracy penalty rather than complete LoS blockage.
+The vertical vision rule allowing marksmen stationed on elevated floors (`shooter.y > target.y`, such as the Piano Nobile balcony or Maltese Watchtower) to spot and target enemies through low-lying ground smoke with a reduced -20% accuracy penalty rather than complete LoS blockage.
 _Avoid_: Smoke bypass, high vision
 
 **Stairway Recon Preview** (*Predikce průzkumu na schodišti*):
@@ -163,7 +163,7 @@ The full sheet for a soldier, enemy, door, or tile. A tap shows the selected sol
 _Avoid_: Tooltip, breakdown wings
 
 **Black Powder Smoke** (*Kouř z černého prachu*):
-A dense cloud left on a tile after firing a black-powder weapon or detonating a grenade. A shooter standing in smoke takes `-10%` aim. A target standing in smoke takes `-15%` to hit (`+15` defense). Firing downward through ground smoke, while the shooter is not in smoke, takes only `-10%` (Smoke Horizon Piercing).
+A dense cloud left on a tile after firing a black-powder weapon or detonating a grenade. A shooter standing in smoke takes `-10%` aim. A target standing in smoke takes `-15%` to hit (`+15` defense). Firing downward through ground smoke, while the shooter is not in smoke, takes only `-20%` (Smoke Horizon Piercing).
 
 **Cumulative Smoke Concealment** (*Kumulativní clona kouře*):
 The tactical visibility rule where a 3D Bresenham line of sight traversing $\ge 2$ consecutive black-powder smoke tiles is completely severed, blocking direct targeting and overwatch reactions. Elevated shooters with High Ground retain partial visibility (Smoke Horizon Piercing) through up to 2 smoke tiles at a `-20%` aim penalty.

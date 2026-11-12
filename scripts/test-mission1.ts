@@ -45,6 +45,7 @@ import {
   buildUnitCombatLoss,
   checkMissionOutcome,
   resolveShotImpactMetadata,
+  findNextAvailablePlayerUnit,
   syncColloredoCaptureState,
   syncColloredoMobility,
   useGameStore,
@@ -624,48 +625,77 @@ console.log(
 );
 
 // 10. Test 2-Turn Marshal Colloredo Detention, Rescue, and Capture (Game Over) Mechanics
+// ADR-0012: HP <= 0 is Poslední vzepětí, not a new detention, and rescue does not heal it.
 const downedUnits = separatedUnits.map((u) =>
-  u.id === "player-colloredo" ? { ...u, hp: 0 } : u,
+  u.id === "player-colloredo"
+    ? { ...u, hp: 0, inDeathThroes: true, deathThroesTurns: 1 }
+    : u,
 );
 const syncDowned = syncColloredoCaptureState(downedUnits);
 const downedMarshal = syncDowned.units.find((u) => u.id === "player-colloredo")!;
-assert(syncDowned.newlyDetained === true, "0 HP Colloredo must trigger newlyDetained");
 assert(
-  downedMarshal.detainedTurns === 1,
-  "0 HP Colloredo must have detainedTurns === 1 on first turn",
+  syncDowned.newlyDetained === false,
+  "Colloredo at HP <= 0 in Poslední vzepětí must NOT be newly detained",
 );
-assert(downedMarshal.captureReason === "zero_hp", "Capture reason must be zero_hp");
 assert(
-  downedMarshal.alive === true,
-  "Colloredo must remain alive on the map while detained",
+  (downedMarshal.detainedTurns ?? 0) === 0,
+  "Death-throes Colloredo must keep detainedTurns === 0 without a living captor",
 );
-const checkAfterTurn1 = checkMissionOutcome(grid, syncDowned.units);
 assert(
-  checkAfterTurn1.outcome === "ongoing",
-  "1st turn of detention (1/2) must NOT cause Game Over yet",
+  downedMarshal.hp === 0,
+  "Death-throes Colloredo must not be healed by the capture sync",
 );
 
-const rescuedInput = syncDowned.units.map((u) =>
-  u.id === "player-jan-matej"
-    ? {
-        ...u,
-        pos: { x: downedMarshal.pos.x - 1, y: downedMarshal.pos.y, z: downedMarshal.pos.z },
-      }
-    : u,
-);
-const syncRescued = syncColloredoCaptureState(rescuedInput);
-const rescuedMarshal = syncRescued.units.find((u) => u.id === "player-colloredo")!;
+const throesEscortInput = separatedUnits.map((u) => {
+  if (u.id === "player-colloredo") {
+    return { ...u, hp: 14, inDeathThroes: false, detainedTurns: 0 };
+  }
+  if (u.id === "player-jan-matej") {
+    return {
+      ...u,
+      pos: { x: colloredo!.pos.x - 1, y: colloredo!.pos.y, z: colloredo!.pos.z },
+      hp: -2,
+      alive: true,
+      inDeathThroes: true,
+      deathThroesTurns: 1,
+    };
+  }
+  if (u.id === "enemy-odowalsky") {
+    return {
+      ...u,
+      pos: { x: colloredo!.pos.x + 1, y: colloredo!.pos.y, z: colloredo!.pos.z },
+      hp: 10,
+      alive: true,
+      inDeathThroes: false,
+    };
+  }
+  if (u.faction === "enemy") return { ...u, alive: false };
+  return u;
+});
+const syncThroesEscort = syncColloredoCaptureState(throesEscortInput);
 assert(
-  syncRescued.rescued === true,
-  "Companion adjacent to Colloredo without enemy captors must rescue him",
+  syncThroesEscort.newlyDetained === false,
+  "A companion in Poslední vzepětí must still count as an escort against a healthy enemy",
 );
+
+const throesCaptorInput = separatedUnits.map((u) => {
+  if (u.id === "enemy-odowalsky") {
+    return {
+      ...u,
+      pos: { x: colloredo!.pos.x + 1, y: colloredo!.pos.y, z: colloredo!.pos.z },
+      hp: -2,
+      alive: true,
+      inDeathThroes: true,
+      deathThroesTurns: 1,
+    };
+  }
+  if (u.faction === "enemy") return { ...u, alive: false };
+  return u;
+});
+const syncThroesCaptor = syncColloredoCaptureState(throesCaptorInput);
 assert(
-  rescuedMarshal.detainedTurns === 0,
-  "Rescued Colloredo must have detainedTurns === 0",
-);
-assert(
-  rescuedMarshal.hp === 3,
-  "Rescued downed Colloredo must be lifted back to 3 HP",
+  syncThroesCaptor.newlyDetained === false,
+  "An enemy in Poslední vzepětí must not detain Colloredo",
 );
 
 const surroundedInput = separatedUnits.map((u) =>
@@ -709,6 +739,79 @@ assert(
 assert(
   checkAfterTurn2.defeatReason === "surrounded_unprotected",
   "Defeat reason must preserve surrounded_unprotected",
+);
+
+const standingRescueInput = syncSurrounded.units.map((u) =>
+  u.id === "player-jan-matej"
+    ? {
+        ...u,
+        pos: {
+          x: surroundedMarshal.pos.x - 1,
+          y: surroundedMarshal.pos.y,
+          z: surroundedMarshal.pos.z,
+        },
+      }
+    : u,
+);
+const syncStandingRescue = syncColloredoCaptureState(standingRescueInput);
+const standingRescued = syncStandingRescue.units.find(
+  (u) => u.id === "player-colloredo",
+)!;
+assert(
+  syncStandingRescue.rescued === true,
+  "A healthy escort must clear detention even while a captor is still adjacent",
+);
+assert(
+  (standingRescued.detainedTurns ?? 0) === 0,
+  "Standing rescue must clear detainedTurns",
+);
+assert(
+  standingRescued.hp === surroundedMarshal.hp,
+  "Standing rescue must not change Colloredo's HP",
+);
+
+const dyingRescueInput = separatedUnits.map((u) => {
+  if (u.id === "player-colloredo") {
+    return {
+      ...u,
+      hp: -2,
+      alive: true,
+      inDeathThroes: true,
+      deathThroesTurns: 1,
+      detainedTurns: 1,
+      captureReason: "surrounded_unprotected" as const,
+    };
+  }
+  if (u.id === "player-jan-matej") {
+    return {
+      ...u,
+      pos: { x: colloredo!.pos.x - 1, y: colloredo!.pos.y, z: colloredo!.pos.z },
+      hp: -2,
+      alive: true,
+      inDeathThroes: true,
+      deathThroesTurns: 1,
+    };
+  }
+  if (u.faction === "enemy") return { ...u, alive: false };
+  return u;
+});
+const syncDyingRescue = syncColloredoCaptureState(dyingRescueInput);
+const dyingRescued = syncDyingRescue.units.find((u) => u.id === "player-colloredo")!;
+assert(
+  syncDyingRescue.rescued === true,
+  "A companion in Poslední vzepětí must rescue a dying detained marshal when no living captor remains",
+);
+assert(
+  (dyingRescued.detainedTurns ?? 0) === 0,
+  "Dying rescue must clear detention",
+);
+assert(
+  dyingRescued.hp === -2,
+  "Rescue must not raise negative HP",
+);
+assert(
+  dyingRescued.inDeathThroes === true,
+  "Rescue must not clear Poslední vzepětí",
 );
 
 console.log(
@@ -1191,8 +1294,8 @@ const smokePiercingMod = smokePiercingShot.hitModifiers.find(
   (m) => m.id === "smoke-horizon-piercing",
 );
 assert(
-  smokePiercingMod && smokePiercingMod.value === -10,
-  "Shooting downward from P1 into ground smoke must trigger Smoke Horizon Piercing (-10 %)",
+  smokePiercingMod && smokePiercingMod.value === -20,
+  "Shooting downward from P1 into ground smoke must trigger Smoke Horizon Piercing (-20 %)",
 );
 
 // B) Per-floor Fog of War separation (ADR-0010)
@@ -2173,28 +2276,47 @@ console.log(
 // --- 28. Dynamic Smoke, Dust, Blast Shockwave & Tactical Concealment (ADR-0011) ---
 console.log("--- 28. Dynamic Smoke, Blast Shockwave & Cumulative Concealment (ADR-0011) ---");
 
-// A) Test Blast Shockwave Displacement: epicenter cleared (0), perimeter compressed (2 outdoors, 3 indoors)
+// A) Test Blast Shockwave Displacement (ADR-0011): r <= 1 cleared, ring r = 2..3
 const shockGrid = createInitialGrid();
 const outdoorBlastCenter = { x: 5, y: 0 as const, z: 8 }; // Outdoor garden path
 shockGrid.applyExplosionShockwave(outdoorBlastCenter, 1, "clear");
 assert(
   shockGrid.getTile(outdoorBlastCenter)?.smokeTurns === 0,
-  "Explosion epicenter must be completely purged of smoke (smokeTurns === 0) by shockwave expansion",
+  "Explosion epicenter (r = 0) must be purged of smoke",
 );
 assert(
-  (shockGrid.getTile({ x: 6, y: 0, z: 8 })?.smokeTurns ?? 0) === 2,
-  "Outdoor blast perimeter tile must have smokeTurns === 2",
+  (shockGrid.getTile({ x: 6, y: 0, z: 8 })?.smokeTurns ?? 0) === 0,
+  "Outdoor Chebyshev r = 1 neighbor must be purged of smoke",
+);
+assert(
+  (shockGrid.getTile({ x: 7, y: 0, z: 8 })?.smokeTurns ?? 0) === 2,
+  "Outdoor smoke ring at r = 2 must have smokeTurns === 2",
+);
+assert(
+  (shockGrid.getTile({ x: 9, y: 0, z: 8 })?.smokeTurns ?? 0) === 0,
+  "Tiles beyond r = 3 must stay clear",
 );
 
 const indoorBlastCenter = { x: 5, y: 0 as const, z: 20 }; // Grand Priory Palace Hall (isEnclosedRoofedCoord)
 shockGrid.applyExplosionShockwave(indoorBlastCenter, 1, "clear");
 assert(
   shockGrid.getTile(indoorBlastCenter)?.smokeTurns === 0,
-  "Indoor explosion epicenter must be purged of smoke (smokeTurns === 0)",
+  "Indoor explosion epicenter must be purged of smoke",
 );
 assert(
-  (shockGrid.getTile({ x: 6, y: 0, z: 20 })?.smokeTurns ?? 0) === 3,
-  "Indoor blast perimeter tile must have smokeTurns === 3 (stagnant indoor dissipation)",
+  (shockGrid.getTile({ x: 6, y: 0, z: 20 })?.smokeTurns ?? 0) === 0,
+  "Indoor Chebyshev r = 1 neighbor must be purged of smoke",
+);
+assert(
+  (shockGrid.getTile({ x: 7, y: 0, z: 20 })?.smokeTurns ?? 0) === 3,
+  "Indoor smoke ring at r = 2 must have smokeTurns === 3",
+);
+
+const rainShockGrid = createInitialGrid();
+rainShockGrid.applyExplosionShockwave({ x: 5, y: 0, z: 8 }, 1, "rain");
+assert(
+  (rainShockGrid.getTile({ x: 7, y: 0, z: 8 })?.smokeTurns ?? 0) === 1,
+  "Outdoor smoke ring in rain must last 1 turn",
 );
 
 // B) Test Cumulative Smoke Concealment in checkLineOfSight3D
@@ -2311,6 +2433,35 @@ assert(damageOutcome1.nextHp === -4, "8 HP - 12 damage = -4 HP");
 assert(damageOutcome1.alive === true, "Unit must remain alive during Poslední vzepětí");
 assert(damageOutcome1.inDeathThroes === true, "Unit must enter Poslední vzepětí");
 assert(damageOutcome1.instantKilled === false, "Instant overkill threshold not reached at -4 HP");
+assert(
+  damageOutcome1.deathThroesTurns === 1,
+  "Fresh lethal damage must grant deathThroesTurns === 1",
+);
+
+const storedZeroThroes: UnitData = {
+  ...sampleEnemyMusketeer,
+  hp: 8,
+  alive: true,
+  inDeathThroes: false,
+  deathThroesTurns: 0,
+};
+const freshEntry = resolveUnitDamageResolution(storedZeroThroes, 12);
+assert(
+  freshEntry.inDeathThroes === true && freshEntry.deathThroesTurns === 1,
+  "A stored deathThroesTurns of 0 must not suppress a fresh entry into Poslední vzepětí",
+);
+const alreadySpent: UnitData = {
+  ...sampleEnemyMusketeer,
+  hp: -4,
+  alive: true,
+  inDeathThroes: true,
+  deathThroesTurns: 0,
+};
+const keptSpentTurn = resolveUnitDamageResolution(alreadySpent, 1);
+assert(
+  keptSpentTurn.alive === true && keptSpentTurn.deathThroesTurns === 0,
+  "A unit already in Poslední vzepětí must keep a spent turn count of 0",
+);
 
 // B) Instant Overkill threshold <= -(maxHp + 1)
 // For 8 HP Musketeer, instant threshold is <= -9 HP (e.g. 17 damage)
@@ -2379,6 +2530,19 @@ const almostWonUnits = units.map((u) => {
 });
 const delayedVictoryOutcome = checkMissionOutcome(grid, almostWonUnits);
 assert(delayedVictoryOutcome.outcome === "ongoing", "Victory must not trigger while enemy in Poslední vzepětí is still alive");
+
+const throesRoster = units.map((u) => {
+  if (u.id === "player-jan-matej") {
+    return { ...u, hp: -2, alive: true, inDeathThroes: true, deathThroesTurns: 1, ap: 2 };
+  }
+  if (u.faction === "player") return { ...u, ap: 0 };
+  return u;
+});
+const nextFighter = findNextAvailablePlayerUnit(throesRoster, "player-colloredo");
+assert(
+  nextFighter?.id === "player-jan-matej",
+  "findNextAvailablePlayerUnit must return a player in Poslední vzepětí who still has AP",
+);
 
 console.log(
   "✓ Poslední vzepětí (Death Throes), Negative HP Thresholds & Capture Prohibition (ADR-0012) validated.",
