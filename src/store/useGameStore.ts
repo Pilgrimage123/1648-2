@@ -52,6 +52,28 @@ import {
 } from "../core/FogOfWar";
 import { computeReachableTiles, findPathAStar } from "../core/Pathfinding";
 import {
+  applyKneel,
+  applyWindlassHit,
+  bindMission2Clock,
+  closeEnemyTurn,
+  closePlayerTurn,
+  computeMission2Ai,
+  createMission2Explored,
+  createMission2Grid,
+  createMission2Units,
+  freshClock,
+  HAVEL_ID,
+  INSCRIPTION,
+  judgeMission2,
+  ONDREJ_ID,
+  PLACHY_ID,
+  readMission2Clock,
+  windlassDummy,
+  WINDLASS,
+  type Mission2Clock,
+  type Mission2Loss,
+} from "../core/mission2";
+import {
   computeScrambleDestination,
   createInitialCameraDirectorState,
   detectPathInteractions,
@@ -208,8 +230,12 @@ interface GameStoreState {
   combatIntensity: number;
   blastZones: BlastZoneEvent[];
   outcome: "ongoing" | "victory" | "defeat";
-  victoryReason: "boat_escape" | "annihilation" | null;
+  victoryReason: "boat_escape" | "annihilation" | "portcullis" | null;
   defeatReason: CaptureReason | null;
+  scenario: "mission1" | "mission2";
+  briefingOpen: boolean;
+  m2: Mission2Clock | null;
+  oath: { havel: "accept" | "refuse" | "fallen"; ondrej: "accept" | "refuse" | "fallen" } | null;
   isCapturingAnim: boolean;
 
   selectedUnitId: string | null;
@@ -321,11 +347,24 @@ interface GameStoreState {
   toggleDoor: (coord: GridCoord) => void;
   endTurn: () => void;
   resetGame: () => void;
+  beginScenario: (scenario: "mission1" | "mission2") => void;
+  openBriefing: () => void;
+  kneelAtInscription: () => void;
+  chooseOath: (which: "both" | "havel" | "ondrej" | "neither") => void;
 }
 
 let logSeq = 1;
 let fxSeq = 1;
 let moveResolveCallback: (() => void) | null = null;
+
+function mission2LossPhrase(
+  loss: Mission2Loss,
+): "log.m2.loss.rite" | "log.m2.loss.plachy" | "log.m2.loss.wiped" | "log.m2.loss.windlass" {
+  if (loss === "rite") return "log.m2.loss.rite";
+  if (loss === "wiped") return "log.m2.loss.wiped";
+  if (loss === "windlass") return "log.m2.loss.windlass";
+  return "log.m2.loss.plachy";
+}
 
 function makeLog(
   round: number,
@@ -980,11 +1019,21 @@ function deriveSelectionData(
 export function checkMissionOutcome(
   grid: GridSystem,
   units: UnitData[],
+  m2?: Mission2Clock | null,
 ): {
   outcome: "ongoing" | "victory" | "defeat";
-  victoryReason: "boat_escape" | "annihilation" | null;
+  victoryReason: "boat_escape" | "annihilation" | "portcullis" | null;
   defeatReason: CaptureReason | null;
 } {
+  const clock = m2 === undefined ? readMission2Clock() : m2;
+  if (clock && units.some((unit) => unit.id === PLACHY_ID)) {
+    const judged = judgeMission2(clock, units);
+    return {
+      outcome: judged.outcome,
+      victoryReason: judged.victoryReason,
+      defeatReason: null,
+    };
+  }
   const colloredo = units.find((u) => u.id === "player-colloredo");
   if (!colloredo || !colloredo.alive) {
     return {
@@ -1373,6 +1422,28 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     reason: CaptureReason,
     roundNum: number,
   ) => {
+    if (get().scenario === "mission2" && get().m2) {
+      const judged = judgeMission2(get().m2!, get().units);
+      const loss: Mission2Loss = judged.loss ?? "plachy";
+      set({
+        isBusy: false,
+        isCapturingAnim: false,
+        outcome: judged.outcome === "ongoing" ? "defeat" : judged.outcome,
+        victoryReason: judged.victoryReason,
+        defeatReason: null,
+        m2: { ...get().m2!, loss },
+        combatLog: [
+          ...get().combatLog,
+          makeLog(
+            roundNum,
+            "enemy",
+            phrase(mission2LossPhrase(loss), { unitId: PLACHY_ID }),
+            "alert",
+          ),
+        ],
+      });
+      return;
+    }
     const colloredo = get().units.find((u) => u.id === "player-colloredo");
 
     set((s) => ({
@@ -1894,6 +1965,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     outcome: "ongoing",
     victoryReason: null,
     defeatReason: null,
+    scenario: "mission1",
+    briefingOpen: true,
+    m2: null,
+    oath: null,
     isCapturingAnim: false,
 
     selectedUnitId: firstPlayerId,
@@ -2851,6 +2926,17 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       if (!clickedUnit || !clickedUnit.alive) return;
 
       if (clickedUnit.faction === "player") {
+        if (
+          state.scenario === "mission2" &&
+          unitId === PLACHY_ID &&
+          state.selectedUnitId === PLACHY_ID &&
+          state.m2 &&
+          !state.m2.knelt &&
+          sameCoord(clickedUnit.pos, INSCRIPTION)
+        ) {
+          get().kneelAtInscription();
+          return;
+        }
         get().selectUnit(unitId);
         return;
       }
@@ -3643,7 +3729,11 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             },
           }));
           // Pokud hráč dosáhl vítězství a dosud nebyla vyřešena Paradoxní oběť, otevřeme dilematické okno!
-          if (outcomeCheck.outcome === "victory" && !afterState.sacrificedHeroId) {
+          if (
+            outcomeCheck.outcome === "victory" &&
+            get().scenario !== "mission2" &&
+            !afterState.sacrificedHeroId
+          ) {
             const aliveCompanions = afterState.units.filter(
               (u) =>
                 u.faction === "player" &&
@@ -3679,7 +3769,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                 "player",
                 outcomeCheck.victoryReason === "boat_escape"
                   ? phrase("log.victory.boat")
-                  : phrase("log.victory.annihilation"),
+                  : outcomeCheck.victoryReason === "portcullis"
+                    ? phrase("log.m2.victory")
+                    : phrase("log.victory.annihilation"),
                 "story",
               ),
             ],
@@ -5719,6 +5811,25 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       if (state.isBusy || state.turn !== "player" || state.outcome !== "ongoing")
         return;
 
+      if (state.scenario === "mission2" && state.m2) {
+        const closed = closePlayerTurn(state.m2, state.units);
+        const noted =
+          !state.m2.inscriptionNoted && closed.inscriptionNoted
+            ? [
+                makeLog(
+                  state.round,
+                  "player",
+                  phrase("log.m2.inscription"),
+                  "story",
+                ),
+              ]
+            : [];
+        set({
+          m2: closed,
+          combatLog: [...state.combatLog, ...noted],
+        });
+      }
+
       void (async () => {
         // Pokud byl maršál Colloredo zadržen (1/2) a hráč jej během svého tahu nedokázal vyprostit,
         // posuneme počítadlo zadržení na 2/2 -> zajetí je dokonáno!
@@ -5902,12 +6013,22 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
           set({ activeFloor: enemy.pos.y });
 
-          const plan = computeEnemyAiDecision(
-            get().grid,
-            enemy,
-            get().units,
-            get().weather,
-          );
+          const missionClock = get().m2;
+          const plan =
+            get().scenario === "mission2" && missionClock
+              ? computeMission2Ai(
+                  get().grid,
+                  enemy,
+                  get().units,
+                  missionClock,
+                  get().weather,
+                )
+              : computeEnemyAiDecision(
+                  get().grid,
+                  enemy,
+                  get().units,
+                  get().weather,
+                );
 
           // Pokud stojí u zavřených dveří, otevře je (Free action 0 AP)
           if (plan.doorToOpen) {
@@ -6264,6 +6385,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           );
           const chosenTargetEval =
             targets.find((t) => t.targetId === plan.targetId) ?? targets[0];
+          const windlassClock = get().m2;
 
           if (chosenTargetEval) {
             const targetUnit = get().units.find(
@@ -6560,6 +6682,100 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                 }));
               }
             }
+          } else if (
+            get().scenario === "mission2" &&
+            plan.strikeWindlass &&
+            windlassClock &&
+            !windlassClock.seated &&
+            windlassClock.windlassHp > 0
+          ) {
+            const clockNow = windlassClock;
+            const dummy = windlassDummy(clockNow.windlassHp);
+            const los = checkLineOfSight3D(get().grid, updatedEnemy.pos, WINDLASS);
+            if (!los.clear) {
+              set((s) => ({
+                units: s.units.map((u) =>
+                  u.id === updatedEnemy.id ? { ...u, ap: 0 } : u,
+                ),
+              }));
+            } else {
+              const calculation = calculateShot(
+                get().grid,
+                updatedEnemy,
+                dummy,
+                get().weather,
+                updatedEnemy.pos,
+              );
+              const outcome = rollRangedAttack(updatedEnemy, dummy, calculation);
+              const damage =
+                outcome.hit && !outcome.misfired ? outcome.damage : 0;
+              const nextClock = applyWindlassHit(clockNow, damage);
+              const judged = judgeMission2(nextClock, get().units);
+              const shotFacing = facingFromDelta(
+                updatedEnemy.pos,
+                WINDLASS,
+                updatedEnemy.facing,
+              );
+              if (!outcome.misfired) get().grid.addSmoke(updatedEnemy.pos, 0, 2);
+              if (outcome.misfired) playMisfireSound();
+              else playGunshotSound(updatedEnemy.weapon.lockType === "wheellock");
+              const enemyFireAp = updatedEnemy.weapon.fireApCost ?? 1;
+              const nowTs = performance.now();
+              set((s) => ({
+                m2: { ...nextClock, loss: judged.loss },
+                outcome: judged.outcome,
+                victoryReason: judged.victoryReason,
+                defeatReason: null,
+                smokeVersion: s.smokeVersion + 1,
+                combatIntensity: s.combatIntensity + 1,
+                units: s.units.map((u) =>
+                  u.id === updatedEnemy.id
+                    ? {
+                        ...u,
+                        facing: shotFacing,
+                        ap: Math.max(0, u.ap - enemyFireAp),
+                        firearmLoaded: false,
+                        reloadProgress: 0,
+                      }
+                    : u,
+                ),
+                activeProjectile: {
+                  id: fxSeq++,
+                  from: updatedEnemy.pos,
+                  to: WINDLASS,
+                  hitChance: outcome.hitChance,
+                  kind: "bullet",
+                  createdAt: nowTs,
+                  durationMs: 1780,
+                  hit: outcome.hit,
+                  critical: outcome.critical,
+                  misfired: outcome.misfired,
+                  damage: outcome.damage,
+                  bloodSeverity: 0,
+                  armorShredded: 0,
+                  armorAbsorbed: 0,
+                  killed: nextClock.windlassHp <= 0,
+                  missImpactCoord: WINDLASS,
+                },
+                combatLog: [
+                  ...s.combatLog,
+                  makeLog(
+                    s.round,
+                    "enemy",
+                    phrase("log.m2.windlassShot", {
+                      unitId: updatedEnemy.id,
+                      hit: outcome.hit && !outcome.misfired,
+                      damage,
+                      hp: nextClock.windlassHp,
+                    }),
+                    outcome.hit && !outcome.misfired ? "hit" : "miss",
+                  ),
+                ],
+              }));
+              await delay(900);
+              set({ activeProjectile: null });
+              if (judged.outcome !== "ongoing") return;
+            }
           } else {
             set((s) => ({
               units: s.units.map((u) =>
@@ -6594,6 +6810,34 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           return;
         }
 
+        if (get().scenario === "mission2" && get().m2) {
+          const closed = closeEnemyTurn(get().m2!, get().units);
+          const judged = judgeMission2(closed, get().units);
+          if (judged.outcome !== "ongoing") {
+            const loss = judged.loss;
+            set({
+              m2: { ...closed, loss },
+              outcome: judged.outcome,
+              victoryReason: judged.victoryReason,
+              defeatReason: null,
+              isBusy: false,
+              combatLog: [
+                ...get().combatLog,
+                makeLog(
+                  get().round,
+                  judged.outcome === "victory" ? "player" : "enemy",
+                  judged.outcome === "victory"
+                    ? phrase("log.m2.victory")
+                    : phrase(mission2LossPhrase(loss ?? "rite")),
+                  judged.outcome === "victory" ? "story" : "alert",
+                ),
+              ],
+            });
+            return;
+          }
+          set({ m2: closed });
+        }
+
         // Rozptýlení starého kouře na přelomu kola a zahájení tahu hráče (ADR-0011)
         get().grid.decaySmoke(get().weather);
 
@@ -6603,15 +6847,19 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           let incomingUnits: UnitData[] = [];
           const extraRoundLogs: CombatLogEntry[] = [];
 
-          if (nextRound === 3) {
+          if (s.scenario !== "mission2" && nextRound === 3) {
             extraRoundLogs.push(
               makeLog(3, "enemy", phrase("log.warn.reinforcement.3"), "alert"),
             );
-          } else if (nextRound === 4) {
+          } else if (s.scenario !== "mission2" && nextRound === 4) {
             extraRoundLogs.push(
               makeLog(4, "enemy", phrase("log.warn.reinforcement.4"), "alert"),
             );
-          } else if (nextRound >= s.reinforcementRound && !s.reinforcementsSpawned) {
+          } else if (
+            s.scenario !== "mission2" &&
+            nextRound >= s.reinforcementRound &&
+            !s.reinforcementsSpawned
+          ) {
             spawnedReinforcements = true;
             const newUnits = createReinforcementUnits();
             incomingUnits = newUnits.map((nu) => {
@@ -6737,6 +6985,87 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     },
 
     resetGame: () => {
+      if (get().scenario === "mission2") {
+        const nextGrid = createMission2Grid();
+        const nextUnits = createMission2Units().map((unit) => projectUnit(unit));
+        const explored = createMission2Explored(nextGrid);
+        const firstId = PLACHY_ID;
+        const currentWeather = "rain" as const;
+        const currentFogEnabled = get().fogOfWarEnabled;
+        const nextDerived = deriveSelectionData(
+          nextGrid,
+          nextUnits,
+          firstId,
+          currentWeather,
+          null,
+          explored,
+          [],
+          currentFogEnabled,
+        );
+        moveResolveCallback = null;
+        resetLiveMovementTelemetry();
+        set((s) => ({
+          scenario: "mission2",
+          briefingOpen: false,
+          m2: freshClock(nextUnits),
+          oath: null,
+          grid: nextGrid,
+          units: nextDerived.units,
+          round: 1,
+          turn: "player",
+          reinforcementsSpawned: true,
+          reinforcementRound: 99,
+          weather: currentWeather,
+          gridVersion: s.gridVersion + 1,
+          smokeVersion: s.smokeVersion + 1,
+          combatIntensity: 0,
+          blastZones: [],
+          outcome: "ongoing",
+          victoryReason: null,
+          defeatReason: null,
+          isCapturingAnim: false,
+          sacrificeDilemmaOpen: false,
+          sacrificedHeroId: null,
+          ironVigilPerk: null,
+          demonstratedAbilities: {},
+          tutorialStep: null,
+          tutorialDismissed: true,
+          guidedTutorial: {
+            enabled: false,
+            currentStep: "step_1_matej_move",
+            dismissed: true,
+            rejectFeedback: null,
+            rejectTimestamp: 0,
+          },
+          selectedUnitId: firstId,
+          activeFloor: 2,
+          renderMode: "3D_MODEL",
+          actionMode: "move",
+          inspectOpen: false,
+          inspectKeyHeld: false,
+          inspectClickConsumed: false,
+          inspectPin: null,
+          fogSnapshot: nextDerived.fogSnapshot,
+          reachableTiles: nextDerived.reachableTiles,
+          hoveredTile: null,
+          hoveredPath: [],
+          visibleTargets: nextDerived.visibleTargets,
+          visibleMeleeTargets: nextDerived.visibleMeleeTargets,
+          selectedTargetId: nextDerived.selectedTargetId,
+          isBusy: false,
+          cameraDirector: createInitialCameraDirectorState(),
+          revealedPodEnemyIds: new Set(nextDerived.fogSnapshot.visibleEnemyIds),
+          activeMovement: null,
+          activeProjectile: null,
+          lightFlashes: [],
+          unitFx: {},
+          combatLog: [
+            makeLog(1, "player", phrase("log.m2.briefing.gate"), "alert"),
+            makeLog(1, "player", phrase("log.m2.briefing.ward"), "story"),
+          ],
+        }));
+        return;
+      }
       const nextGrid = createInitialGrid();
       const nextUnits = syncColloredoMobility(createInitialUnits());
       const firstId =
@@ -6773,6 +7102,11 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         outcome: "ongoing",
         victoryReason: null,
         defeatReason: null,
+        scenario: "mission1",
+        briefingOpen: false,
+        m2: null,
+        oath: null,
+        renderMode: "2D_SPRITE",
         isCapturingAnim: false,
         sacrificeDilemmaOpen: false,
         sacrificedHeroId: null,
@@ -6813,7 +7147,107 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         ],
       }));
     },
+
+    beginScenario: (scenario) => {
+      set({ scenario, briefingOpen: false });
+      get().resetGame();
+    },
+
+    openBriefing: () => {
+      set({ briefingOpen: true });
+    },
+
+    kneelAtInscription: () => {
+      const state = get();
+      if (
+        state.scenario !== "mission2" ||
+        !state.m2 ||
+        state.isBusy ||
+        state.turn !== "player" ||
+        state.outcome !== "ongoing"
+      ) {
+        return;
+      }
+      const plachy = state.units.find((unit) => unit.id === PLACHY_ID);
+      if (!plachy) return;
+      const nextClock = applyKneel(state.m2, plachy);
+      if (!nextClock) return;
+      const units = state.units.map((unit) =>
+        unit.id === PLACHY_ID ? { ...unit, ap: Math.max(0, unit.ap - 1) } : unit,
+      );
+      const derived = deriveSelectionData(
+        state.grid,
+        units,
+        PLACHY_ID,
+        state.weather,
+        state.selectedTargetId,
+        state.fogSnapshot.exploredCoords,
+        state.blastZones,
+        state.fogOfWarEnabled,
+      );
+      set({
+        m2: nextClock,
+        units: derived.units,
+        reachableTiles: derived.reachableTiles,
+        visibleTargets: derived.visibleTargets,
+        visibleMeleeTargets: derived.visibleMeleeTargets,
+        selectedTargetId: derived.selectedTargetId,
+        fogSnapshot: derived.fogSnapshot,
+        combatLog: [
+          ...state.combatLog,
+          makeLog(state.round, "player", phrase("log.m2.kneel"), "story"),
+        ],
+      });
+    },
+
+    chooseOath: (which) => {
+      const state = get();
+      if (state.scenario !== "mission2" || state.outcome !== "victory" || state.oath) {
+        return;
+      }
+      const living = (id: string) => {
+        const unit = state.units.find((item) => item.id === id);
+        return !!unit && unit.alive && unit.hp > 0;
+      };
+      const havelUp = living(HAVEL_ID);
+      const ondrejUp = living(ONDREJ_ID);
+      const havel =
+        !havelUp ? "fallen" : which === "both" || which === "havel" ? "accept" : "refuse";
+      const ondrej =
+        !ondrejUp
+          ? "fallen"
+          : which === "both" || which === "ondrej"
+            ? "accept"
+            : "refuse";
+      const line = (id: string, pick: "accept" | "refuse" | "fallen") =>
+        makeLog(
+          state.round,
+          "player",
+          phrase(
+            pick === "accept"
+              ? "log.m2.oath.accept"
+              : pick === "refuse"
+                ? "log.m2.oath.refuse"
+                : "log.m2.oath.fallen",
+            { unitId: id },
+          ),
+          "story",
+        );
+      set({
+        oath: { havel, ondrej },
+        combatLog: [
+          ...state.combatLog,
+          line(HAVEL_ID, havel),
+          line(ONDREJ_ID, ondrej),
+        ],
+      });
+    },
   };
+});
+
+bindMission2Clock(() => {
+  const state = useGameStore.getState();
+  return state.scenario === "mission2" ? state.m2 : null;
 });
 
 subscribeLocale(() => {

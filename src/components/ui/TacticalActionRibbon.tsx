@@ -123,6 +123,9 @@ export function TacticalActionRibbon() {
   const executeMelee = useGameStore((s) => s.executeMelee);
   const visibleMeleeTargets = useGameStore((s) => s.visibleMeleeTargets);
   const guidedTutorial = useGameStore((s) => s.guidedTutorial);
+  const scenario = useGameStore((s) => s.scenario);
+  const m2 = useGameStore((s) => s.m2);
+  const kneelAtInscription = useGameStore((s) => s.kneelAtInscription);
 
   const [hoveredAbilityId, setHoveredAbilityId] = useState<string | null>(null);
   const locale = useLocale();
@@ -1279,6 +1282,24 @@ export function TacticalActionRibbon() {
                   </button>
                 </div>
               )}
+
+              {scenario === "mission2" &&
+                m2 &&
+                !m2.knelt &&
+                selectedUnit?.id === "player-plachy" &&
+                selectedUnit.pos.x === 16 &&
+                selectedUnit.pos.y === 2 &&
+                selectedUnit.pos.z === 14 && (
+                  <button
+                    type="button"
+                    disabled={!hasAp}
+                    onClick={kneelAtInscription}
+                    aria-label={text("ui.ribbon.kneel.aria", undefined, locale)}
+                    className="h-10 px-3 rounded-lg border border-amber-300 bg-amber-500 text-stone-950 font-cinzel text-xs font-bold cursor-pointer disabled:opacity-35"
+                  >
+                    {text("ui.ribbon.kneel", undefined, locale)}
+                  </button>
+                )}
 
               <div className="w-px h-6 bg-amber-900/70 mx-0.5" />
 

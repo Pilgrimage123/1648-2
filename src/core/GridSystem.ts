@@ -540,6 +540,7 @@ export class GridSystem {
  * 3. Sever (z: 0..4, x: 0..23): Mlýnská stoka Čertovka s dřevěným přístavištěm a rybářskou pramicí (úniková zóna maršála).
  */
 export function createInitialGrid(): GridSystem {
+  setRoofMask(null);
   const grid = new GridSystem(GRID_WIDTH, GRID_DEPTH, GRID_FLOORS);
 
   // ===========================================================================
@@ -893,11 +894,24 @@ export function createInitialGrid(): GridSystem {
 }
 
 /**
+ * Mission maps that are not the Grand Priory install a predicate here.
+ * `createInitialGrid` clears it so the palace mask cannot leak across scenarios.
+ */
+let roofMask: ((x: number, y: number, z: number) => boolean) | null = null;
+
+export function setRoofMask(
+  fn: ((x: number, y: number, z: number) => boolean) | null,
+): void {
+  roofMask = fn;
+}
+
+/**
  * Určí, zda se daná pozice na mřížce nachází v zastřešeném interiéru Velkopřevorského paláce
  * nebo pod klenutým loubím zahradního belvederu.
  * V těchto krytých prostorách nikdy neprší a prach/popel se v nich objeví až po zahájení střelby či výbuchů.
  */
 export function isEnclosedRoofedCoord(x: number, y: number, z: number): boolean {
+  if (roofMask) return roofMask(x, y, z);
   // 1. Přízemí a Piano Nobile Velkopřevorského paláce mimo otevřené nádvoří (x: 10..13, z: 18..20)
   if (y <= 1 && x >= 1.5 && x <= 21.5 && z >= 15.5 && z <= 27.5) {
     const inOpenCourtyard = x >= 9.6 && x <= 13.4 && z >= 17.6 && z <= 20.4;
@@ -1088,6 +1102,117 @@ export const WEAPON_CATALOG: Record<string, WeaponStats> = {
     mobilityPenalty: 3,
     overwatchMode: "prepared_volley_cone",
   },
+  plachy_pistol: {
+    id: "plachy_pistol",
+    name: "Plachého kolečková pistole",
+    lockType: "wheellock",
+    minDamage: 6,
+    maxDamage: 9,
+    critBonusDamage: 4,
+    critBonusMaxDamage: 5,
+    baseCritChance: 15,
+    baseAccuracy: 60,
+    falloffPerTile: 5,
+    pointBlankRange: 4,
+    optimalRange: 5,
+    maxRange: 14,
+    armorPierce: 2,
+    armorShred: 1,
+    baseMisfireChance: 3,
+    supportsRestFork: false,
+    fireApCost: 1,
+    reloadApCost: 2,
+    mobilityPenalty: 0,
+    overwatchMode: "full_360",
+  },
+  havel_pistol: {
+    id: "havel_pistol",
+    name: "Řezníkova bambitka",
+    lockType: "wheellock",
+    minDamage: 4,
+    maxDamage: 6,
+    critBonusDamage: 2,
+    baseCritChance: 10,
+    baseAccuracy: 52,
+    falloffPerTile: 6,
+    pointBlankRange: 3,
+    optimalRange: 4,
+    maxRange: 10,
+    armorPierce: 1,
+    armorShred: 0,
+    baseMisfireChance: 5,
+    supportsRestFork: false,
+    fireApCost: 1,
+    reloadApCost: 2,
+    mobilityPenalty: 0,
+    overwatchMode: "full_360",
+  },
+  ondrej_pistol: {
+    id: "ondrej_pistol",
+    name: "Štěrbova bambitka",
+    lockType: "wheellock",
+    minDamage: 4,
+    maxDamage: 6,
+    critBonusDamage: 2,
+    baseCritChance: 12,
+    baseAccuracy: 58,
+    falloffPerTile: 5,
+    pointBlankRange: 3,
+    optimalRange: 5,
+    maxRange: 12,
+    armorPierce: 1,
+    armorShred: 0,
+    baseMisfireChance: 4,
+    supportsRestFork: false,
+    fireApCost: 1,
+    reloadApCost: 2,
+    mobilityPenalty: 0,
+    overwatchMode: "full_360",
+  },
+  harrier_pistol: {
+    id: "harrier_pistol",
+    name: "Harcovnická pistole",
+    lockType: "wheellock",
+    minDamage: 3,
+    maxDamage: 5,
+    critBonusDamage: 2,
+    baseCritChance: 8,
+    baseAccuracy: 50,
+    falloffPerTile: 6,
+    pointBlankRange: 3,
+    optimalRange: 5,
+    maxRange: 10,
+    armorPierce: 0,
+    armorShred: 0,
+    baseMisfireChance: 6,
+    supportsRestFork: false,
+    fireApCost: 1,
+    reloadApCost: 2,
+    mobilityPenalty: 0,
+    overwatchMode: "full_360",
+  },
+  occultist_pistol: {
+    id: "occultist_pistol",
+    name: "Okultistova pistole",
+    lockType: "wheellock",
+    minDamage: 4,
+    maxDamage: 6,
+    critBonusDamage: 2,
+    baseCritChance: 10,
+    baseAccuracy: 48,
+    falloffPerTile: 5,
+    pointBlankRange: 3,
+    optimalRange: 5,
+    maxRange: 12,
+    armorPierce: 0,
+    armorShred: 0,
+    baseMisfireChance: 5,
+    supportsRestFork: false,
+    fireApCost: 1,
+    reloadApCost: 2,
+    mobilityPenalty: 0,
+    overwatchMode: "full_360",
+  },
 };
 
 /**
@@ -1196,6 +1321,46 @@ export const MELEE_CATALOG: Record<string, MeleeWeaponStats> = {
     armorShred: 0,
     description:
       "Nouzový úder pažbou odlehčené švédské muškety M1624 v boji tělo na tělo (4–6 HP).",
+  },
+  butcher_cleaver: {
+    id: "butcher_cleaver",
+    name: "Řezníkův sekáček",
+    kind: "dagger",
+    minDamage: 5,
+    maxDamage: 7,
+    critBonusDamage: 3,
+    baseCritChance: 18,
+    baseAccuracy: 84,
+    armorPierce: 1,
+    armorShred: 1,
+    description:
+      "Těžký řeznický sekáček. Havel jím drží ústí brány, kudy harcovníci ještě dosáhnou.",
+  },
+  thief_knife: {
+    id: "thief_knife",
+    name: "Nůž na provazy",
+    kind: "dagger",
+    minDamage: 3,
+    maxDamage: 5,
+    critBonusDamage: 2,
+    baseCritChance: 16,
+    baseAccuracy: 88,
+    armorPierce: 1,
+    armorShred: 0,
+    description: "Krátký nůž, kterým Ondřej Štěrba řeže provazy a střechy.",
+  },
+  harrier_blade: {
+    id: "harrier_blade",
+    name: "Krátká čepel harcovníka",
+    kind: "dagger",
+    minDamage: 3,
+    maxDamage: 5,
+    critBonusDamage: 2,
+    baseCritChance: 12,
+    baseAccuracy: 80,
+    armorPierce: 0,
+    armorShred: 0,
+    description: "Lehká čepel bez kyrysu. Harcovník s ní nejezdí, běží.",
   },
 };
 

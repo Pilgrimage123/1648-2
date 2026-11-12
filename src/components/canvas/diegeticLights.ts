@@ -247,6 +247,43 @@ export const TORCHES: readonly FixtureDef[] = [
 
 export const FIXTURES: readonly FixtureDef[] = [...CANDELABRA, ...TORCHES];
 
+/** Three cressets on the bridge tower. Flames sit on the tile edge, not the center. */
+export const BRIDGE_TORCHES: readonly FixtureDef[] = [
+  {
+    id: "torch-tower-west-n",
+    kind: "torch",
+    coord: { x: 10, y: 0, z: 12 },
+    offset: [0.35, 1.7, -0.35],
+    color: TORCH_COLOR,
+    radius: 7.2,
+    intensity: 5.2,
+  },
+  {
+    id: "torch-tower-west-s",
+    kind: "torch",
+    coord: { x: 10, y: 0, z: 16 },
+    offset: [0.35, 1.7, 0.35],
+    color: TORCH_COLOR,
+    radius: 7.2,
+    intensity: 5.2,
+  },
+  {
+    id: "torch-tower-hall",
+    kind: "torch",
+    coord: { x: 12, y: 1, z: 12 },
+    offset: [0.35, 1.7, -0.35],
+    color: TORCH_COLOR,
+    radius: 6.4,
+    intensity: 4.4,
+  },
+];
+
+export function fixturesForScenario(
+  scenario: "mission1" | "mission2",
+): readonly FixtureDef[] {
+  return scenario === "mission2" ? BRIDGE_TORCHES : FIXTURES;
+}
+
 /** Bow lantern on the Čertovka skiff. Same yaw as the boat mesh. */
 export const SKIFF_YAW = 0.25;
 

@@ -16,7 +16,7 @@ import { CombatLines3D } from "./CombatLines3D";
 import {
   evaluateFixture,
   evaluateLantern,
-  FIXTURES,
+  fixturesForScenario,
   isFixtureDucked,
   matchcordCandidates,
   MAX_CANDELABRA_SLOTS,
@@ -25,6 +25,7 @@ import {
   selectSteadySlots,
   type PracticalSample,
 } from "./diegeticLights";
+import { BridgeTowerDressing } from "./BridgeTowerDressing";
 import { InstancedBattlefield } from "./InstancedBattlefield";
 import { RainParticles } from "./RainParticles";
 import { TacticalCamera } from "./TacticalCamera";
@@ -70,6 +71,7 @@ function DiegeticLightingRig({ weather }: { weather: WeatherType }) {
 
   const grid = useGameStore((s) => s.grid);
   const units = useGameStore((s) => s.units);
+  const scenario = useGameStore((s) => s.scenario);
   const blastZones = useGameStore((s) => s.blastZones);
   const lightFlashes = useGameStore((s) => s.lightFlashes);
   const activeFloor = useGameStore((s) => s.activeFloor);
@@ -88,7 +90,7 @@ function DiegeticLightingRig({ weather }: { weather: WeatherType }) {
     const duckedAt = (coord: { x: number; y: 0 | 1 | 2; z: number }) =>
       isFixtureDucked(coord, now, lightFlashes, blastZones);
 
-    const fixtures = FIXTURES.map((fixture) =>
+    const fixtures = fixturesForScenario(scenario).map((fixture) =>
       evaluateFixture(
         fixture,
         weather,
@@ -134,12 +136,12 @@ function DiegeticLightingRig({ weather }: { weather: WeatherType }) {
     const shaftOpacity =
       weather === "fog" ? 0 : weather === "rain" ? 0.016 : 0.042;
     if (beamCourtRef.current) {
-      beamCourtRef.current.visible = shaftOpacity > 0;
+      beamCourtRef.current.visible = scenario !== "mission2" && shaftOpacity > 0;
       (beamCourtRef.current.material as THREE.MeshBasicMaterial).opacity =
         shaftOpacity + Math.sin(t * 1.3) * 0.006;
     }
     if (beamGardenRef.current) {
-      beamGardenRef.current.visible = shaftOpacity > 0;
+      beamGardenRef.current.visible = scenario !== "mission2" && shaftOpacity > 0;
       (beamGardenRef.current.material as THREE.MeshBasicMaterial).opacity =
         shaftOpacity * 0.85 + Math.cos(t * 1.1) * 0.005;
     }
@@ -368,6 +370,7 @@ export function TacticalScene() {
 
         <TacticalCamera />
         <InstancedBattlefield />
+        <BridgeTowerDressing />
         <CombatLines3D />
 
         {units.map((unit) => (

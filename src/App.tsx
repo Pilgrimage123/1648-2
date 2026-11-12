@@ -21,6 +21,7 @@ import { TacticalActionRibbon } from "./components/ui/TacticalActionRibbon";
 import { TacticalAdvisorWidget } from "./components/ui/TacticalAdvisorWidget";
 import { InspectDossier } from "./components/ui/InspectDossier";
 import { TacticalUtilitiesCapsule } from "./components/ui/TacticalUtilitiesCapsule";
+import { TitleScreen } from "./components/ui/TitleScreen";
 import { TurnSplashBanner } from "./components/ui/TurnSplashBanner";
 import { TutorialOrderBanner } from "./components/ui/TutorialOrderBanner";
 import { perkCopy, text, unitName, useLocale } from "./i18n";
@@ -52,6 +53,12 @@ export default function App() {
   const isCapturingAnim = useGameStore((s) => s.isCapturingAnim);
   const round = useGameStore((s) => s.round);
   const resetGame = useGameStore((s) => s.resetGame);
+  const scenario = useGameStore((s) => s.scenario);
+  const m2 = useGameStore((s) => s.m2);
+  const oath = useGameStore((s) => s.oath);
+  const briefingOpen = useGameStore((s) => s.briefingOpen);
+  const openBriefing = useGameStore((s) => s.openBriefing);
+  const chooseOath = useGameStore((s) => s.chooseOath);
   const units = useGameStore((s) => s.units);
   const sacrificeDilemmaOpen = useGameStore((s) => s.sacrificeDilemmaOpen);
   const ironVigilPerk = useGameStore((s) => s.ironVigilPerk);
@@ -96,6 +103,7 @@ export default function App() {
       }
 
       const state = useGameStore.getState();
+      if (state.briefingOpen) return;
 
       // F: Přepnutí na celou obrazovku (Fullscreen) funguje kdykoliv
       if ((e.key === "f" || e.key === "F") && !e.ctrlKey && !e.metaKey) {
@@ -294,6 +302,21 @@ export default function App() {
     };
   }, []);
 
+  const havelLives = units.some(
+    (unit) => unit.id === "player-havel" && unit.alive && unit.hp > 0,
+  );
+  const ondrejLives = units.some(
+    (unit) => unit.id === "player-ondrej" && unit.alive && unit.hp > 0,
+  );
+
+  if (briefingOpen) {
+    return (
+      <main className="relative h-dvh w-screen overflow-x-hidden overflow-y-auto bg-[#0d0a08] text-amber-50 select-none">
+        <TitleScreen />
+      </main>
+    );
+  }
+
   return (
     <main className="relative w-screen h-dvh overflow-hidden bg-slate-950 select-none">
       {/* 1. Fullscreen 2.5D React Three Fiber Taktická scéna (100% plocha obrazovky) */}
@@ -474,7 +497,6 @@ export default function App() {
         </div>
       )}
 
-      {/* 5. Modální okno výsledku bitvy */}
       {outcome !== "ongoing" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4">
           <div className="max-w-xl w-full baroque-cartouche baroque-border rounded-2xl p-6 text-center shadow-[0_0_70px_rgba(0,0,0,0.95)] space-y-4 text-amber-50">
@@ -488,9 +510,11 @@ export default function App() {
             <div>
               <h2 className="font-cinzel text-2xl font-black uppercase tracking-wider text-amber-200">
                 {outcome === "victory"
-                  ? victoryReason === "boat_escape"
-                    ? text("ui.epilogue.boatTitle", undefined, locale)
-                    : text("ui.epilogue.wipeTitle", undefined, locale)
+                  ? scenario === "mission2"
+                    ? text("ui.epilogue.m2.title", undefined, locale)
+                    : victoryReason === "boat_escape"
+                      ? text("ui.epilogue.boatTitle", undefined, locale)
+                      : text("ui.epilogue.wipeTitle", undefined, locale)
                   : text("ui.epilogue.defeatTitle", undefined, locale)}
               </h2>
               <div className="font-cinzel text-xs uppercase tracking-widest text-amber-400 mt-1">
@@ -501,7 +525,65 @@ export default function App() {
             </div>
 
             <div className="font-literata text-sm text-amber-100/90 leading-relaxed text-left bg-black/60 p-4 rounded-xl border border-amber-900/60 space-y-3">
-              {outcome === "victory" ? (
+              {scenario === "mission2" ? (
+                outcome === "victory" ? (
+                  <>
+                    <p>{text("ui.epilogue.m2.body", undefined, locale)}</p>
+                    {oath ? (
+                      <p className="font-cinzel text-amber-300">
+                        {text("ui.oath.done", undefined, locale)}
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {havelLives && ondrejLives && (
+                          <button
+                            type="button"
+                            onClick={() => chooseOath("both")}
+                            className="px-3 py-1.5 rounded-lg bg-amber-500 text-stone-950 font-cinzel text-xs font-bold cursor-pointer"
+                          >
+                            {text("ui.oath.both", undefined, locale)}
+                          </button>
+                        )}
+                        {havelLives && (
+                          <button
+                            type="button"
+                            onClick={() => chooseOath("havel")}
+                            className="px-3 py-1.5 rounded-lg border border-amber-400 text-amber-100 font-cinzel text-xs cursor-pointer"
+                          >
+                            {text("ui.oath.havel", undefined, locale)}
+                          </button>
+                        )}
+                        {ondrejLives && (
+                          <button
+                            type="button"
+                            onClick={() => chooseOath("ondrej")}
+                            className="px-3 py-1.5 rounded-lg border border-amber-400 text-amber-100 font-cinzel text-xs cursor-pointer"
+                          >
+                            {text("ui.oath.ondrej", undefined, locale)}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => chooseOath("neither")}
+                          className="px-3 py-1.5 rounded-lg border border-amber-900 text-amber-200/80 font-cinzel text-xs cursor-pointer"
+                        >
+                          {text("ui.oath.neither", undefined, locale)}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <strong className="font-cinzel text-rose-300 block">
+                    {m2?.loss === "rite"
+                      ? text("ui.epilogue.m2.defeat.rite", undefined, locale)
+                      : m2?.loss === "windlass"
+                        ? text("ui.epilogue.m2.defeat.windlass", undefined, locale)
+                        : m2?.loss === "wiped"
+                          ? text("ui.epilogue.m2.defeat.wiped", undefined, locale)
+                          : text("ui.epilogue.m2.defeat.plachy", undefined, locale)}
+                  </strong>
+                )
+              ) : outcome === "victory" ? (
                 victoryReason === "boat_escape" ? (
                   <>
                     <div>
@@ -579,14 +661,23 @@ export default function App() {
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={resetGame}
-              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 border border-amber-300 text-stone-950 font-cinzel font-bold text-sm uppercase tracking-wider shadow-[0_4px_16px_rgba(245,158,11,0.5)] transition-colors cursor-pointer"
-            >
-              <RotateCcw className="w-4 h-4" />
-              <span>{text("ui.epilogue.again", undefined, locale)}</span>
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={resetGame}
+                className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 border border-amber-300 text-stone-950 font-cinzel font-bold text-sm uppercase tracking-wider shadow-[0_4px_16px_rgba(245,158,11,0.5)] transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>{text("ui.epilogue.again", undefined, locale)}</span>
+              </button>
+              <button
+                type="button"
+                onClick={openBriefing}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-amber-700 text-amber-100 font-cinzel text-sm cursor-pointer"
+              >
+                {text("ui.epilogue.m2.other", undefined, locale)}
+              </button>
+            </div>
           </div>
         </div>
       )}

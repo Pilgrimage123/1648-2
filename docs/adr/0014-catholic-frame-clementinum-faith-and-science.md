@@ -1,7 +1,7 @@
 # 0014. Catholic frame, the Clementinum base, and faith with science
 
 Date: 2026-11-12
-Status: Accepted
+Status: Accepted. Decision 5, and the reading that Father Jiří Plachý is not the player character, are superseded by ADR-0016.
 
 ## Context
 
@@ -15,10 +15,10 @@ Without that, a later reader can recast the Vigil as a neutral civic militia, a 
 2. The **Klementinum** is their base.
 3. The game is told from a **Catholic perspective**. Catholic faith is a real stake of the fiction, not costume.
 4. The work emphasizes **víra a věda** together: faith, Jesuit learning, and other science of the age. They support one another. The game does not stage a quarrel of faith against reason.
-5. Fighting **demons and occultists who came with the Swedes** stays an open question. It is not canon, not a faction, and not a combat rule until a later ADR accepts or rejects it. Until then, the enemy of record remains the Swedish assault and its historical aims (see *Švédské zajetí a výkupné*).
+5. Fighting **demons and occultists who came with the Swedes** stays an open question. It is not canon, not a faction, and not a combat rule until a later ADR accepts or rejects it. Until then, the enemy of record remains the Swedish assault and its historical aims (see *Švédské zajetí a výkupné*). Superseded by ADR-0016, which decides the Old Town Bridge Tower and makes Plachý the player character.
 
 ## Consequences
 
 - Recruitment, the Clementinum, and mission writing show a company of unlike people under Jesuit organization, not a single estate and not a cloistered order.
 - Scholarship and piety may share scenes later. Do not write them as opposites by default.
-- Do not add infernal or occult enemies, units, or missions on the strength of this note alone.
+- Do not add infernal or occult enemies, units, or missions on the strength of this note alone. ADR-0016 is the decision for the Old Town Bridge Tower. It does not paint every later Swedish force as infernal.

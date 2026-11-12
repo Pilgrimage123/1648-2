@@ -11,7 +11,7 @@ import type { GridCoord } from "../../core/types";
 import { useGameStore } from "../../store/useGameStore";
 import {
   evaluateFixture,
-  FIXTURES,
+  fixturesForScenario,
   isFixtureDucked,
   type FixtureState,
 } from "./diegeticLights";
@@ -151,7 +151,8 @@ export function PracticalFlames() {
   const grid = useGameStore((s) => s.grid);
   const weather = useGameStore((s) => s.weather);
   const activeFloor = useGameStore((s) => s.activeFloor);
-  const states: FixtureState[] = FIXTURES.map((fixture) =>
+  const scenario = useGameStore((s) => s.scenario);
+  const states: FixtureState[] = fixturesForScenario(scenario).map((fixture) =>
     evaluateFixture(
       fixture,
       weather,

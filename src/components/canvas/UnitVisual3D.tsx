@@ -26,6 +26,7 @@ interface UnitVisual3DProps {
   lockType?: FirearmLockType;
   weather?: WeatherType;
   roofed?: boolean;
+  unitId?: string;
 }
 
 export function MatchcordCoal({
@@ -95,24 +96,35 @@ export function UnitVisual3D({
   lockType,
   weather = "clear",
   roofed = false,
+  unitId,
 }: UnitVisual3DProps) {
   const cloakRef = useRef<THREE.Mesh>(null);
   const plumeRef = useRef<THREE.Group>(null);
   const bannerRef = useRef<THREE.Group>(null);
 
   const isPlayer = faction === "player";
+  const isPlachy = unitId === "player-plachy";
+  const isHavel = unitId === "player-havel";
+  const isHarrier = unitId?.startsWith("enemy-harrier") ?? false;
+  const isOccultist = unitId === "enemy-occultist";
   const coatColor =
     hitFlashIntensity > 0.05
       ? "#ef4444"
-      : isPlayer
-        ? archetype === "commander"
-          ? "#f8fafc" // White baroque nightshirt of Marshal Colloredo
-          : archetype === "sniper"
-            ? "#1e3a5f" // Clementinum indigo-slate coat
-            : "#b91c1c" // Rich Imperial Crimson Dragoon coat
-        : archetype === "sectoid"
-          ? "#1e3a8a" // Elite Carolean dark royal blue
-          : "#2563eb"; // Vivid Swedish royal blue
+      : isPlachy
+        ? "#1c1917"
+        : isHavel
+          ? "#6b3a2a"
+          : isHarrier
+            ? "#3f3f46"
+            : isPlayer
+              ? archetype === "commander"
+                ? "#f8fafc" // White baroque nightshirt of Marshal Colloredo
+                : archetype === "sniper"
+                  ? "#1e3a5f" // Clementinum indigo-slate coat
+                  : "#b91c1c" // Rich Imperial Crimson Dragoon coat
+              : archetype === "sectoid"
+                ? "#1e3a8a" // Elite Carolean dark royal blue
+                : "#2563eb"; // Vivid Swedish royal blue
 
   const accentColor =
     archetype === "commander"
@@ -179,11 +191,15 @@ export function UnitVisual3D({
           />
           <meshStandardMaterial
             color={
-              archetype === "ranger"
-                ? "#991b1b"
-                : archetype === "sniper"
-                  ? "#15253b"
-                  : "#172554"
+              isHavel
+                ? "#6b3a2a"
+                : isHarrier
+                  ? "#27272a"
+                  : archetype === "ranger"
+                    ? "#991b1b"
+                    : archetype === "sniper"
+                      ? "#15253b"
+                      : "#172554"
             }
             roughness={0.65}
             transparent={transparent}
@@ -214,7 +230,9 @@ export function UnitVisual3D({
       </mesh>
 
       {/* Steel Breastplate / Cuirass & Broad Pauldrons (Heavy Silhouette for Ranger & Sectoid) */}
-      {(archetype === "ranger" || archetype === "sectoid") && (
+      {(archetype === "ranger" || archetype === "sectoid") &&
+        !isHavel &&
+        !isHarrier && (
         <group>
           <mesh position={[0, 0.84, 0.04]} castShadow receiveShadow>
             <boxGeometry args={[0.48, 0.44, 0.29]} />
@@ -275,6 +293,20 @@ export function UnitVisual3D({
       {/* Hat / Helmet / Hair — Pulled Snugly Down Over the Head & Brow (y = 1.29) */}
       {isPlayer ? (
         archetype === "commander" ? (
+          isPlachy ? (
+            <>
+              <group position={[0, 1.32, 0]}>
+                <mesh castShadow>
+                  <boxGeometry args={[0.34, 0.1, 0.34]} />
+                  <meshStandardMaterial color="#1c1917" roughness={0.7} />
+                </mesh>
+              </group>
+              <mesh position={[0, 1.05, 0.08]} castShadow>
+                <torusGeometry args={[0.13, 0.028, 8, 16, Math.PI]} />
+                <meshStandardMaterial color="#94a3b8" metalness={0.75} roughness={0.3} />
+              </mesh>
+            </>
+          ) : (
           // Marshal Colloredo: Velvet nightcap + silver hair covering top & sides of head
           <group position={[0, 1.28, 0]}>
             {/* Silver Hair locks framing head */}
@@ -298,6 +330,7 @@ export function UnitVisual3D({
               />
             </mesh>
           </group>
+          )
         ) : (
           // Wide-Brimmed Baroque Cavalier Hat Pulled Down Over the Brow (y = 1.29)
           <group
@@ -391,6 +424,13 @@ export function UnitVisual3D({
               transparent={transparent}
               opacity={opacity}
             />
+          </mesh>
+        </group>
+      ) : isHarrier ? (
+        <group position={[0, 1.3, 0]}>
+          <mesh castShadow>
+            <sphereGeometry args={[0.2, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.55]} />
+            <meshStandardMaterial color="#3f3f46" roughness={0.8} />
           </mesh>
         </group>
       ) : (
@@ -494,18 +534,22 @@ export function UnitVisual3D({
               </mesh>
             </group>
           </group>
-          {/* Raised Left Hand Holding Lit Iron Grenade with Glowing Fuse */}
+          {/* Raised hand: occultist's censer, otherwise the grenade mesh recolored. */}
           <group position={[-0.34, 1.26, 0.16]}>
             <mesh castShadow>
-              <sphereGeometry args={[0.1, 10, 10]} />
-              <meshStandardMaterial color="#1e293b" roughness={0.4} metalness={0.7} />
+              <sphereGeometry args={[isOccultist ? 0.09 : 0.1, 10, 10]} />
+              <meshStandardMaterial
+                color={isOccultist ? "#b45309" : "#1e293b"}
+                roughness={0.45}
+                metalness={0.65}
+              />
             </mesh>
-            <mesh position={[0, 0.11, 0]}>
-              <sphereGeometry args={[0.045, 8, 8]} />
+            <mesh position={[0, isOccultist ? 0.02 : 0.11, 0]}>
+              <sphereGeometry args={[isOccultist ? 0.05 : 0.045, 8, 8]} />
               <meshStandardMaterial
                 color="#f97316"
                 emissive="#fb923c"
-                emissiveIntensity={2.2}
+                emissiveIntensity={isOccultist ? 1.4 : 2.2}
               />
             </mesh>
           </group>

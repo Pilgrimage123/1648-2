@@ -29,7 +29,7 @@ import type { FloorLevel } from "../../core/types";
 import { listLocales, setLocale, text, useLocale, type MessageId } from "../../i18n";
 import { useGameStore } from "../../store/useGameStore";
 
-const FLOOR_META: {
+const PALACE_FLOORS: {
   floor: FloorLevel;
   code: string;
   title: MessageId;
@@ -55,8 +55,31 @@ const FLOOR_META: {
   },
 ];
 
+const TOWER_FLOORS: typeof PALACE_FLOORS = [
+  {
+    floor: 2,
+    code: "P2",
+    title: "ui.floor.m2.2.title",
+    subtitle: "ui.floor.m2.2.sub",
+  },
+  {
+    floor: 1,
+    code: "P1",
+    title: "ui.floor.m2.1.title",
+    subtitle: "ui.floor.m2.1.sub",
+  },
+  {
+    floor: 0,
+    code: "P0",
+    title: "ui.floor.m2.0.title",
+    subtitle: "ui.floor.m2.0.sub",
+  },
+];
+
 export function TacticalUtilitiesCapsule() {
   const activeFloor = useGameStore((s) => s.activeFloor);
+  const scenario = useGameStore((s) => s.scenario);
+  const floorMeta = scenario === "mission2" ? TOWER_FLOORS : PALACE_FLOORS;
   const selectedUnitId = useGameStore((s) => s.selectedUnitId);
   const units = useGameStore((s) => s.units);
   const reachableTiles = useGameStore((s) => s.reachableTiles);
@@ -329,7 +352,7 @@ export function TacticalUtilitiesCapsule() {
           </div>
 
           <div className="flex flex-col gap-1">
-            {FLOOR_META.map(({ floor, code, title, subtitle }) => {
+            {floorMeta.map(({ floor, code, title, subtitle }) => {
               const isCurrentView = activeFloor === floor;
               const isSelectedUnitHere = selectedUnit?.pos.y === floor;
               const reachAp = floorReachability(floor);

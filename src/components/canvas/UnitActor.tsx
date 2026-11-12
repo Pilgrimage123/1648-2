@@ -789,6 +789,7 @@ export function UnitActor({ unit }: UnitActorProps) {
             lockType={unit.weapon.lockType}
             weather={weather}
             roofed={isEnclosedRoofedCoord(unit.pos.x, unit.pos.y, unit.pos.z)}
+            unitId={unit.id}
           />
         )}
       </group>

@@ -15,6 +15,7 @@ export function TurnSplashBanner() {
   const locale = useLocale();
   const turn = useGameStore((s) => s.turn);
   const round = useGameStore((s) => s.round);
+  const scenario = useGameStore((s) => s.scenario);
   const [visible, setVisible] = useState(false);
   const [bannerTurn, setBannerTurn] = useState(turn);
   const prevTurnRef = useRef(turn);
@@ -72,22 +73,36 @@ export function TurnSplashBanner() {
             isPlayer ? "baroque-gold" : "text-rose-200"
           }`}
         >
-          {text(isPlayer ? "ui.splash.player" : "ui.splash.enemy", undefined, locale)}
+          {text(
+            scenario === "mission2"
+              ? isPlayer
+                ? "ui.splash.m2.player"
+                : "ui.splash.m2.enemy"
+              : isPlayer
+                ? "ui.splash.player"
+                : "ui.splash.enemy",
+            undefined,
+            locale,
+          )}
         </h2>
 
         <div className="w-48 h-px bg-gradient-to-r from-transparent via-amber-500/60 to-transparent my-2" />
 
         <p className="font-literata italic text-xs text-amber-200/90 tracking-wide text-center px-4">
           {text(
-            isPlayer
-              ? round === 3
-                ? "ui.splash.player.r3"
-                : round === 4
-                  ? "ui.splash.player.r4"
-                  : round >= 5
-                    ? "ui.splash.player.r5"
-                    : "ui.splash.player.escort"
-              : "ui.splash.enemy.body",
+            scenario === "mission2"
+              ? isPlayer
+                ? "ui.splash.m2.player.body"
+                : "ui.splash.m2.enemy.body"
+              : isPlayer
+                ? round === 3
+                  ? "ui.splash.player.r3"
+                  : round === 4
+                    ? "ui.splash.player.r4"
+                    : round >= 5
+                      ? "ui.splash.player.r5"
+                      : "ui.splash.player.escort"
+                : "ui.splash.enemy.body",
             undefined,
             locale,
           )}

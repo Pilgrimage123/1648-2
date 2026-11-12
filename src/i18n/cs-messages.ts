@@ -653,9 +653,9 @@ export const csMessages = {
   "tutorial.keg": () => "Prachový sud (Odpálit!)",
   "tutorial.dock": () => "Rybářská pramice (Cíl)",
 
-  "ui.document.title": () => "Malá Strana 1648",
+  "ui.document.title": () => "Praha 1648",
   "ui.document.description": () =>
-    "Tahová taktická hra: noční únik Malou Stranou 26. července 1648. Doveďte maršála Colloreda k loďce.",
+    "Praha 1648: Víra v časech olova. Tahová taktická hra z 26. července 1648.",
   "ui.locale.switch": (p) => `Jazyk: ${p.names ?? ""}`,
   "ui.weather.rain": () => "Noční liják: -10 % k zásahu, doutnáky v dešti selhávají",
   "ui.weather.fog": () => "Ranní vltavská mlha: -10 % k zásahu",
@@ -723,6 +723,34 @@ export const csMessages = {
     `XCOM 2 Zteč zblízka: Pravým kliknutím okamžitý přesun (${p.count ?? 0} AP) spojený se seknutím (${ctx.melee(p.meleeId)}, +0 AP navíc)!`,
   "ui.smoke.title": () => "Kouř z černého prachu (−20 % k zásahu)",
   "ui.loss.armor": (p) => `−${p.shred ?? 0} ZBROJ`,
+
+  "log.m2.briefing.gate": () =>
+    "26. července 1648, ráno: Švédští harcovníci běží po holém pískovci Karlova mostu ke Staroměstské mostecké věži.",
+  "log.m2.briefing.ward": () =>
+    "Stráž věže je drží na prahu. Jeden okultista jde za nimi rozvázat svorník. Spusťte mříž, dokud stráž drží.",
+  "log.m2.inscription": () =>
+    "Pod střechou je palindrom: Signate, signa, temere me tangis et angis. Pokleknutí stojí 1 AP a přidá obřadu jedno kolo.",
+  "log.m2.kneel": () =>
+    "Jiří Plachý klečí u nápisu. Obřad na svorníku teď potřebuje ještě jedno nepřerušené kolo.",
+  "log.m2.victory": () =>
+    "Železná mříž dosedla, dokud stráž věže držela. Kdo zůstal za železem, zůstane za ním.",
+  "log.m2.loss.rite": () =>
+    "Okultista dokončil obřad na svorníku dřív, než mříž dosedla. Stráž věže padla.",
+  "log.m2.loss.plachy": () =>
+    "Jiří Plachý padl. Bez něj se mříž nespustí a věž se neudrží.",
+  "log.m2.loss.wiped": () => "Všichni obránci věže padli.",
+  "log.m2.loss.windlass": () =>
+    "Rumpál je rozstřílen dřív, než mříž dosedla. Průjezd zůstane otevřený.",
+  "log.m2.windlassShot": (p, ctx) =>
+    p.hit
+      ? `${ctx.unit(p.unitId, "nom")} trefuje rumpál (${p.damage ?? 0} HP, zbývá ${p.hp ?? 0}).`
+      : `${ctx.unit(p.unitId, "nom")} míjí rumpál.`,
+  "log.m2.oath.accept": (p, ctx) =>
+    `${ctx.unit(p.unitId, "nom")} přijímá přísahu krve a železa.`,
+  "log.m2.oath.refuse": (p, ctx) =>
+    `${ctx.unit(p.unitId, "nom")} přísahu odmítá. Jeho jméno zůstává.`,
+  "log.m2.oath.fallen": (p, ctx) =>
+    `${ctx.unit(p.unitId, "nom")} se přísahy nedožil.`,
 } satisfies Record<string, MessageFn>;
 
 export type MessageId = keyof typeof csMessages;

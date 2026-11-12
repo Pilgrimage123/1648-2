@@ -1620,6 +1620,8 @@ export interface EnemyAiDecision {
   targetId: string | null;
   doorToOpen?: GridCoord | null;
   isCaptureAction?: boolean;
+  /** Mission 2: no person in sight, so the shot goes into the windlass. */
+  strikeWindlass?: boolean;
 }
 
 /**

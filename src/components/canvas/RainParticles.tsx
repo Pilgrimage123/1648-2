@@ -24,7 +24,7 @@ import { useGameStore } from "../../store/useGameStore";
 import {
   evaluateFixture,
   evaluateLantern,
-  FIXTURES,
+  fixturesForScenario,
   isFixtureDucked,
   matchcordCandidates,
   rainGlintStrength,
@@ -155,7 +155,8 @@ export function RainParticles() {
     const nowMs = performance.now();
 
     const escape = getMission1EscapeTile(grid);
-    const litTorches = FIXTURES.filter((fixture) => fixture.kind === "torch")
+    const scenario = useGameStore.getState().scenario;
+    const litTorches = fixturesForScenario(scenario).filter((fixture) => fixture.kind === "torch")
       .map((fixture) =>
         evaluateFixture(
           fixture,

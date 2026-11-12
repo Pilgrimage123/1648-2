@@ -78,6 +78,7 @@ export function getNeighbors(
   current: GridCoord,
   units: UnitData[],
   movingUnitId?: string,
+  allow?: (coord: GridCoord) => boolean,
 ): { coord: GridCoord; stepCost: number }[] {
   const results: { coord: GridCoord; stepCost: number }[] = [];
   const seenKeys = new Set<string>();
@@ -86,6 +87,7 @@ export function getNeighbors(
   const allowClosedDoors = !!movingUnitId;
 
   const pushNeighbor = (coord: GridCoord, stepCost: number) => {
+    if (allow && !allow(coord)) return;
     const key = coordKey(coord);
     if (seenKeys.has(key)) return;
     seenKeys.add(key);
@@ -178,8 +180,10 @@ export function findPathAStar(
   goal: GridCoord,
   units: UnitData[],
   movingUnitId?: string,
+  allow?: (coord: GridCoord) => boolean,
 ): GridCoord[] {
   if (sameCoord(start, goal)) return [];
+  if (allow && !allow(goal)) return [];
   const allowClosedDoors = !!movingUnitId;
   const goalTile = grid.getTile(goal);
   if (!isTilePassableForUnit(grid, goalTile, allowClosedDoors)) return [];
@@ -229,6 +233,7 @@ export function findPathAStar(
       currentNode.coord,
       units,
       movingUnitId,
+      allow,
     );
     for (const { coord: nextCoord, stepCost } of neighbors) {
       const nextKey = coordKey(nextCoord);
@@ -271,6 +276,7 @@ export function computeReachableTiles(
   grid: GridSystem,
   unit: UnitData,
   units: UnitData[],
+  allow?: (coord: GridCoord) => boolean,
 ): Map<string, ReachableTile> {
   const result = new Map<string, ReachableTile>();
   if (!unit.alive || unit.ap <= 0) return result;
@@ -308,7 +314,7 @@ export function computeReachableTiles(
 
     if (current.steps >= maxSteps) continue;
 
-    const neighbors = getNeighbors(grid, current.coord, units, unit.id);
+    const neighbors = getNeighbors(grid, current.coord, units, unit.id, allow);
     for (const { coord: nextCoord, stepCost } of neighbors) {
       const nextSteps = current.steps + stepCost;
       if (nextSteps > maxSteps) continue;

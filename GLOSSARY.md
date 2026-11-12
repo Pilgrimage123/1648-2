@@ -1,6 +1,6 @@
 # Malá Strana 1648
 
-Turn-based tactical strategy in the spirit of XCOM 2, set in Prague in 1648 during the Swedish assault. The player commands the Železná vigilie, an elite company drawn from different parts of society and organized by the Jesuit Father Jiří Plachý, with the Clementinum as its base. The work is told from a Catholic perspective and holds faith together with Jesuit learning and the other science of the age (ADR-0014). The playable battlefield so far is the night of July 26 on Malá Strana: a multi-floor 3D grid, hot-swappable 2D billboard sprites (casting 3D shadows) and 3D models, and a 17th-century XCOM-2 Aiming HUD and Shot Breakdown.
+Turn-based tactical strategy in the spirit of XCOM 2, set in Prague in 1648 during the Swedish assault. The player plays the Jesuit Father Jiří Plachý and through him commands the Železná vigilie, an elite company drawn from different parts of society, with the Clementinum as its base. The work is told from a Catholic perspective and holds faith together with Jesuit learning and the other science of the age (ADR-0014, ADR-0016). The playable battlefield so far is the night of July 26 on Malá Strana: a multi-floor 3D grid, hot-swappable 2D billboard sprites (casting 3D shadows) and 3D models, and a 17th-century XCOM-2 Aiming HUD and Shot Breakdown.
 
 ## Language
 
@@ -222,15 +222,15 @@ The probability (`0–100%`) that a 17th-century firearm fails to discharge due 
 **Armor Cuirass & Pierce/Shred** (*Kyrys, Průraz a Zničení zbroje*):
 Armor points (`armor / maxArmor`) worn by 17th-century soldiers (cuirass, morion helmet) that absorb incoming damage unless bypassed by the weapon's `armorPierce` or permanently destroyed by `armorShred`. Armor also reduces incoming critical hit chance by `-8%` per armor point.
 
-### The Iron Vigil and the Clementinum (ADR-0014)
+### The Iron Vigil and the Clementinum (ADR-0014, ADR-0016)
 
 **Železná vigilie** (*The Iron Vigil / Fidelitas Ferrea*):
 The elite company the player commands in Prague in 1648. Jesuit Father Jiří Plachý organizes it from the Clementinum, drawing individuals from different parts of society — university students, seasoned veterans, burghers, artisans, and fighters from Prague's underworld — and binding them by a blood-and-iron oath to hold the Old Town Bridge Tower and Charles Bridge.
 _Avoid_: Jesuit militia, student guard, holy order, mercenary band
 
 **Jiří Plachý**:
-The Jesuit who organizes the Iron Vigil and inducts its members at the Clementinum. He is not the player character.
-_Avoid_: Commander, Central, player avatar
+The Jesuit the player plays. He organizes the Iron Vigil from the Clementinum, inducts its members, and fights with it. If he falls, the mission he is in is lost.
+_Avoid_: Commander, Central, off-screen organizer
 
 **Klementinum** (*Clementinum*):
 The Jesuit college in Prague's Old Town, and the base of the Iron Vigil.
@@ -264,6 +264,59 @@ The tactical presence of Bohemia's supreme commander granting a +8% marksmanship
 
 **Prachový sud** (*Explosive Powder Keg*):
 Destructible black-powder storage barrels placed on the battlefield that explode in a 3×3 radius (5 damage, 2 armor shred, and thick smoke) when struck by heavy shots, petards, or secondary blast waves.
+
+### Mission 2: The Portcullis (Mise 2: Mříž) (ADR-0016)
+
+**Mise 2: Mříž** (*The Portcullis*):
+The defense of the Old Town Bridge Tower on the morning of 26 July 1648. Father Jiří Plachý comes from a vision of St Vitus and St Wenceslas on that tower and fights it with Havel Řezáč and Ondřej Štěrba. No one from Mission 1 is on the field.
+_Avoid_: Mission 1 roster, Colloredo's escort
+
+**Havel Řezáč**:
+A butcher's journeyman with a cleaver and an apron. He holds the last tiles of the gate mouth that harriers may still reach, and his body blocks the stair. The alarm caught him on the square. He is not yet sworn to the Iron Vigil.
+_Avoid_: Mission 1 companion
+
+**Ondřej Štěrba**:
+A thief of ropes and roofs. He releases the windlass faster than anyone else on the tower. The alarm caught him on the square. He is not yet sworn to the Iron Vigil.
+_Avoid_: Mission 1 companion
+
+**Patra mostecké věže** (*Floors of the Bridge Tower*):
+Three floors, `y = 0 | 1 | 2`. Ground is the passage, the Threshold, the near bridge, and Křižovnické náměstí. The middle floor is the windlass chamber, one stair, and the loopholes over the bridge. The gallery under the roof holds the statues of St Vitus, St Wenceslas, and St Sigismund, and the inscription *Signa te, signa…*. West is the bridge. East is the square. There are no side streets, no cellar, and no fourth floor. At the start the harriers are on the bridge and the tower is still held. Rain from the night of Mission 1 still falls on the open bridge. The stair and the windlass chamber are roofed and dry.
+
+**Ochrana věže** (*Tower Ward*):
+The holy hold on the Old Town Bridge Tower. While it holds, Swedish harriers cannot enter the tower or Křižovnické náměstí. Father Plachý names it grace. The Swedish occultist treats it as a formula he alone can undo.
+_Avoid_: Spell slot, magic item, activated trap
+
+**Práh** (*Threshold*):
+The outer line of the Tower Ward, on the bridge side of the gate. Harriers stop on it and may shoot across it. The occultist's rite is done on its keystone, on the bridge side.
+_Avoid_: Trigger volume, hitbox
+
+**Harcovník** (*Swedish Harrier*):
+A demonic Swedish skirmisher on foot, without a horse, inhumanly fast, with few hit points, no cuirass, and a short blade. He covers the playable bridge in one action and stands on the Threshold in the first enemy turn.
+_Avoid_: Cavalry, horse, ordinary musketeer
+
+**Švédský okultista** (*Swedish Occultist*):
+The one man who can unbind the Tower Ward. He walks slowly, several turns behind the harriers. His silhouette is the sectoid: mitre low on the brow, back-banner, censer, and parchment seals. He is not Arnošt Odowalsky. Father Plachý wears a black mantle, a biretta low on the brow, and the iron gorget, and he does not carry a censer.
+_Avoid_: Demon prince, second occultist, Odowalsky
+
+**Obřad** (*Unbinding Rite*):
+Three uninterrupted turns by the Swedish occultist on the keystone. A hit, or being forced off that tile, resets the count. His death ends the rite for the mission.
+
+**Naviják** (*Windlass*):
+The rope housing on `y = 1` that seats the portcullis. Ondřej Štěrba releases it in one uninterrupted turn standing there. Any other living defender needs two. A hit during a counting turn breaks that count. Destroying the windlass before the rope is released loses the mission.
+
+**Pokleknutí u nápisu** (*Kneeling at the Inscription*):
+Once in the mission, Father Plachý spends 1 AP to kneel at the inscription on `y = 2`. The ward then requires one more turn of the rite. It is a tile, not a ribbon ability.
+
+**Mříž** (*Portcullis*):
+The iron grate over the passage. Seating it while the Tower Ward still holds wins the morning. The occultist is then dead or shut on the bridge. Harriers left beyond the iron are not cleared.
+_Avoid_: Spell barrier, magic gate, bridge cleanup
+
+**Prohra Mříže** (*Loss of the Portcullis*):
+The rite finishes before the grate seats, or Father Plachý falls, or every defender falls, or the windlass is destroyed before release. A fallen ward ends the mission at once.
+_Avoid_: Second phase, interior mop-up
+
+**Přísaha po Mříži** (*Oath after the Tower*):
+In the Clementinum afterwards, Plachý offers the blood-and-iron oath to Havel Řezáč and Ondřej Štěrba if they live. The player accepts both, either, or neither. Refusal leaves the man named. Death enters the chronicle. Plachý receives oaths. He does not swear as a novice.
 
 ### Baroque Art Direction, Environmental Biomes & Ballistics (ADR-0007)
 

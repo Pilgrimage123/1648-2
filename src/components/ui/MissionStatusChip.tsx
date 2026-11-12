@@ -36,6 +36,8 @@ export function MissionStatusChip() {
   const cycleWeather = useGameStore((s) => s.cycleWeather);
   const reinforcementsSpawned = useGameStore((s) => s.reinforcementsSpawned);
   const reinforcementRound = useGameStore((s) => s.reinforcementRound);
+  const scenario = useGameStore((s) => s.scenario);
+  const m2 = useGameStore((s) => s.m2);
 
   const [collapsed, setCollapsed] = useState(false);
   const { dragStyle, onPointerDown, hasMoved, resetOffset } = useDraggableHud();
@@ -114,7 +116,39 @@ export function MissionStatusChip() {
 
       {!collapsed && (
         <div className="flex items-center gap-2 text-[11px] text-amber-100/90 whitespace-nowrap tabular-nums pl-2 border-l border-amber-900/70">
-          {/* Cíl mise: Pramice / Zadržení maršála */}
+          {scenario === "mission2" && m2 ? (
+            <>
+              <span className="font-literata">
+                {text(
+                  "ui.mission.rite",
+                  { progress: m2.riteProgress, required: m2.riteRequired },
+                  locale,
+                )}
+              </span>
+              <span className="text-amber-500/60" aria-hidden="true">
+                ·
+              </span>
+              <span className="font-literata">
+                {m2.seated
+                  ? text("ui.epilogue.m2.title", undefined, locale)
+                  : text(
+                      "ui.mission.windlass",
+                      {
+                        progress: m2.windlassProgress,
+                        required: m2.windlassWorkerId === "player-ondrej" ? 1 : 2,
+                      },
+                      locale,
+                    )}
+              </span>
+              <span className="text-amber-500/60" aria-hidden="true">
+                ·
+              </span>
+              <span className="font-literata">
+                {text("ui.mission.windlassHp", { hp: m2.windlassHp }, locale)}
+              </span>
+            </>
+          ) : (
+          <>
           <span
             title={
               isDetained
@@ -169,6 +203,8 @@ export function MissionStatusChip() {
               </>
             )}
           </span>
+          </>
+          )}
 
           <span className="text-amber-500/60" aria-hidden="true">
             ·
