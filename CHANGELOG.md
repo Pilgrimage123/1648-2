@@ -2,7 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] - 2026-11-11
+## [Unreleased] - 2026-11-12
+
+### Added
+- **Kampaň & Mise 2: Staroměstská mostecká věž a obrana Karlova mostu (ADR-0016, ADR-0017, `src/core/mission2.ts`)**:
+  - **Titulní obrazovka kampaně (`TitleScreen.tsx`)**: Barokní rozcestník s historickým zasazením švédského obležení Prahy, výběrem mise (Mise 1: Útěk z Velkopřevorského paláce, Mise 2: Obrana Staroměstské mostecké věže), audio-vizuální atmosférou a plynulým startem.
+  - **Spuštění padací mříže & Přetínání lan (`cable_winch`, `cable_severing`)**: Taktická mechanika přetnutí zvedacích lan kované mříže pro zatarasení vstupu do Starého Města před postupujícími švédskými kolonami.
+  - **Smolné nosy & Vertikální obrana věže (`machicolation`)**: Otvory v podlaze ochozu věže umožňující shazování smolných věnců a kamení přímo na švédské jednotky na mostovce pod věží.
+  - **Družina Klementina & Pater Jiří Plachý (`plachy_command`)**: Nové jednotky obránců (jezuitští učenci, studenti, městská milice) s unikátními velitelskými a obrannými schopnostmi.
+  - **Gotická architektura Karlova mostu (`BridgeTowerDressing.tsx`)**: Pískovcové zdivo věže, mostní pilíře, cimbuří, zábrany a koryto Vltavy.
+  - **Testovací pokrytí**: Komplexní testovací sada `scripts/test-mission2.ts`.
+
+- **Diegetické praktické osvětlení & Zrcadlení Vltavy (ADR-0015, ADR-0018, `diegeticLights.ts`, `PracticalFlames.tsx`)**:
+  - **Praktická barokní světla (`diegeticLights.ts`)**: Bodová světla fyzicky vycházející z viditelných pochodní, luceren, votivních svící a smolných košů.
+  - **Animované plameny a jiskry (`PracticalFlames.tsx`)**: Procedurální billboard spritové plameny s turbulencí a pulzující intenzitou synchronizovanou se světlem.
+  - **Nebeské osvětlení a zrcadlení Vltavy (`TacticalScene.tsx`)**: Ranní svit vrhající dlouhé chiaroscuro stíny přes Karlův most a spekulární odlesky na vlnící se hladině Vltavy.
+  - **Testovací pokrytí**: Specializovaná testovací sada `scripts/test-diegetic-lights.ts`.
+
+- **Skriptovaný výcvik ve stylu XCOM 2 (ADR-0013, `GuidedTutorialSystem.ts`, `TutorialOrderBanner.tsx`)**:
+  - **9 scénických mikrokroků onboardingové mise**: Postupné a pevně vedené provázení od pohybu Jana Matěje za balustrádu ložnice v Piano Nobile, přesuna maršála Colloreda, výškové křídlení Václava z Michalovic, fázové nabíjení po 1 AP, až po odpal prachového sudu petardou a doražení ztečí kordem na PKM.
+  - **Horní filmový rozkazový pruh (`TutorialOrderBanner.tsx`)**: Barokní kartuše s portrétem rádce, hodností, imperativními rozkazy a rozbalitelnými taktickými radami.
+  - **Vstupní maska (Input Guard)**: Zamezení fatálním chybám začátečníků na volném terénu s živými diegetickými reakcemi rádců.
+  - **In-World 3D majáky**: Směrové světelné kužely a piktogramy na cílových polích krytů, terčů, sudů a únikové pramice.
+  - **Zkratka pro veterány**: Okamžité přeskočení výcviku klávesou `[Shift+H]` nebo tlačítkem v banneru.
+  - **Testovací pokrytí**: Testovací sada `scripts/test-guided-tutorial.ts`.
+
+- **Český lokalizační systém & Pádové skloňování (ADR-0001, `src/i18n/`)**:
+  - **Strukturovaný bezodpadový i18n modul**: `cs-lexicon.ts`, `cs-messages.ts`, `cs-ui.ts`, `grammar.ts`, `runtime.ts`.
+  - **Gramatické pádové skloňování**: Korektní skloňování podstatných jmen (nominativ, akuzativ, genitiv, lokál, instrumentál) pro jednotky, zbraně i překážky.
+  - **Testovací pokrytí**: Testovací sada `scripts/test-i18n.ts`.
+
+## [1.0.0] - 2026-11-11
 
 ### Added
 - **Poslední vzepětí (Death Throes) & Prahy záporného zdraví (ADR-0012)**:
