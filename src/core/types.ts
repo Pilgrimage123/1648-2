@@ -293,6 +293,11 @@ export interface ActiveLightFlash {
   id: number;
   kind: "blast" | "muzzle";
   coord: GridCoord;
+  /**
+   * World origin when the flash is not the tile center.
+   * A muzzle sits on the barrel tip. A misfire sits on the pan.
+   */
+  world?: { x: number; y: number; z: number };
   color: string;
   intensity: number;
   radius: number;

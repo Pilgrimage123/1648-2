@@ -26,7 +26,7 @@ Stávající implementace kouře, prachu a explozí v projektu vykazovala někol
   3. *Žhavé jiskry a popílek*: Vznášející se částice z detonací a hořících doutnáků (`#ea580c` a `#f97316`).
 
 ### 2. Fond dynamických záblesků (Dynamic Light Flash Pool) & Chiaroscuro rozptyl
-- **Hardwarově bezpečný rozpočet světel**: Maximálně **2 současná explozivní světla** (rádius 12 m, útlum `decay: 2`, doba 450–600 ms, barva `#f97316`) a **1 světlo záblesku hlavně** (rádius 6 m, doba 120 ms, barva `#fde047`) spravovaná FIFO frontou.
+- **Hardwarově bezpečný rozpočet světel**: Maximálně **2 současná explozivní světla** (rádius 12 m, útlum `decay: 2`, doba 450–600 ms, barva `#f97316`) a **1 světlo záblesku hlavně** (rádius 6 m, doba 120 ms, barva `#fde047`) spravovaná FIFO frontou. Where that muzzle light sits, and which steady flames may burn beside it, is decided in ADR-0015. The smoke, dust, and rain rules below stay in force.
 - **Injekce uniforem pro vnitřní rozptyl**: Souřadnice a intenzita aktivních záblesků jsou předávány přímo do shaderu `CombatAtmosphereField`. Částice kouře v dosahu světla dynamicky zvyšují svou emisivitu (zářící žhavé jádro a prosvícené okraje), což vytváří dojem hlubokého barokního šerosvitu bez drahého raymarchingu.
 - **Ochrana čitelnosti mřížky (Pillary 1 a 2)**: Opacita přízemního kouře je kalibrována tak, aby taktické zóny pohybu (`1 AP Modrá`, `2 AP Zlatá`) zůstaly 100% čitelné.
 

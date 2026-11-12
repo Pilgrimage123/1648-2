@@ -270,6 +270,10 @@ Destructible black-powder storage barrels placed on the battlefield that explode
 **Barokní šerosvit** (*Chiaroscuro Lighting*):
 The Caravaggio/Rembrandt lighting hierarchy contrasting the brightly illuminated playable mid-ground (golden God-rays, warm torchlight) against deeply shadowed non-playable map borders and foreground vignettes.
 
+**Praktické světlo** (*Practical Light*):
+Illumination that begins at a visible flame or flash — a beeswax candelabrum in Colloredo's house, a wrought-iron torch, the skiff lantern, a burning matchcord, or a muzzle flash — and falls off with distance. Rain gutters flames that stand in the open. Candles under the palace roof keep their strength. A wheellock stays dark until it fires.
+_Avoid_: Ambient fill, orphan point light, global sun
+
 **Pravidlo barev 60-30-10** (*60-30-10 Color Rule*):
 The strict color allocation across the scene: 60% desaturated calm ground & atmosphere (slate, mud, ash, warm muted limestone parquet), 30% secondary architectural structures (weathered sandstone, palace stucco, dark timber rafters), and 10% saturated tactical/heraldic accents (royal gold, scarlet crimson, cobalt blue, warm torch orange) restricted exclusively to units, active cover, explosive hazards, and objectives.
 

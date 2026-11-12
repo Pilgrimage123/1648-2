@@ -1,73 +1,170 @@
 /**
  * Top-Level R3F Tactical 3D Scene (/src/components/canvas/TacticalScene.tsx).
- * Implements Pillar 1 (Baroque Chiaroscuro / Caravaggio-Rembrandt Lighting) & Pillar 4 (Living Battlefield):
- * - Strong contrast of warm golden-amber light in the playable mid-ground against deep slate shadow at map edges.
- * - Volumetric light shafts (god-rays) piercing through the battlefield smoke.
- * - Real-time flickering torch & altar point lights.
+ * Baroque chiaroscuro (ADR-0007, ADR-0015): a cool low moon, and warm light
+ * only from a visible flame — candelabra, torches, the skiff lantern, a
+ * matchcord, or a muzzle flash.
  */
 
 import { Canvas, useFrame } from "@react-three/fiber";
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import * as THREE from "three";
+import { getMission1EscapeTile } from "../../core/GridSystem";
 import type { WeatherType } from "../../core/types";
 import { useGameStore } from "../../store/useGameStore";
 import { CombatAtmosphereField } from "./CombatAtmosphereField";
 import { CombatLines3D } from "./CombatLines3D";
+import {
+  evaluateFixture,
+  evaluateLantern,
+  FIXTURES,
+  isFixtureDucked,
+  matchcordCandidates,
+  MAX_CANDELABRA_SLOTS,
+  MAX_MATCHCORD_SLOTS,
+  MAX_TORCH_SLOTS,
+  selectSteadySlots,
+  type PracticalSample,
+} from "./diegeticLights";
 import { InstancedBattlefield } from "./InstancedBattlefield";
 import { RainParticles } from "./RainParticles";
 import { TacticalCamera } from "./TacticalCamera";
 import { UnitActor } from "./UnitActor";
-import { gridToWorld } from "./worldCoords";
+import { continuousGridToWorld, gridToWorld } from "./worldCoords";
 
-function ChiaroscuroLightingRig({ weather }: { weather: WeatherType }) {
-  const torch1Ref = useRef<THREE.PointLight>(null);
-  const torch2Ref = useRef<THREE.PointLight>(null);
-  const torch3Ref = useRef<THREE.PointLight>(null);
-  const beam1Ref = useRef<THREE.Mesh>(null);
-  const beam2Ref = useRef<THREE.Mesh>(null);
+function assignSlot(
+  light: THREE.PointLight | null,
+  sample: PracticalSample | undefined,
+  t: number,
+  weather: WeatherType,
+) {
+  if (!light) return;
+  if (!sample || sample.intensity <= 0.01) {
+    light.visible = false;
+    return;
+  }
+  const speed =
+    sample.kind === "candelabrum" ? 4.2 : sample.kind === "matchcord" ? 11 : 8.4;
+  const amp =
+    sample.kind === "matchcord" && weather === "rain" && sample.exposed
+      ? 0.42
+      : sample.exposed && weather === "rain"
+        ? 0.26
+        : sample.kind === "candelabrum"
+          ? 0.07
+          : 0.13;
+  const phase = sample.position.x * 0.7 + sample.position.z;
+  const wave = Math.sin(t * speed + phase);
+  light.visible = true;
+  light.color.set(sample.color);
+  light.intensity = sample.intensity * (1 + wave * amp);
+  light.distance = sample.radius;
+  light.position.set(sample.position.x, sample.position.y, sample.position.z);
+}
 
-  useFrame(({ clock }) => {
+function DiegeticLightingRig({ weather }: { weather: WeatherType }) {
+  const candleRefs = useRef<(THREE.PointLight | null)[]>([]);
+  const torchRefs = useRef<(THREE.PointLight | null)[]>([]);
+  const cordRefs = useRef<(THREE.PointLight | null)[]>([]);
+  const beamCourtRef = useRef<THREE.Mesh>(null);
+  const beamGardenRef = useRef<THREE.Mesh>(null);
+
+  const grid = useGameStore((s) => s.grid);
+  const units = useGameStore((s) => s.units);
+  const blastZones = useGameStore((s) => s.blastZones);
+  const lightFlashes = useGameStore((s) => s.lightFlashes);
+  const activeFloor = useGameStore((s) => s.activeFloor);
+  const fogOfWarEnabled = useGameStore((s) => s.fogOfWarEnabled);
+  const fogSnapshot = useGameStore((s) => s.fogSnapshot);
+
+  const courtBeam = useMemo(() => continuousGridToWorld(11.5, 0, 19), []);
+  const gardenBeam = useMemo(() => continuousGridToWorld(11, 0, 8), []);
+
+  useFrame(({ clock, camera }) => {
     const t = clock.getElapsedTime();
-    if (torch1Ref.current) {
-      torch1Ref.current.intensity =
-        8.5 + Math.sin(t * 7.3) * 1.4 + Math.cos(t * 13.1) * 0.8;
+    const now = performance.now();
+    const escape = getMission1EscapeTile(grid);
+    const damageAt = (coord: { x: number; y: 0 | 1 | 2; z: number }) =>
+      grid.getTile(coord)?.damageLevel ?? 0;
+    const duckedAt = (coord: { x: number; y: 0 | 1 | 2; z: number }) =>
+      isFixtureDucked(coord, now, lightFlashes, blastZones);
+
+    const fixtures = FIXTURES.map((fixture) =>
+      evaluateFixture(
+        fixture,
+        weather,
+        damageAt(fixture.coord),
+        duckedAt(fixture.coord),
+      ),
+    );
+    const lantern = evaluateLantern(
+      escape ? escape.coord : null,
+      weather,
+      escape ? damageAt(escape.coord) : 0,
+      escape ? duckedAt(escape.coord) : false,
+    );
+    const cords = matchcordCandidates(
+      units,
+      fogOfWarEnabled,
+      fogSnapshot.visibleEnemyIds,
+      fogSnapshot.soundContacts,
+    );
+    const slots = selectSteadySlots(
+      [...fixtures, lantern],
+      cords,
+      { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+      activeFloor,
+      weather,
+    );
+    const candles = slots.filter((slot) => slot.kind === "candelabrum");
+    const torches = slots.filter(
+      (slot) => slot.kind === "torch" || slot.kind === "lantern",
+    );
+    const matchcords = slots.filter((slot) => slot.kind === "matchcord");
+
+    for (let i = 0; i < MAX_CANDELABRA_SLOTS; i++) {
+      assignSlot(candleRefs.current[i] ?? null, candles[i], t, weather);
     }
-    if (torch2Ref.current) {
-      torch2Ref.current.intensity =
-        8.5 + Math.cos(t * 6.7 + 1.2) * 1.5 + Math.sin(t * 15.4) * 0.7;
+    for (let i = 0; i < MAX_TORCH_SLOTS; i++) {
+      assignSlot(torchRefs.current[i] ?? null, torches[i], t, weather);
     }
-    if (torch3Ref.current) {
-      torch3Ref.current.intensity =
-        7.2 + Math.sin(t * 8.9 + 2.4) * 1.3 + Math.cos(t * 11.8) * 0.6;
+    for (let i = 0; i < MAX_MATCHCORD_SLOTS; i++) {
+      assignSlot(cordRefs.current[i] ?? null, matchcords[i], t, weather);
     }
-    if (beam1Ref.current) {
-      (beam1Ref.current.material as THREE.MeshBasicMaterial).opacity =
-        0.055 + Math.sin(t * 1.4) * 0.015;
+
+    const shaftOpacity =
+      weather === "fog" ? 0 : weather === "rain" ? 0.016 : 0.042;
+    if (beamCourtRef.current) {
+      beamCourtRef.current.visible = shaftOpacity > 0;
+      (beamCourtRef.current.material as THREE.MeshBasicMaterial).opacity =
+        shaftOpacity + Math.sin(t * 1.3) * 0.006;
     }
-    if (beam2Ref.current) {
-      (beam2Ref.current.material as THREE.MeshBasicMaterial).opacity =
-        0.048 + Math.cos(t * 1.1 + 1.5) * 0.014;
+    if (beamGardenRef.current) {
+      beamGardenRef.current.visible = shaftOpacity > 0;
+      (beamGardenRef.current.material as THREE.MeshBasicMaterial).opacity =
+        shaftOpacity * 0.85 + Math.cos(t * 1.1) * 0.005;
     }
   });
 
+  const moon =
+    weather === "fog" ? 0.42 : weather === "rain" ? 0.7 : 0.92;
+
   return (
     <group>
-      {/* Controlled low ambient so shadows stay deep and dramatic (Caravaggio Chiaroscuro) */}
       <ambientLight
-        intensity={weather === "fog" ? 0.32 : 0.45}
+        intensity={weather === "fog" ? 0.18 : 0.26}
         color="#64748b"
       />
       <hemisphereLight
-        color="#93c5fd"
+        color="#9db4c8"
         groundColor="#1c140f"
-        intensity={0.68}
+        intensity={0.38}
       />
 
-      {/* Primary Dramatic Key Light Illuminating the Playable Courtyard Mid-Ground */}
+      {/* Cool night moon. The bedroom is lit by its candelabra, not by this. */}
       <directionalLight
         position={[14, 28, 13]}
-        intensity={2.65}
-        color="#fef3c7"
+        intensity={moon}
+        color="#9db4c8"
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-camera-left={-24}
@@ -79,73 +176,77 @@ function ChiaroscuroLightingRig({ weather }: { weather: WeatherType }) {
         shadow-bias={-0.0005}
       />
 
-      {/* Flickering Warm Baroque Torch & Brazier Point Lights in Playable Center */}
-      <pointLight
-        ref={torch1Ref}
-        position={[-3.2, 2.5, 0.5]}
-        intensity={8.5}
-        distance={16}
-        color="#f97316"
-      />
-      <pointLight
-        ref={torch2Ref}
-        position={[3.4, 4.2, -1.5]}
-        intensity={8.5}
-        distance={16}
-        color="#fbbf24"
-      />
-      <pointLight
-        ref={torch3Ref}
-        position={[4.2, 2.1, 7.5]}
-        intensity={7.2}
-        distance={14}
-        color="#ea580c"
-      />
+      {Array.from({ length: MAX_CANDELABRA_SLOTS }, (_, i) => (
+        <pointLight
+          key={`candle-slot-${i}`}
+          ref={(el) => {
+            candleRefs.current[i] = el;
+          }}
+          color="#fde68a"
+          decay={2}
+          intensity={0}
+          visible={false}
+        />
+      ))}
+      {Array.from({ length: MAX_TORCH_SLOTS }, (_, i) => (
+        <pointLight
+          key={`torch-slot-${i}`}
+          ref={(el) => {
+            torchRefs.current[i] = el;
+          }}
+          color="#f97316"
+          decay={2}
+          intensity={0}
+          visible={false}
+        />
+      ))}
+      {Array.from({ length: MAX_MATCHCORD_SLOTS }, (_, i) => (
+        <pointLight
+          key={`cord-slot-${i}`}
+          ref={(el) => {
+            cordRefs.current[i] = el;
+          }}
+          color="#ea580c"
+          decay={2}
+          intensity={0}
+          visible={false}
+        />
+      ))}
 
-      {/* Mystic Golden Relic / Marshal Spotlight in Courtyard South */}
-      <pointLight
-        position={[2.0, 3.2, 11.5]}
-        intensity={5.5}
-        distance={12}
-        color="#facc15"
-      />
-
-      {/* Volumetric Chiaroscuro Light Shafts (Rays of Golden Light Piercing Through Smoke) */}
+      {/* Shafts only over the open courtyard well and the garden sky. */}
       <mesh
-        ref={beam1Ref}
-        position={[0.5, 6.2, 1.5]}
-        rotation={[0.18, 0, -0.26]}
+        ref={beamCourtRef}
+        position={[courtBeam[0], 7.2, courtBeam[2]]}
+        rotation={[0.08, 0, -0.12]}
         raycast={() => null}
       >
-        <cylinderGeometry args={[1.2, 4.8, 14, 18, 1, true]} />
+        <cylinderGeometry args={[0.9, 3.4, 12, 18, 1, true]} />
         <meshBasicMaterial
-          color="#fde047"
+          color="#fde68a"
           transparent
-          opacity={0.055}
+          opacity={0.04}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
+      <mesh
+        ref={beamGardenRef}
+        position={[gardenBeam[0], 7.4, gardenBeam[2]]}
+        rotation={[0.12, 0, -0.18]}
+        raycast={() => null}
+      >
+        <cylinderGeometry args={[1.1, 4.2, 13, 18, 1, true]} />
+        <meshBasicMaterial
+          color="#e7eef6"
+          transparent
+          opacity={0.034}
           side={THREE.DoubleSide}
           depthWrite={false}
           blending={THREE.AdditiveBlending}
         />
       </mesh>
 
-      <mesh
-        ref={beam2Ref}
-        position={[3.2, 5.8, 7.2]}
-        rotation={[0.15, 0, -0.22]}
-        raycast={() => null}
-      >
-        <cylinderGeometry args={[0.9, 3.8, 13, 18, 1, true]} />
-        <meshBasicMaterial
-          color="#fb923c"
-          transparent
-          opacity={0.048}
-          side={THREE.DoubleSide}
-          depthWrite={false}
-          blending={THREE.AdditiveBlending}
-        />
-      </mesh>
-
-      {/* Outer Non-Playable Map Perimeter Shadow Ring (Ground Framing in Deep Shadow) */}
       <mesh
         position={[0, -0.15, 0]}
         rotation={[-Math.PI * 0.5, 0, 0]}
@@ -188,7 +289,8 @@ function DynamicLightFlashPool() {
         flash1Ref.current.intensity = b.intensity * decay;
         flash1Ref.current.distance = b.radius;
         const [wx, wy, wz] = gridToWorld(b.coord);
-        flash1Ref.current.position.set(wx, wy + 0.6, wz);
+        const origin = b.world ?? { x: wx, y: wy + 0.6, z: wz };
+        flash1Ref.current.position.set(origin.x, origin.y, origin.z);
       } else {
         flash1Ref.current.visible = false;
       }
@@ -204,7 +306,8 @@ function DynamicLightFlashPool() {
         flash2Ref.current.intensity = b.intensity * decay;
         flash2Ref.current.distance = b.radius;
         const [wx, wy, wz] = gridToWorld(b.coord);
-        flash2Ref.current.position.set(wx, wy + 0.6, wz);
+        const origin = b.world ?? { x: wx, y: wy + 0.6, z: wz };
+        flash2Ref.current.position.set(origin.x, origin.y, origin.z);
       } else {
         flash2Ref.current.visible = false;
       }
@@ -220,7 +323,8 @@ function DynamicLightFlashPool() {
         muzzleRef.current.intensity = m.intensity * decay;
         muzzleRef.current.distance = m.radius;
         const [wx, wy, wz] = gridToWorld(m.coord);
-        muzzleRef.current.position.set(wx, wy + 1.2, wz);
+        const origin = m.world ?? { x: wx, y: wy + 1.05, z: wz };
+        muzzleRef.current.position.set(origin.x, origin.y, origin.z);
       } else {
         muzzleRef.current.visible = false;
       }
@@ -253,7 +357,7 @@ export function TacticalScene() {
         <color attach="background" args={[fogColor]} />
         <fog attach="fog" args={[fogColor, 18, fogFar]} />
 
-        <ChiaroscuroLightingRig weather={weather} />
+        <DiegeticLightingRig weather={weather} />
         <DynamicLightFlashPool />
 
         {/* Sjednocené částicové pole černoprachového dýmu, omítkového prachu a jisker (ADR-0011) */}

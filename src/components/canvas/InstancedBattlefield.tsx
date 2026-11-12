@@ -14,6 +14,7 @@
  */
 
 import { Line } from "@react-three/drei";
+import { PracticalFlames } from "./PracticalFlames";
 import { type ThreeEvent, useFrame } from "@react-three/fiber";
 import { ArrowDown, ArrowUp, DoorClosed, DoorOpen, Eye, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
@@ -889,14 +890,12 @@ function BaroqueDoor3D({
  */
 function BaroqueLivingDecor({
   pillars,
-  lowWalls,
   highWalls,
   kegs,
   groundTiles,
   upperTiles,
 }: {
   pillars: TileData[];
-  lowWalls: TileData[];
   highWalls: TileData[];
   kegs: TileData[];
   groundTiles: TileData[];
@@ -908,10 +907,6 @@ function BaroqueLivingDecor({
   const mistRefs = useRef<(THREE.Mesh | null)[]>([]);
 
   const decoratedPillars = useMemo(() => pillars.slice(0, 6), [pillars]);
-  const candleWalls = useMemo(
-    () => lowWalls.filter((_, idx) => idx % 3 === 0).slice(0, 6),
-    [lowWalls],
-  );
 
   const palacePictureWalls = useMemo(
     () =>
@@ -1039,34 +1034,11 @@ function BaroqueLivingDecor({
       {decoratedPillars.map((tile, i) => {
         const [wx, wy, wz] = gridToWorld(tile.coord);
         const isImperial = i % 2 === 0;
-        const fIdx = flameIdx++;
         return (
           <group
             key={`pillar-decor-${tile.coord.x}-${tile.coord.y}-${tile.coord.z}`}
             position={[wx, wy, wz]}
           >
-            <mesh position={[0, 1.65, 0.52]} rotation={[0.35, 0, 0]}>
-              <cylinderGeometry args={[0.04, 0.025, 0.38, 6]} />
-              <meshStandardMaterial
-                color="#1c1917"
-                roughness={0.6}
-                metalness={0.7}
-              />
-            </mesh>
-            <mesh
-              ref={(el) => {
-                flameRefs.current[fIdx] = el;
-              }}
-              position={[0, 1.86, 0.58]}
-            >
-              <coneGeometry args={[0.09, 0.26, 8]} />
-              <meshStandardMaterial
-                color="#f97316"
-                emissive="#fbbf24"
-                emissiveIntensity={2.6}
-              />
-            </mesh>
-
             <group position={[0.48, 1.95, 0]}>
               <mesh rotation={[0, 0, Math.PI * 0.5]}>
                 <cylinderGeometry args={[0.02, 0.02, 0.48, 6]} />
@@ -1093,39 +1065,6 @@ function BaroqueLivingDecor({
                 />
               </mesh>
             </group>
-          </group>
-        );
-      })}
-
-      {candleWalls.map((tile) => {
-        const [wx, wy, wz] = gridToWorld(tile.coord);
-        const fIdx = flameIdx++;
-        return (
-          <group
-            key={`candle-wall-${tile.coord.x}-${tile.coord.y}-${tile.coord.z}`}
-            position={[wx, wy + 0.88, wz]}
-          >
-            <mesh position={[-0.14, 0.08, 0]}>
-              <cylinderGeometry args={[0.03, 0.035, 0.16, 8]} />
-              <meshStandardMaterial color="#fef3c7" roughness={0.5} />
-            </mesh>
-            <mesh position={[0.12, 0.06, 0.08]}>
-              <cylinderGeometry args={[0.028, 0.032, 0.12, 8]} />
-              <meshStandardMaterial color="#fef3c7" roughness={0.5} />
-            </mesh>
-            <mesh
-              ref={(el) => {
-                flameRefs.current[fIdx] = el;
-              }}
-              position={[-0.14, 0.19, 0]}
-            >
-              <sphereGeometry args={[0.038, 8, 8]} />
-              <meshStandardMaterial
-                color="#fbbf24"
-                emissive="#f59e0b"
-                emissiveIntensity={2.8}
-              />
-            </mesh>
           </group>
         );
       })}
@@ -2506,12 +2445,12 @@ export function InstancedBattlefield() {
       {/* 6b. Living Battlefield Props & Biome Details */}
       <BaroqueLivingDecor
         pillars={obstacles.pillar0}
-        lowWalls={obstacles.low0}
         highWalls={obstacles.high0}
         kegs={obstacles.kegs0}
         groundTiles={groundFloorTiles}
         upperTiles={upperFloorTiles}
       />
+      <PracticalFlames />
 
       {/* 6c. Nocturnal Fog of War Shroud Veil & Chiaroscuro Torchlight Frontier Rim */}
       <instancedMesh
@@ -2793,10 +2732,14 @@ export function InstancedBattlefield() {
                 <meshStandardMaterial
                   color="#f59e0b"
                   emissive="#fbbf24"
-                  emissiveIntensity={2.4}
+                  emissiveIntensity={
+                    (escapeTile &&
+                    (grid.getTile(escapeTile.coord)?.damageLevel ?? 0) >= 2)
+                      ? 0
+                      : 2.4
+                  }
                 />
               </mesh>
-              <pointLight color="#fbbf24" intensity={4.5} distance={6.5} />
             </group>
             <mesh position={[0, -0.04, 0]} rotation={[-Math.PI * 0.5, 0, 0]}>
               <ringGeometry args={[1.1, 1.35, 24]} />

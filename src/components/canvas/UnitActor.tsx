@@ -28,7 +28,7 @@ import {
   isAdjacentForMelee,
   isUnitFighting,
 } from "../../core/CombatSystem";
-import { bestTileCover, sameCoord } from "../../core/GridSystem";
+import { bestTileCover, isEnclosedRoofedCoord, sameCoord } from "../../core/GridSystem";
 import { higherFloorUnitIgnoresClicks } from "../../core/inspectClick";
 import type { UnitData } from "../../core/types";
 import {
@@ -39,7 +39,8 @@ import { formatPhrase, text, useLocale } from "../../i18n";
 import { BaroqueCoverBadge } from "../ui/BaroqueCoverBadge";
 import { wasRecentRightCameraPan } from "./TacticalCamera";
 import { UnitVisual2D } from "./UnitVisual2D";
-import { UnitVisual3D } from "./UnitVisual3D";
+import { facingForward, FACING_YAW } from "./diegeticLights";
+import { MatchcordCoal, UnitVisual3D } from "./UnitVisual3D";
 import { WorldHtml } from "./WorldHtml";
 import { FLOOR_HEIGHT, gridToWorld } from "./worldCoords";
 
@@ -51,7 +52,6 @@ export function UnitActor({ unit }: UnitActorProps) {
   const groupRef = useRef<THREE.Group>(null);
   const figurePivotRef = useRef<THREE.Group>(null);
   const contactRingRef = useRef<THREE.Mesh>(null);
-  const emberRef = useRef<THREE.Mesh>(null);
 
   const grid = useGameStore((s) => s.grid);
   const smokeVersion = useGameStore((s) => s.smokeVersion);
@@ -66,6 +66,7 @@ export function UnitActor({ unit }: UnitActorProps) {
   const isCapturingAnim = useGameStore((s) => s.isCapturingAnim);
   const hoveredSpottedEnemyIds = useGameStore((s) => s.hoveredSpottedEnemyIds);
   const unitFx = useGameStore((s) => s.unitFx[unit.id]);
+  const weather = useGameStore((s) => s.weather);
   const fogOfWarEnabled = useGameStore((s) => s.fogOfWarEnabled);
   const fogSnapshot = useGameStore((s) => s.fogSnapshot);
   const units = useGameStore((s) => s.units);
@@ -210,10 +211,6 @@ export function UnitActor({ unit }: UnitActorProps) {
     if (contactRingRef.current) {
       const pulse = 1 + Math.sin(t * 3.8 + unit.pos.x) * 0.16;
       contactRingRef.current.scale.set(pulse, pulse, 1);
-    }
-    if (emberRef.current) {
-      const flicker = 0.85 + Math.sin(t * 14 + unit.pos.z) * 0.25;
-      emberRef.current.scale.setScalar(flicker);
     }
 
     if (waypoints && waypoints.pts.length >= 2) {
@@ -389,16 +386,9 @@ export function UnitActor({ unit }: UnitActorProps) {
             ? THREE.MathUtils.smootherstep(normT, 0, 0.14)
             : Math.pow(1 - (normT - 0.14) / 0.86, 2.1);
         const kickbackDist = -0.25 * recoilEnvelope;
-        const dirVec =
-          unit.facing === "N"
-            ? [0, -1]
-            : unit.facing === "S"
-              ? [0, 1]
-              : unit.facing === "E"
-                ? [1, 0]
-                : [-1, 0];
-        pivot.position.x += dirVec[0]! * kickbackDist;
-        pivot.position.z += dirVec[1]! * kickbackDist;
+        const [faceX, faceZ] = facingForward(unit.facing);
+        pivot.position.x += faceX * kickbackDist;
+        pivot.position.z += faceZ * kickbackDist;
         pivot.rotation.x = -0.22 * recoilEnvelope;
       }
     }
@@ -519,14 +509,16 @@ export function UnitActor({ unit }: UnitActorProps) {
 
               {/* Žhnoucí uhlík doutnáku ve tmě (pro mušketýry s doutnákovým zámkem) */}
               {soundContact.kind === "matchcord_glow" && (
-                <mesh ref={emberRef} position={[0.14, 1.08, 0.12]}>
-                  <sphereGeometry args={[0.065, 8, 8]} />
-                  <meshStandardMaterial
-                    color="#fb923c"
-                    emissive="#ea580c"
-                    emissiveIntensity={3.2}
+                <group rotation={[0, FACING_YAW[unit.facing], 0]}>
+                  <MatchcordCoal
+                    weather={weather}
+                    roofed={isEnclosedRoofedCoord(
+                      unit.pos.x,
+                      unit.pos.y,
+                      unit.pos.z,
+                    )}
                   />
-                </mesh>
+                </group>
               )}
             </>
           )}
@@ -794,6 +786,9 @@ export function UnitActor({ unit }: UnitActorProps) {
             facing={unit.facing}
             hitFlashIntensity={hitFlash}
             opacity={visualOpacity}
+            lockType={unit.weapon.lockType}
+            weather={weather}
+            roofed={isEnclosedRoofedCoord(unit.pos.x, unit.pos.y, unit.pos.z)}
           />
         )}
       </group>

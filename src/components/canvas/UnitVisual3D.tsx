@@ -8,7 +8,14 @@
 import { useFrame } from "@react-three/fiber";
 import { useRef } from "react";
 import * as THREE from "three";
-import type { CardinalDir, Faction, UnitArchetype } from "../../core/types";
+import type {
+  CardinalDir,
+  Faction,
+  FirearmLockType,
+  UnitArchetype,
+  WeatherType,
+} from "../../core/types";
+import { FACING_YAW, LOCK_FORWARD_M, LOCK_HEIGHT_M, LOCK_RIGHT_M } from "./diegeticLights";
 
 interface UnitVisual3DProps {
   archetype: UnitArchetype;
@@ -16,14 +23,68 @@ interface UnitVisual3DProps {
   facing: CardinalDir;
   hitFlashIntensity: number;
   opacity?: number;
+  lockType?: FirearmLockType;
+  weather?: WeatherType;
+  roofed?: boolean;
 }
 
-const FACING_ROTATION_Y: Record<CardinalDir, number> = {
-  S: 0,
-  E: Math.PI * 0.5,
-  N: Math.PI,
-  W: -Math.PI * 0.5,
-};
+export function MatchcordCoal({
+  weather = "clear",
+  roofed = false,
+}: {
+  weather?: WeatherType;
+  roofed?: boolean;
+}) {
+  const coalRef = useRef<THREE.Mesh>(null);
+  const sparkA = useRef<THREE.Mesh>(null);
+  const sparkB = useRef<THREE.Mesh>(null);
+  useFrame(({ clock }) => {
+    const t = clock.getElapsedTime();
+    const outdoorRain = weather === "rain" && !roofed;
+    const flicker = outdoorRain
+      ? 0.25 + Math.abs(Math.sin(t * 23.0)) * 1.15
+      : 0.78 + Math.sin(t * 9.2) * 0.28;
+    for (const mesh of [coalRef.current, sparkA.current, sparkB.current]) {
+      if (!mesh) continue;
+      const mat = mesh.material as THREE.MeshStandardMaterial;
+      mat.emissiveIntensity = 2.6 * flicker;
+    }
+    if (sparkA.current) {
+      sparkA.current.position.y = 0.05 + Math.abs(Math.sin(t * 14)) * 0.05;
+    }
+    if (sparkB.current) {
+      sparkB.current.visible = !outdoorRain || Math.sin(t * 19) > -0.2;
+    }
+  });
+  return (
+    <group position={[LOCK_RIGHT_M, LOCK_HEIGHT_M, LOCK_FORWARD_M]}>
+      <mesh ref={coalRef}>
+        <sphereGeometry args={[0.032, 8, 8]} />
+        <meshStandardMaterial
+          color="#f97316"
+          emissive="#ea580c"
+          emissiveIntensity={2.6}
+        />
+      </mesh>
+      <mesh ref={sparkA} position={[0.02, 0.05, 0.02]}>
+        <sphereGeometry args={[0.012, 6, 6]} />
+        <meshStandardMaterial
+          color="#fdba74"
+          emissive="#f97316"
+          emissiveIntensity={3}
+        />
+      </mesh>
+      <mesh ref={sparkB} position={[-0.015, 0.04, 0.03]}>
+        <sphereGeometry args={[0.009, 6, 6]} />
+        <meshStandardMaterial
+          color="#fde68a"
+          emissive="#ea580c"
+          emissiveIntensity={2.4}
+        />
+      </mesh>
+    </group>
+  );
+}
 
 export function UnitVisual3D({
   archetype,
@@ -31,6 +92,9 @@ export function UnitVisual3D({
   facing,
   hitFlashIntensity,
   opacity = 1,
+  lockType,
+  weather = "clear",
+  roofed = false,
 }: UnitVisual3DProps) {
   const cloakRef = useRef<THREE.Mesh>(null);
   const plumeRef = useRef<THREE.Group>(null);
@@ -75,7 +139,7 @@ export function UnitVisual3D({
   });
 
   return (
-    <group rotation={[0, FACING_ROTATION_Y[facing], 0]}>
+    <group rotation={[0, FACING_YAW[facing], 0]}>
       {/* Left & Right Boots */}
       <mesh position={[-0.16, 0.24, 0]} castShadow receiveShadow>
         <boxGeometry args={[0.19, 0.48, 0.23]} />
@@ -488,17 +552,8 @@ export function UnitVisual3D({
             opacity={opacity}
           />
         </mesh>
-        {/* Sniper Glowing Matchlock Ember & Fork Rest */}
         {archetype === "sniper" && (
           <group>
-            <mesh position={[0.04, 0.08, 0.12]}>
-              <sphereGeometry args={[0.035, 8, 8]} />
-              <meshStandardMaterial
-                color="#f97316"
-                emissive="#fb923c"
-                emissiveIntensity={2.5}
-              />
-            </mesh>
             <mesh position={[0, -0.42, 0.55]} castShadow>
               <cylinderGeometry args={[0.018, 0.018, 0.84, 6]} />
               <meshStandardMaterial color="#78350f" roughness={0.7} />
@@ -506,6 +561,10 @@ export function UnitVisual3D({
           </group>
         )}
       </group>
+
+      {lockType === "matchlock" && (
+        <MatchcordCoal weather={weather} roofed={roofed} />
+      )}
 
       {/* 4. Marshal's walking cane in left hand */}
       {archetype === "commander" && (

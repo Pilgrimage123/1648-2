@@ -71,6 +71,7 @@ import {
   playRicochetSound,
   playSpecialAbilitySound,
 } from "../utils/audioSystem";
+import { muzzleFlashDraft, retainFlashes } from "../components/canvas/diegeticLights";
 import type { InspectPin } from "../core/inspectView";
 import type {
   ActiveLightFlash,
@@ -350,18 +351,9 @@ function addLightFlash(
   newFlash: Omit<ActiveLightFlash, "id" | "createdAt">,
   now = Date.now(),
 ): ActiveLightFlash[] {
-  const active = existing.filter((f) => now - f.createdAt < f.durationMs);
-  const blasts = active.filter((f) => f.kind === "blast");
-  const muzzles = active.filter((f) => f.kind === "muzzle");
-
-  const prunedBlasts =
-    newFlash.kind === "blast" && blasts.length >= 2 ? blasts.slice(1) : blasts;
-  const prunedMuzzles =
-    newFlash.kind === "muzzle" && muzzles.length >= 1 ? [] : muzzles;
-
+  const kept = retainFlashes(existing, newFlash.kind, now);
   return [
-    ...prunedBlasts,
-    ...prunedMuzzles,
+    ...kept,
     {
       ...newFlash,
       id: fxSeq++,
@@ -1741,14 +1733,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           impactObstacle: impactMeta.impactObstacle,
           missImpactCoord: impactMeta.missImpactCoord,
         },
-        lightFlashes: addLightFlash(s.lightFlashes, {
-          kind: "muzzle",
-          coord: freshWatcher.pos,
-          color: "#fde047",
-          intensity: 8,
-          radius: 6,
-          durationMs: 140,
-        }),
+        lightFlashes: addLightFlash(
+          s.lightFlashes,
+          muzzleFlashDraft(
+            freshWatcher.pos,
+            facingFromDelta(freshWatcher.pos, ambushCoord, freshWatcher.facing),
+            outcome.misfired,
+          ),
+        ),
       }));
 
       triggerUnitFx(freshWatcher.id, {
@@ -3094,14 +3086,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               detonatedKegs: [coord],
             },
             lightFlashes: addLightFlash(
-              addLightFlash(s.lightFlashes, {
-                kind: "muzzle",
-                coord: activeUnit.pos,
-                color: "#fde047",
-                intensity: 8,
-                radius: 6,
-                durationMs: 140,
-              }),
+              addLightFlash(
+                s.lightFlashes,
+                muzzleFlashDraft(activeUnit.pos, newFacing, false),
+              ),
               {
                 kind: "blast",
                 coord,
@@ -4017,14 +4005,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           },
           lightFlashes: willDetonateKegPos
             ? addLightFlash(
-                addLightFlash(s.lightFlashes, {
-                  kind: "muzzle",
-                  coord: attacker.pos,
-                  color: "#fde047",
-                  intensity: 8,
-                  radius: 6,
-                  durationMs: 140,
-                }),
+                addLightFlash(
+                  s.lightFlashes,
+                  muzzleFlashDraft(attacker.pos, newFacing, outcome.misfired),
+                ),
                 {
                   kind: "blast",
                   coord: willDetonateKegPos,
@@ -4034,14 +4018,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                   durationMs: 550,
                 },
               )
-            : addLightFlash(s.lightFlashes, {
-                kind: "muzzle",
-                coord: attacker.pos,
-                color: "#fde047",
-                intensity: 8,
-                radius: 6,
-                durationMs: 140,
-              }),
+            : addLightFlash(
+                s.lightFlashes,
+                muzzleFlashDraft(attacker.pos, newFacing, outcome.misfired),
+              ),
         }));
 
         triggerUnitFx(attacker.id, {
@@ -6389,14 +6369,10 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                   impactObstacle: impactMeta.impactObstacle,
                   missImpactCoord: impactMeta.missImpactCoord,
                 },
-                lightFlashes: addLightFlash(s.lightFlashes, {
-                  kind: "muzzle",
-                  coord: updatedEnemy.pos,
-                  color: "#fde047",
-                  intensity: 8,
-                  radius: 6,
-                  durationMs: 140,
-                }),
+                lightFlashes: addLightFlash(
+                  s.lightFlashes,
+                  muzzleFlashDraft(updatedEnemy.pos, shotFacing, outcome.misfired),
+                ),
               }));
 
               triggerUnitFx(updatedEnemy.id, {

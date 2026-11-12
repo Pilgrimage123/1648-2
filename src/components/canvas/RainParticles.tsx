@@ -15,12 +15,20 @@ import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import * as THREE from "three";
 import {
+  getMission1EscapeTile,
   GRID_DEPTH,
   GRID_WIDTH,
   isEnclosedRoofedCoord,
 } from "../../core/GridSystem";
-import type { GridCoord } from "../../core/types";
 import { useGameStore } from "../../store/useGameStore";
+import {
+  evaluateFixture,
+  evaluateLantern,
+  FIXTURES,
+  isFixtureDucked,
+  matchcordCandidates,
+  rainGlintStrength,
+} from "./diegeticLights";
 import { gridToWorld, TILE_SIZE } from "./worldCoords";
 
 const RAIN_COUNT = 360;
@@ -48,18 +56,22 @@ function randomOutdoorRainXZ(): [number, number] {
   return [(Math.random() - 0.5) * 26, -5 - Math.random() * 7];
 }
 
-// Outdoor garden & courtyard torch coordinates for subtle pre-combat torch sparks
-const COURTYARD_TORCH_COORDS: GridCoord[] = [
-  { x: 5, y: 0, z: 10 },
-  { x: 14, y: 0, z: 10 },
-  { x: 8, y: 0, z: 9 },
-  { x: 11, y: 0, z: 9 },
-];
+const TORCH_EMBER_COUNT = 14;
+const MATCHCORD_EMBER_CAP = 16;
 
 export function RainParticles() {
   const weather = useGameStore((s) => s.weather);
   const combatIntensity = useGameStore((s) => s.combatIntensity);
   const blastZones = useGameStore((s) => s.blastZones);
+  const grid = useGameStore((s) => s.grid);
+  const units = useGameStore((s) => s.units);
+  const lightFlashes = useGameStore((s) => s.lightFlashes);
+  const activeFloor = useGameStore((s) => s.activeFloor);
+  const fogOfWarEnabled = useGameStore((s) => s.fogOfWarEnabled);
+  const fogSnapshot = useGameStore((s) => s.fogSnapshot);
+  const rainColor = useMemo(() => new THREE.Color("#94a3b8"), []);
+  const glintColor = useMemo(() => new THREE.Color("#fdba74"), []);
+  const dropColor = useMemo(() => new THREE.Color(), []);
 
   const rainMeshRef = useRef<THREE.InstancedMesh>(null);
   const ashMeshRef = useRef<THREE.InstancedMesh>(null);
@@ -124,12 +136,10 @@ export function RainParticles() {
       seed: number;
     }[] = [];
     for (let i = 0; i < EMBER_COUNT; i++) {
-      const torch = COURTYARD_TORCH_COORDS[i % COURTYARD_TORCH_COORDS.length]!;
-      const [tx, ty, tz] = gridToWorld(torch);
       data.push({
-        x: tx + (Math.random() - 0.5) * 0.4,
-        y: ty + 1.8 + Math.random() * 1.6,
-        z: tz + 0.55 + (Math.random() - 0.5) * 0.4,
+        x: 0,
+        y: -20,
+        z: 0,
         vy: 0.55 + Math.random() * 0.75,
         phase: Math.random() * Math.PI * 2,
         scale: 0.026 + Math.random() * 0.03,
@@ -143,6 +153,58 @@ export function RainParticles() {
     const dt = Math.min(delta, 0.05);
     const t = clock.getElapsedTime();
     const nowMs = performance.now();
+
+    const escape = getMission1EscapeTile(grid);
+    const litTorches = FIXTURES.filter((fixture) => fixture.kind === "torch")
+      .map((fixture) =>
+        evaluateFixture(
+          fixture,
+          weather,
+          grid.getTile(fixture.coord)?.damageLevel ?? 0,
+          isFixtureDucked(fixture.coord, nowMs, lightFlashes, blastZones),
+        ),
+      )
+      .filter((state) => !state.snuffed && state.coord.y <= activeFloor);
+    const lantern = evaluateLantern(
+      escape ? escape.coord : null,
+      weather,
+      escape ? (grid.getTile(escape.coord)?.damageLevel ?? 0) : 0,
+      escape ? isFixtureDucked(escape.coord, nowMs, lightFlashes, blastZones) : false,
+    );
+    const cords = matchcordCandidates(
+      units,
+      fogOfWarEnabled,
+      fogSnapshot.visibleEnemyIds,
+      fogSnapshot.soundContacts,
+    );
+    const glintSources = [
+      ...litTorches.map((torch) => ({
+        position: torch.position,
+        exposed: torch.exposed && !torch.snuffed,
+      })),
+      {
+        position: lantern.position,
+        exposed: !lantern.snuffed,
+      },
+      ...cords
+        .filter((cord) => !cord.roofed)
+        .map((cord) => ({ position: cord.position, exposed: true })),
+      ...lightFlashes
+        .filter((flash) => nowMs - flash.createdAt < flash.durationMs)
+        .filter(
+          (flash) =>
+            !isEnclosedRoofedCoord(flash.coord.x, flash.coord.y, flash.coord.z),
+        )
+        .map((flash) => {
+          const [gx, gy, gz] = gridToWorld(flash.coord);
+          const origin = flash.world ?? {
+            x: gx,
+            y: gy + (flash.kind === "muzzle" ? 1.05 : 0.6),
+            z: gz,
+          };
+          return { position: origin, exposed: true };
+        }),
+    ];
 
     // 1. Update Outdoor Rain (strictly masked from enclosed palace & covered roofs)
     const rainMesh = rainMeshRef.current;
@@ -168,8 +230,15 @@ export function RainParticles() {
         dummy.scale.set(0.025, drop.scaleY, 0.025);
         dummy.updateMatrix();
         rainMesh.setMatrixAt(i, dummy.matrix);
+        const glint = rainGlintStrength(
+          { x: drop.x, y: drop.y, z: drop.z },
+          glintSources,
+        );
+        dropColor.copy(rainColor).lerp(glintColor, glint * 0.55);
+        rainMesh.setColorAt(i, dropColor);
       });
       rainMesh.instanceMatrix.needsUpdate = true;
+      if (rainMesh.instanceColor) rainMesh.instanceColor.needsUpdate = true;
     }
 
     // 2. Update Combat-Driven Ash & Plaster Dust
@@ -244,23 +313,33 @@ export function RainParticles() {
       ashMesh.instanceMatrix.needsUpdate = true;
     }
 
-    // 3. Update Rising Embers:
-    // - First 14 embers: gentle sparks right above the 4 outdoor wrought-iron pillar torches
-    // - Remaining embers: activated organically by gunfire & explosions at blastZones!
+    // 3. Embers rise from a cause: a torch, a burning matchcord, or a blast.
     const emberMesh = emberMeshRef.current;
     if (emberMesh) {
-      const torchEmberCount = 14;
+      const torchEmberCount =
+        litTorches.length === 0
+          ? 0
+          : weather === "rain"
+            ? 8
+            : TORCH_EMBER_COUNT;
+      const cordEmberCount = Math.min(MATCHCORD_EMBER_CAP, cords.length * 2);
+      const reserved = TORCH_EMBER_COUNT + MATCHCORD_EMBER_CAP;
       const combatEmberCount =
         blastZones.length > 0
           ? Math.min(
-              EMBER_COUNT - torchEmberCount,
-              Math.floor(combatIntensity * (EMBER_COUNT - torchEmberCount)),
+              EMBER_COUNT - reserved,
+              Math.floor(combatIntensity * (EMBER_COUNT - reserved)),
             )
           : 0;
-      const totalActiveEmbers = torchEmberCount + combatEmberCount;
+      const cordStart = TORCH_EMBER_COUNT;
+      const combatStart = reserved;
 
       emberData.forEach((ember, i) => {
-        if (i >= totalActiveEmbers) {
+        const isTorchEmber = i < torchEmberCount;
+        const isCordEmber = i >= cordStart && i < cordStart + cordEmberCount;
+        const isCombatEmber =
+          i >= combatStart && i < combatStart + combatEmberCount;
+        if (!isTorchEmber && !isCordEmber && !isCombatEmber) {
           dummy.position.set(0, -50, 0);
           dummy.scale.setScalar(0);
           dummy.updateMatrix();
@@ -268,20 +347,30 @@ export function RainParticles() {
           return;
         }
 
-        const isTorchEmber = i < torchEmberCount || blastZones.length === 0;
-        ember.y += ember.vy * dt;
+        const rise = isTorchEmber && weather === "rain" ? 0.45 : 1;
+        ember.y += ember.vy * rise * dt;
         ember.x += Math.sin(t * 2.6 + ember.phase) * 0.28 * dt;
         ember.z += Math.cos(t * 2.2 + ember.phase) * 0.25 * dt;
 
         if (isTorchEmber) {
-          const torch =
-            COURTYARD_TORCH_COORDS[ember.seed % COURTYARD_TORCH_COORDS.length]!;
-          const [tx, ty, tz] = gridToWorld(torch);
-          const distSq = (ember.x - tx) ** 2 + (ember.z - (tz + 0.55)) ** 2;
-          if (ember.y > ty + 3.4 || distSq > 1.2) {
-            ember.x = tx + (Math.random() - 0.5) * 0.32;
-            ember.y = ty + 1.85 + Math.random() * 0.25;
-            ember.z = tz + 0.55 + (Math.random() - 0.5) * 0.32;
+          const torch = litTorches[i % litTorches.length]!;
+          const distSq =
+            (ember.x - torch.position.x) ** 2 +
+            (ember.z - torch.position.z) ** 2;
+          const ceiling = weather === "rain" ? 1.3 : 1.6;
+          if (ember.y > torch.position.y + ceiling || distSq > 0.8) {
+            ember.x = torch.position.x + (Math.random() - 0.5) * 0.16;
+            ember.y = torch.position.y + Math.random() * 0.08;
+            ember.z = torch.position.z + (Math.random() - 0.5) * 0.16;
+          }
+        } else if (isCordEmber) {
+          const cord = cords[(i - cordStart) % cords.length]!;
+          const lock = cord.position;
+          const distSq = (ember.x - lock.x) ** 2 + (ember.z - lock.z) ** 2;
+          if (ember.y > lock.y + 0.45 || distSq > 0.2) {
+            ember.x = lock.x + (Math.random() - 0.5) * 0.04;
+            ember.y = lock.y;
+            ember.z = lock.z + (Math.random() - 0.5) * 0.04;
           }
         } else {
           const zone = blastZones[ember.seed % blastZones.length]!;
@@ -311,7 +400,7 @@ export function RainParticles() {
         const flicker = 0.72 + Math.sin(t * 8.5 + ember.phase) * 0.32;
         dummy.position.set(ember.x, ember.y, ember.z);
         dummy.rotation.set(0, 0, 0);
-        dummy.scale.setScalar(ember.scale * flicker);
+        dummy.scale.setScalar(ember.scale * flicker * (isCordEmber ? 0.65 : 1));
         dummy.updateMatrix();
         emberMesh.setMatrixAt(i, dummy.matrix);
       });

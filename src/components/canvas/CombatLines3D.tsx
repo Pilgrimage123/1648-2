@@ -101,7 +101,6 @@ function KegExplosionVFX({
   const outerPlumeRef = useRef<THREE.Mesh>(null);
   const ringRef = useRef<THREE.Mesh>(null);
   const debrisGroupRef = useRef<THREE.Group>(null);
-  const lightRef = useRef<THREE.PointLight>(null);
 
   const [wx, wy, wz] = useMemo(() => gridToWorld(coord), [coord]);
   const debrisSeeds = useMemo(() => createParticleSeeds(28, 4.8, 0.85), []);
@@ -159,20 +158,10 @@ function KegExplosionVFX({
         child.scale.setScalar(s);
       });
     }
-    if (lightRef.current) {
-      lightRef.current.intensity = Math.max(0, (1 - blastT) * 14);
-    }
   });
 
   return (
     <group ref={groupRef} position={[wx, wy + 0.15, wz]} visible={false}>
-      <pointLight
-        ref={lightRef}
-        color="#f97316"
-        distance={12}
-        decay={2}
-        intensity={12}
-      />
       <mesh ref={coreRef} position={[0, 0.55, 0]}>
         <dodecahedronGeometry args={[0.65, 1]} />
         <meshBasicMaterial color="#fef08a" transparent opacity={0.9} />
@@ -220,7 +209,6 @@ function ActiveProjectileVFX({ projectile }: { projectile: ProjectileVisual }) {
   const smokeTrailRef = useRef<THREE.Mesh>(null);
   const muzzleFlashRef = useRef<THREE.Mesh>(null);
   const muzzleConeRef = useRef<THREE.Mesh>(null);
-  const muzzleLightRef = useRef<THREE.PointLight>(null);
   const muzzleSparksRef = useRef<THREE.Group>(null);
   const muzzleSmokeRef = useRef<THREE.Group>(null);
 
@@ -228,7 +216,6 @@ function ActiveProjectileVFX({ projectile }: { projectile: ProjectileVisual }) {
   const impactRingRef = useRef<THREE.Mesh>(null);
   const impactCoreRef = useRef<THREE.Mesh>(null);
   const impactSmokeRef = useRef<THREE.Group>(null);
-  const impactLightRef = useRef<THREE.PointLight>(null);
   const shrapnelGroupRef = useRef<THREE.Group>(null);
 
   // Specialized Blood VFX refs (for hits)
@@ -476,14 +463,6 @@ function ActiveProjectileVFX({ projectile }: { projectile: ProjectileVisual }) {
         mat.opacity = coneAlpha;
       }
     }
-    if (muzzleLightRef.current) {
-      muzzleLightRef.current.intensity = isMelee
-        ? 0
-        : Math.max(
-            0,
-            (1 - progress * 3.8) * (projectile.misfired ? 4.5 : 9.5),
-          );
-    }
     if (muzzleSparksRef.current) {
       if (isMelee) {
         muzzleSparksRef.current.visible = false;
@@ -671,21 +650,6 @@ function ActiveProjectileVFX({ projectile }: { projectile: ProjectileVisual }) {
         const mat = impactCoreRef.current.material as THREE.MeshBasicMaterial;
         mat.opacity = Math.max(0, (1 - impactT * 1.15) * 0.88);
       }
-    }
-
-    if (impactLightRef.current) {
-      impactLightRef.current.intensity =
-        !projectile.misfired && impactT > 0
-          ? Math.max(
-              0,
-              (1 - impactT) *
-                (projectile.kind === "grenade"
-                  ? 12
-                  : isMissedShot
-                    ? 3.5
-                    : 4.5 + bloodSeverity * 1.5),
-            )
-          : 0;
     }
 
     // 4. Wound-Severity Blood Particle System (Arterial/Venous Droplets, Fine Mist & Floor Spatter)
@@ -922,13 +886,6 @@ function ActiveProjectileVFX({ projectile }: { projectile: ProjectileVisual }) {
 
       {/* 1. Muzzle Flash, Barrel Flame Cone, Dynamic Light, Sparks & Black Powder Smoke at Barrel Tip */}
       <group position={coords.start}>
-        <pointLight
-          ref={muzzleLightRef}
-          color={projectile.misfired ? "#fb923c" : "#fef08a"}
-          distance={7.5}
-          decay={2}
-          intensity={7}
-        />
         <mesh ref={muzzleFlashRef}>
           <dodecahedronGeometry args={[0.24, 0]} />
           <meshBasicMaterial
@@ -1045,14 +1002,6 @@ function ActiveProjectileVFX({ projectile }: { projectile: ProjectileVisual }) {
 
       {/* 3. Target Impact Burst / Blood Wound Spray / Obstacle Debris & Ricochet */}
       <group position={coords.end}>
-        <pointLight
-          ref={impactLightRef}
-          color={impactColor}
-          distance={projectile.kind === "grenade" ? 10 : 5.5}
-          decay={2}
-          intensity={0}
-        />
-
         {/* Core Flash / Wound Shock Sphere */}
         <mesh ref={impactCoreRef} visible={false}>
           <dodecahedronGeometry args={[0.52, 1]} />

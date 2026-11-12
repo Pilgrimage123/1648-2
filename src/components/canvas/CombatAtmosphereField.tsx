@@ -89,6 +89,8 @@ export function CombatAtmosphereField() {
 
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const tempColor = useMemo(() => new THREE.Color(), []);
+  const amberScatter = useMemo(() => new THREE.Color("#fb923c"), []);
+  const warmDust = useMemo(() => new THREE.Color("#e4d2c2"), []);
   const softPuffTexture = useMemo(() => createSoftPuffTexture(), []);
 
   // 1. Přepočet instancí černoprachového dýmu při změně mřížky / kouře
@@ -190,9 +192,12 @@ export function CombatAtmosphereField() {
     const t = clock.getElapsedTime();
     const now = performance.now();
 
-    // Vyhledání aktivních explozivních záblesků pro vnitřní prosvícení
-    const activeBlasts = lightFlashes.filter(
-      (f) => f.kind === "blast" && now - f.createdAt < f.durationMs,
+    // Muzzle and blast only. Steady candles and torches light the puffs
+    // through the real point lights, so tinting them again would burn twice.
+    const activeFlashes = lightFlashes.filter(
+      (f) =>
+        (f.kind === "blast" || f.kind === "muzzle") &&
+        now - f.createdAt < f.durationMs,
     );
 
     // 1. Update Black-Powder Smoke billows (True Camera-Facing Billboards)
@@ -236,24 +241,34 @@ export function CombatAtmosphereField() {
           tempColor.multiplyScalar(0.35);
         }
 
-        for (const blast of activeBlasts) {
-          const [bx, by, bz] = gridToWorld(blast.coord);
-          const dx = dummy.position.x - bx;
-          const dy = dummy.position.y - by;
-          const dz = dummy.position.z - bz;
+        const puffEnclosed = isEnclosedRoofedCoord(
+          p.coord.x,
+          p.coord.y,
+          p.coord.z,
+        );
+        for (const flash of activeFlashes) {
+          const [gx, gy, gz] = gridToWorld(flash.coord);
+          const origin = flash.world ?? {
+            x: gx,
+            y: gy + (flash.kind === "muzzle" ? 1.05 : 0.6),
+            z: gz,
+          };
+          const dx = dummy.position.x - origin.x;
+          const dy = dummy.position.y - origin.y;
+          const dz = dummy.position.z - origin.z;
           const distSq = dx * dx + dy * dy + dz * dz;
-          const blastRad = blast.radius;
+          const flashRad = flash.radius;
 
-          if (distSq < blastRad * blastRad) {
-            const age = now - blast.createdAt;
-            const progress = Math.min(1, Math.max(0, age / blast.durationMs));
+          if (distSq < flashRad * flashRad) {
+            const age = now - flash.createdAt;
+            const progress = Math.min(1, Math.max(0, age / flash.durationMs));
             const decay = Math.pow(1 - progress, 2);
             const dist = Math.sqrt(distSq);
-            const falloff = Math.max(0, 1 - dist / blastRad);
-            const scatterIntensity = decay * falloff * 0.95;
-
-            // Přechod ze šedého dýmu do žhnoucího jantaru (#f97316 a #fbbf24)
-            tempColor.lerp(new THREE.Color("#fb923c"), scatterIntensity);
+            const falloff = Math.max(0, 1 - dist / flashRad);
+            // Indoor powder smoke eats the flash. The hall stays close and dull.
+            const absorption = puffEnclosed ? 0.62 : 1;
+            const scatterIntensity = decay * falloff * 0.95 * absorption;
+            tempColor.lerp(amberScatter, scatterIntensity);
           }
         }
 
@@ -295,7 +310,28 @@ export function CombatAtmosphereField() {
 
         dummy.updateMatrix();
         dMesh.setMatrixAt(i, dummy.matrix);
-        dMesh.setColorAt(i, dp.color);
+        tempColor.copy(dp.color);
+        if (!dp.isEmber) {
+          for (const flash of activeFlashes) {
+            const [gx, gy, gz] = gridToWorld(flash.coord);
+            const origin = flash.world ?? {
+              x: gx,
+              y: gy + (flash.kind === "muzzle" ? 1.05 : 0.6),
+              z: gz,
+            };
+            const dx = dummy.position.x - origin.x;
+            const dy = dummy.position.y - origin.y;
+            const dz = dummy.position.z - origin.z;
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (dist < flash.radius) {
+              const age = now - flash.createdAt;
+              const decay = Math.pow(1 - Math.min(1, age / flash.durationMs), 2);
+              const falloff = 1 - dist / flash.radius;
+              tempColor.lerp(warmDust, decay * falloff * 0.45);
+            }
+          }
+        }
+        dMesh.setColorAt(i, tempColor);
       }
       dMesh.instanceMatrix.needsUpdate = true;
       if (dMesh.instanceColor) dMesh.instanceColor.needsUpdate = true;
