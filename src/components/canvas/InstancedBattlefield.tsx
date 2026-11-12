@@ -17,6 +17,7 @@ import { Line } from "@react-three/drei";
 import { type ThreeEvent, useFrame } from "@react-three/fiber";
 import { ArrowDown, ArrowUp, DoorClosed, DoorOpen, Eye, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
+import { text, useLocale } from "../../i18n";
 import * as THREE from "three";
 import { gridDistance3D } from "../../core/CombatSystem";
 import {
@@ -579,6 +580,7 @@ function BaroqueGrandDoublePortal3D({
   opacity: number;
   onToggle: (coord: GridCoord) => void;
 }) {
+  const locale = useLocale();
   const [wx1, wy, wz1] = gridToWorld(door.coord);
   const [wx2, , wz2] = pairedDoor ? gridToWorld(pairedDoor.coord) : [wx1, wy, wz1];
   const centerX = (wx1 + wx2) * 0.5;
@@ -715,7 +717,7 @@ function BaroqueGrandDoublePortal3D({
               e.stopPropagation();
               onToggle(door.coord);
             }}
-            title={`${door.label}: Kliknutím ${isOpen ? "zavřete" : "otevřete"} dvoukřídlý portál (Free action 0 AP)`}
+            title={text("ui.door.double", { doorId: door.id, open: isOpen }, locale)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg backdrop-blur-md shadow-xl border text-[10px] font-cinzel font-black tracking-wide cursor-pointer transition-all uppercase ${
               isOpen
                 ? "bg-slate-950/90 border-amber-500/70 text-amber-200 hover:bg-amber-950/80 hover:border-amber-300"
@@ -725,12 +727,12 @@ function BaroqueGrandDoublePortal3D({
             {isOpen ? (
               <>
                 <DoorOpen className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span>Zavřít portál (0 AP)</span>
+                <span>{text("ui.door.closePortal", undefined, locale)}</span>
               </>
             ) : (
               <>
                 <DoorClosed className="w-3.5 h-3.5 text-slate-950 shrink-0" />
-                <span>Otevřít dvoukřídlý portál (0 AP)</span>
+                <span>{text("ui.door.openPortal", undefined, locale)}</span>
               </>
             )}
           </button>
@@ -755,6 +757,7 @@ function BaroqueDoor3D({
   opacity: number;
   onToggle: (coord: GridCoord) => void;
 }) {
+  const locale = useLocale();
   const [wx, wy, wz] = gridToWorld(door.coord);
   const isOpen = door.state === "open";
   const isTransparent = opacity < 0.99;
@@ -856,7 +859,7 @@ function BaroqueDoor3D({
               e.stopPropagation();
               onToggle(door.coord);
             }}
-            title={`${door.label}: Kliknutím ${isOpen ? "zavřete" : "otevřete"} dveře (Free action 0 AP)`}
+            title={text("ui.door.single", { doorId: door.id, open: isOpen }, locale)}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg backdrop-blur-md shadow-lg border text-[10px] font-cinzel font-black tracking-wide cursor-pointer transition-all uppercase ${
               isOpen
                 ? "bg-slate-950/90 border-amber-500/70 text-amber-200 hover:bg-amber-950/80 hover:border-amber-300"
@@ -866,12 +869,12 @@ function BaroqueDoor3D({
             {isOpen ? (
               <>
                 <DoorOpen className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span>Zavřít dveře (0 AP)</span>
+                <span>{text("ui.door.close", undefined, locale)}</span>
               </>
             ) : (
               <>
                 <DoorClosed className="w-3.5 h-3.5 text-slate-950 shrink-0" />
-                <span>Otevřít dveře (0 AP)</span>
+                <span>{text("ui.door.open", undefined, locale)}</span>
               </>
             )}
           </button>
@@ -1355,6 +1358,7 @@ export function InstancedBattlefield() {
   const fogOfWarEnabled = useGameStore((s) => s.fogOfWarEnabled);
   const toggleDoor = useGameStore((s) => s.toggleDoor);
   const weather = useGameStore((s) => s.weather);
+  const locale = useLocale();
 
   const selectedUnit = units.find((u) => u.id === selectedUnitId);
   const selectedTargetUnit = units.find((u) => u.id === selectedTargetId);
@@ -1394,6 +1398,7 @@ export function InstancedBattlefield() {
     grid,
     gridVersion,
     units,
+    locale,
   ]);
 
   const groundFloorTiles = useMemo(
@@ -2670,8 +2675,8 @@ export function InstancedBattlefield() {
                   style={{ pointerEvents: "auto", cursor: "pointer" }}
                   title={
                     reachInfo
-                      ? `Pravým/levým kliknutím vyběhnout/seběhnout po schodišti do patra P${targetCoord.y} (${reachInfo.apCost} AP)`
-                      : `Kliknutím přepnout pohled kamery do patra P${targetCoord.y}`
+                      ? text("ui.stair.climb", { floor: targetCoord.y, count: reachInfo.apCost }, locale)
+                      : text("ui.stair.look", { floor: targetCoord.y }, locale)
                   }
                   className={`select-none flex items-center gap-1 px-2 py-0.5 rounded-lg border backdrop-blur-md shadow-xl transition-all whitespace-nowrap ${
                     isHoveredStair
@@ -2812,7 +2817,7 @@ export function InstancedBattlefield() {
               >
                 <div className="pointer-events-none select-none flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-950/95 border border-amber-400 text-amber-300 font-cinzel font-black text-[11px] uppercase tracking-wider shadow-[0_0_20px_rgba(251,191,36,0.5)] backdrop-blur-md whitespace-nowrap">
                   <span>⛵</span>
-                  <span>Pramice na Čertovce</span>
+                  <span>{text("ui.boat.certovka", undefined, locale)}</span>
                 </div>
               </WorldHtml>
             )}
@@ -2908,7 +2913,7 @@ export function InstancedBattlefield() {
                 {hoveredReconPreview &&
                   hoveredReconPreview.spottedEnemyIds.length > 0 && (
                     <span
-                      title="Počet nepřátel v přímé palebné linii z této dlaždice"
+                      title={text("ui.recon.los", undefined, locale)}
                       className="flex items-center gap-0.5 pl-1 border-l border-amber-500/30 text-[9px] font-cinzel font-black text-rose-300 tabular-nums"
                     >
                       <span>🎯</span>
@@ -2920,7 +2925,7 @@ export function InstancedBattlefield() {
                   hoveredReconPreview &&
                   hoveredReconPreview.newlyRevealedCount > 0 && (
                     <span
-                      title="Nově odhalení nepřátelé v šerosvitu"
+                      title={text("ui.recon.revealed", undefined, locale)}
                       className="flex items-center gap-0.5 pl-1 border-l border-amber-500/30 text-[9px] font-cinzel font-black text-amber-300 tabular-nums"
                     >
                       <span>👁️</span>
@@ -2951,11 +2956,11 @@ export function InstancedBattlefield() {
               >
                 <span>
                   {canThrowGrenadeHere
-                    ? "💥 LKM: Hodit petardu (3×3)"
-                    : "Mimo dosah hodu (>8m)"}
+                    ? text("ui.grenade.throw", undefined, locale)
+                    : text("ui.grenade.out", undefined, locale)}
                 </span>
                 <span className="text-amber-300/80 pl-1 border-l border-amber-500/30">
-                  PKM: Zpět
+                  {text("ui.grenade.back", undefined, locale)}
                 </span>
               </div>
             </WorldHtml>

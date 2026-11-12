@@ -6,6 +6,14 @@
 
 import { create } from "zustand";
 import {
+  buffLabel,
+  phrase,
+  projectUnit,
+  subscribeLocale,
+  type PerkId,
+  type Phrase,
+} from "../i18n/runtime";
+import {
   applyBlackPowderChoking,
   calculateMeleeAttack,
   calculateShot,
@@ -32,6 +40,7 @@ import {
   createInitialUnits,
   createReinforcementUnits,
   GridSystem,
+  relabelCatalogs,
   sameCoord,
 } from "../core/GridSystem";
 import {
@@ -66,6 +75,7 @@ import type { InspectPin } from "../core/inspectView";
 import type {
   ActiveLightFlash,
   AttackOutcome,
+  BuffId,
   CaptureReason,
   CardinalDir,
   CombatLogEntry,
@@ -105,8 +115,8 @@ export interface UnitCombatLoss {
   id: number;
   timestamp: number;
   durationMs: number;
-  attackerName: string;
-  weaponName: string;
+  attackerId: string;
+  weaponId: string;
   hit: boolean;
   critical: boolean;
   misfired: boolean;
@@ -139,7 +149,7 @@ export interface UnitVisualFX {
   coverSettleDir?: CardinalDir | null;
   floatingBanner: {
     id: number;
-    text: string;
+    phrase: Phrase;
     tone: "hit" | "crit" | "miss" | "misfire" | "overwatch" | "buff";
   } | null;
   combatLoss?: UnitCombatLoss | null;
@@ -256,12 +266,12 @@ interface GameStoreState {
   setGuidedTutorialStep: (step: GuidedTutorialStep) => void;
   skipGuidedTutorial: () => void;
   toggleGuidedTutorial: () => void;
-  setGuidedTutorialReject: (msg: string | null) => void;
+  setGuidedTutorialReject: (msg: Phrase | null) => void;
 
   // Paradoxní oběť a Železná vigilie (Mission 1 Climax)
   sacrificeDilemmaOpen: boolean;
   sacrificedHeroId: string | null;
-  ironVigilPerk: { name: string; desc: string; heroName: string } | null;
+  ironVigilPerk: { perkId: PerkId; heroId: string } | null;
   chooseSacrifice: (heroId: string) => void;
 
   // Zvláštní aktivované schopnosti hrdinů (Mission 1 Smart Tutorial & Demo)
@@ -319,14 +329,14 @@ let moveResolveCallback: (() => void) | null = null;
 function makeLog(
   round: number,
   faction: Faction,
-  text: string,
+  message: Phrase,
   tone: CombatLogEntry["tone"] = "info",
 ): CombatLogEntry {
   return {
     id: `log-${logSeq++}`,
     round,
     faction,
-    text,
+    message,
     tone,
   };
 }
@@ -526,8 +536,8 @@ export function buildUnitCombatLoss(
   beforeUnit: UnitData,
   afterUnit: UnitData,
   opts: {
-    attackerName: string;
-    weaponName: string;
+    attackerId: string;
+    weaponId: string;
     hit: boolean;
     critical: boolean;
     misfired: boolean;
@@ -555,8 +565,8 @@ export function buildUnitCombatLoss(
     id: fxSeq++,
     timestamp: performance.now(),
     durationMs: opts.durationMs ?? 1500,
-    attackerName: opts.attackerName,
-    weaponName: opts.weaponName,
+    attackerId: opts.attackerId,
+    weaponId: opts.weaponId,
     hit: opts.hit,
     critical: opts.critical,
     misfired: opts.misfired,
@@ -793,29 +803,24 @@ export function syncColloredoMobility(units: UnitData[]): UnitData[] {
 
   const detainedTurns = colloredo.detainedTurns ?? 0;
   if (detainedTurns >= 1) {
-    const detainedBuff =
-      detainedTurns >= 2
-        ? "ZAJAT ŠVÉDY (2/2 kola)!"
-        : "ZADRŽEN ŠVÉDY (1/2 kola) — Vyprostěte jej!";
-    if (colloredo.movePerAp === 0 && colloredo.buffTitle === detainedBuff) {
+    const buffId: BuffId = detainedTurns >= 2 ? "detained_2" : "detained_1";
+    if (colloredo.movePerAp === 0 && colloredo.buffId === buffId) {
       return captureSynced;
     }
     return captureSynced.map((u) =>
       u.id === colloredo.id
-        ? { ...u, movePerAp: 0, ap: 0, buffTitle: detainedBuff }
+        ? { ...u, movePerAp: 0, ap: 0, buffId, buffTitle: buffLabel(buffId) }
         : u,
     );
   }
 
-  const limpingTitle = "Těžké kulhání (zranění z Lützenu)";
-
-  if (colloredo.movePerAp === 3 && colloredo.buffTitle === limpingTitle) {
+  if (colloredo.movePerAp === 3 && colloredo.buffId === "limp") {
     return captureSynced;
   }
 
   return captureSynced.map((u) =>
     u.id === colloredo.id
-      ? { ...u, movePerAp: 3, buffTitle: limpingTitle }
+      ? { ...u, movePerAp: 3, buffId: "limp", buffTitle: buffLabel("limp") }
       : u,
   );
 }
@@ -1145,7 +1150,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       coverSettle: boolean;
       coverSettleDir: CardinalDir | null;
       banner: {
-        text: string;
+        phrase: Phrase;
         tone: "hit" | "crit" | "miss" | "misfire" | "overwatch" | "buff";
       };
       loss: UnitCombatLoss | null;
@@ -1283,8 +1288,6 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       nextRevealed.add(m.id);
     }
 
-    const names = podMembers.map((e) => e.name).join(", ");
-
     set((s) => ({
       activeFloor: focusFloor,
       revealedPodEnemyIds: nextRevealed,
@@ -1305,7 +1308,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         makeLog(
           s.round,
           "enemy",
-          `ODHALENÍ HLÍDKY (POD REVEAL): Z šerosvitu vystoupila švédská patrola (${names}) a kvapně hledá kryt!`,
+          phrase("log.podReveal", {
+            unitIds: podMembers.map((m) => m.id),
+          }),
           "alert",
         ),
       ],
@@ -1315,7 +1320,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     let currentUnits = [...get().units];
     for (const member of podMembers) {
       triggerUnitFx(member.id, {
-        banner: { text: "POPLACH! DO KRYTU!", tone: "overwatch" },
+        banner: { phrase: phrase("banner.alarm"), tone: "overwatch" },
       });
 
       const scrambleDest = computeScrambleDestination(
@@ -1377,12 +1382,6 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     roundNum: number,
   ) => {
     const colloredo = get().units.find((u) => u.id === "player-colloredo");
-    const reasonText =
-      reason === "surrounded_unprotected"
-        ? "Švédští dragouni drželi nechráněného maršála Colloreda v obklíčení po 2 kola a odvlekli jej v poutech!"
-        : reason === "all_companions_fallen"
-          ? "Všichni obránci z maršálovy družiny padli a bezmocný maršál Colloredo padl do rukou Švédů!"
-          : "Těžce raněný maršál Colloredo nebyl včas vyproštěn (2/2 kola zadržení) a švédští dragouni jej spoutali pro výkupné 100 000 tolarů!";
 
     set((s) => ({
       isBusy: true,
@@ -1393,7 +1392,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         makeLog(
           roundNum,
           "enemy",
-          `ZAJETÍ DOKONÁNO (2/2 KOLA): ${reasonText}`,
+          phrase("log.capture.done", { capture: reason }),
           "alert",
         ),
       ],
@@ -1401,7 +1400,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
     triggerUnitFx("player-colloredo", {
       hit: true,
-      banner: { text: "ZAJAT ŠVÉDY! (2/2)", tone: "crit" },
+      banner: { phrase: phrase("banner.captured"), tone: "crit" },
     });
 
     await delay(900);
@@ -1617,7 +1616,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       }));
 
       triggerUnitFx(freshWatcher.id, {
-        banner: { text: "SPATŘEN V POHYBU! (SLOW-MO)", tone: "overwatch" },
+        banner: { phrase: phrase("banner.spotted"), tone: "overwatch" },
       });
 
       // 2. Záběr na střelce před výstřelem v zpomaleném čase
@@ -1755,8 +1754,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       triggerUnitFx(freshWatcher.id, {
         lunge: true,
         banner: outcome.misfired
-          ? { text: "SELHÁNÍ!", tone: "misfire" }
-          : { text: "PŘEPAD ZE ZÁLOHY!", tone: "overwatch" },
+          ? { phrase: phrase("banner.misfire"), tone: "misfire" }
+          : { phrase: phrase("banner.ambush"), tone: "overwatch" },
       });
 
       // Čekání na plynulý dolet střely k cíli (~41 % z 1780 ms = 730 ms)
@@ -1807,19 +1806,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         afterTargetOw =
           syncedUnits.find((u) => u.id === currentMoved.id) ?? beforeTargetOw;
 
-        const logMsg = outcome.misfired
-          ? `${freshWatcher.name} chtěl vypálit ze zálohy na ${currentMoved.name}, ale zvlhlý prach selhal!`
-          : outcome.hit
-            ? `${freshWatcher.name} zasáhl z přepadu nekrytého ${currentMoved.name} (−${outcome.damage} HP${outcome.armorShredded > 0 ? `, −${outcome.armorShredded} zbroj` : ""}${outcome.critical ? ", KRITICKÝ!" : ""})!`
-            : `${freshWatcher.name} vypálil ze zálohy na běžícího ${currentMoved.name}, ale minul (${outcome.hitChance} %).`;
-
         const extraLogs: CombatLogEntry[] = [];
         if (captureSync.newlyDetained) {
           extraLogs.push(
             makeLog(
               s.round,
               "enemy",
-              "POZOR (ZADRŽEN 1/2 KOLA): Maršál Colloredo klesl pod palbou z Overwatch k zemi! Máte 1 kolo na to, abyste k němu přivedli spojence a vyprostili jej!",
+              phrase("log.detained.overwatch"),
               "alert",
             ),
           );
@@ -1833,7 +1826,16 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             makeLog(
               s.round,
               freshWatcher.faction,
-              logMsg,
+              phrase("log.overwatch.shot", {
+                attackerId: freshWatcher.id,
+                targetId: currentMoved.id,
+                damage: outcome.damage,
+                shred: outcome.armorShredded,
+                critical: outcome.critical,
+                chance: outcome.hitChance,
+                misfired: outcome.misfired,
+                hit: outcome.hit,
+              }),
               outcome.misfired
                 ? "misfire"
                 : outcome.hit
@@ -1847,8 +1849,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
       if (!outcome.misfired) {
         const owLoss = buildUnitCombatLoss(beforeTargetOw, afterTargetOw, {
-          attackerName: freshWatcher.name,
-          weaponName: freshWatcher.weapon.name,
+          attackerId: freshWatcher.id,
+          weaponId: freshWatcher.weapon.id,
           hit: outcome.hit,
           critical: outcome.critical,
           misfired: outcome.misfired,
@@ -1860,15 +1862,15 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           hit: outcome.hit,
           loss: owLoss,
           banner: newlyDetainedByOw
-            ? { text: "ZADRŽEN! (1/2)", tone: "crit" }
+            ? { phrase: phrase("banner.detainedHalf"), tone: "crit" }
             : outcome.hit
               ? {
-                  text: outcome.critical
-                    ? `KRIT −${outcome.damage}`
-                    : `−${outcome.damage} HP`,
+                  phrase: outcome.critical
+                    ? phrase("banner.critShort", { damage: outcome.damage })
+                    : phrase("banner.damage", { damage: outcome.damage }),
                   tone: outcome.critical ? "crit" : "hit",
                 }
-              : { text: "VEDLE", tone: "miss" },
+              : { phrase: phrase("banner.miss"), tone: "miss" },
         });
       }
 
@@ -1938,18 +1940,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     },
     unitFx: {},
     combatLog: [
-      makeLog(
-        1,
-        "player",
-        "26. července 1648, 02:30 ráno (Noční liják): Zrádce Arnošt Odowalsky otevřel Strahovskou bránu švédským dragounům generála Königsmarcka!",
-        "alert",
-      ),
-      makeLog(
-        1,
-        "player",
-        "Maršál Rudolf Colloredo vyskočil z lůžka v noční košili. Malostranská mostecká věž je odříznuta! Dostaňte zraněného maršála zahradou k rybářské pramici na Čertovce!",
-        "story",
-      ),
+      makeLog(1, "player", phrase("log.briefing.gate"), "alert"),
+      makeLog(1, "player", phrase("log.briefing.escape"), "story"),
     ],
 
     tutorialStep: 1,
@@ -2010,7 +2002,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       }));
     },
 
-    setGuidedTutorialReject: (msg: string | null) => {
+    setGuidedTutorialReject: (msg: Phrase | null) => {
       set((s) => ({
         guidedTutorial: {
           ...s.guidedTutorial,
@@ -2079,33 +2071,17 @@ export const useGameStore = create<GameStoreState>((set, get) => {
     demonstratedAbilities: {},
 
     chooseSacrifice: (heroId: string) => {
-      const state = get();
-      const hero = state.units.find((u) => u.id === heroId);
-      const heroName = hero?.name ?? "Věrný společník";
-
-      let perk = {
-        name: "Ocelová věrnost",
-        desc: "+20 % odolnost proti šoku a panice, +1 AP při záchraně raněného druha",
-        heroName,
-      };
-      if (heroId === "player-bartolomej") {
-        perk = {
-          name: "Maltézský pyrotechnik",
-          desc: "+2 k dosahu vrhání granátů, výbuchy prachu způsobují o +1 vyšší poškození",
-          heroName,
-        };
-      } else if (heroId === "player-vaclav-michalovic") {
-        perk = {
-          name: "Klementinský zápal",
-          desc: "+10 % k přesnosti při střelbě z vyvýšených míst / věže, 0 % šance na selhání zbraně v dešti",
-          heroName,
-        };
-      }
+      const perkId: PerkId =
+        heroId === "player-bartolomej"
+          ? "maltese_pyrotechnician"
+          : heroId === "player-vaclav-michalovic"
+            ? "clementine_zeal"
+            : "steel_loyalty";
 
       set((s) => ({
         sacrificeDilemmaOpen: false,
         sacrificedHeroId: heroId,
-        ironVigilPerk: perk,
+        ironVigilPerk: { perkId, heroId },
         outcome: "victory",
         victoryReason: "boat_escape",
         defeatReason: null,
@@ -2114,13 +2090,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           makeLog(
             s.round,
             "player",
-            `${heroName} se dobrovolně obětoval u branky paláce, aby maršál Colloredo mohl odrazit s pramicí do vln Vltavy!`,
+            phrase("log.sacrifice.volunteer", { heroId }),
             "story",
           ),
           makeLog(
             s.round,
             "player",
-            `PARADOX PŘEŽITÍ: Dva společníci v loďce padli pod salvou švédských mušket, kryjíce maršála. Ale ${heroName} zázrakem přežil výbuch prachu, přeplaval řeku a Pater Jiří Plachý jej v Klementinu přijal do ŽELEZNÉ VIGILIE!`,
+            phrase("log.sacrifice.paradox", { heroId }),
             "alert",
           ),
         ],
@@ -2761,7 +2737,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       ) {
         set({ activeFloor: clickedUnit.pos.y });
         triggerUnitFx(clickedUnit.id, {
-          banner: { text: "SKRYT V ŠEROSVITU", tone: "miss" },
+          banner: { phrase: phrase("banner.hiddenFog"), tone: "miss" },
         });
         return;
       }
@@ -2801,7 +2777,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           return;
         }
         triggerUnitFx(clickedUnit.id, {
-          banner: { text: "MIMO DOSAH ZTEČE", tone: "miss" },
+          banner: { phrase: phrase("banner.outOfCharge"), tone: "miss" },
         });
         return;
       }
@@ -2822,7 +2798,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       if (path.length === 0) return;
 
       triggerUnitFx(currentUnit.id, {
-        banner: { text: "ZTEČ ZBLÍZKA!", tone: "buff" },
+        banner: { phrase: phrase("banner.charge"), tone: "buff" },
       });
 
       // Vyvoláme pohyb na dlaždici s příznakem cíle pro okamžité seknutí po doběhu (0 AP navíc)
@@ -2945,7 +2921,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       ) {
         set({ activeFloor: clickedUnit.pos.y });
         triggerUnitFx(clickedUnit.id, {
-          banner: { text: "SKRYT V ŠEROSVITU", tone: "miss" },
+          banner: { phrase: phrase("banner.hiddenFog"), tone: "miss" },
         });
         return;
       }
@@ -2999,7 +2975,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         // Přepneme alespoň patro na kliknutého nepřítele a zobrazíme upozornění na něm
         set({ activeFloor: clickedUnit.pos.y });
         triggerUnitFx(clickedUnit.id, {
-          banner: { text: "MIMO ZORNÉ POLE", tone: "miss" },
+          banner: { phrase: phrase("banner.outOfSight"), tone: "miss" },
         });
       }
     },
@@ -3139,7 +3115,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
           triggerUnitFx(activeUnit.id, {
             lunge: true,
-            banner: { text: "ODPAL SUDU!", tone: "crit" },
+            banner: { phrase: phrase("banner.detonate"), tone: "crit" },
           });
 
           await delay(730);
@@ -3162,8 +3138,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             const kegLoss =
               bUnit && aUnit
                 ? buildUnitCombatLoss(bUnit, aUnit, {
-                    attackerName: activeUnit.name,
-                    weaponName: "Výbuch prachového sudu",
+                    attackerId: activeUnit.id,
+                    weaponId: "powder_keg",
                     hit: true,
                     critical: true,
                     misfired: false,
@@ -3174,7 +3150,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             triggerUnitFx(vid, {
               hit: true,
               loss: kegLoss,
-              banner: { text: "VÝBUCH SUDU −5 HP!", tone: "crit" },
+              banner: { phrase: phrase("banner.kegBlast"), tone: "crit" },
             });
           }
 
@@ -3199,7 +3175,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                 makeLog(
                   s.round,
                   "player",
-                  `${activeUnit.name} přesnou ranou odpálil sud se střelným prachem na [${coord.x}, ${coord.z}] (${blast.victims.length} zasaženo za 5 HP, −2 zbroj a hustý dým)!`,
+                  phrase("log.keg.shot", {
+                    attackerId: activeUnit.id,
+                    x: coord.x,
+                    z: coord.z,
+                    count: blast.victims.length,
+                  }),
                   "crit",
                 ),
               ],
@@ -3531,16 +3512,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           moveDetainedColloredo = captureSync.newlyDetained;
           const syncedUnits = syncColloredoMobility(captureSync.units);
 
-          const climbNote =
+          const climb =
             finalStep.y !== startFloor
               ? finalStep.y > startFloor
-                ? ` (vystoupal po schodišti do ${finalStep.y}. patra)`
+                ? ("up" as const)
                 : finalStep.y === 0
-                  ? " (sestoupil po schodišti do přízemí)"
-                  : ` (sestoupil po schodišti do ${finalStep.y}. patra)`
-              : "";
-          const zoneNote =
-            reach.zone === "yellow" ? "Sprint (2 AP)" : "Přesun (1 AP)";
+                  ? ("ground" as const)
+                  : ("down" as const)
+              : undefined;
 
           // Tutoriál: Krok 1 (Pohyb & Ovládání) automaticky přejde na Krok 2,
           // jakmile hráč poprvé pohne jednotkou
@@ -3566,7 +3545,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               makeLog(
                 s.round,
                 "player",
-                `${unit.name} za běhu vyrazil dřevěné dveře!`,
+                phrase("log.door.breach", { unitId: unit.id }),
                 "overwatch",
               ),
             );
@@ -3576,7 +3555,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               makeLog(
                 s.round,
                 "player",
-                `ZÁCHRANA VELITELE: ${unit.name} přispěchal k maršálu Colloredovi, vyprostil jej ze švédského sevření a pomohl mu zpět na nohy!`,
+                phrase("log.rescue.move", { unitId: unit.id }),
                 "story",
               ),
             );
@@ -3585,7 +3564,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               makeLog(
                 s.round,
                 "enemy",
-                "POZOR (ZADRŽEN 1/2 KOLA): Maršál Colloredo se ocitl bez eskorty v těsné blízkosti švédského vojáka a je zadržen! Vyprostěte jej do 2 kol!",
+                phrase("log.detained.escort"),
                 "alert",
               ),
             );
@@ -3607,7 +3586,15 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               makeLog(
                 s.round,
                 "player",
-                `${unit.name}: ${zoneNote} na [${finalStep.x}, patro ${finalStep.y}, ${finalStep.z}]${climbNote}.`,
+                phrase("log.move", {
+                  unitId: unit.id,
+                  zone: reach.zone,
+                  x: finalStep.x,
+                  y: finalStep.y,
+                  z: finalStep.z,
+                  climb,
+                  floor: finalStep.y,
+                }),
                 "info",
               ),
               ...extraLogs,
@@ -3617,12 +3604,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
         if (moveRescuedColloredo) {
           triggerUnitFx("player-colloredo", {
-            banner: { text: "VYPROŠTĚN!", tone: "buff" },
+            banner: { phrase: phrase("banner.freed"), tone: "buff" },
           });
         } else if (moveDetainedColloredo) {
           triggerUnitFx("player-colloredo", {
             hit: true,
-            banner: { text: "ZADRŽEN! (1/2)", tone: "crit" },
+            banner: { phrase: phrase("banner.detainedHalf"), tone: "crit" },
           });
         }
 
@@ -3692,11 +3679,6 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             return;
           }
 
-          const logMsg =
-            outcomeCheck.victoryReason === "boat_escape"
-              ? "MARŠÁL COLLOREDO DOSÁHL RYBÁŘSKÉ PRAMICE! Rybář okamžitě odráží od břehu a veze maršála přes rozvodněnou Vltavu na Staré Město!"
-              : "Švédský přepadový oddíl Arnošta Odowalského byl zneškodněn! Cesta k rybářské pramici na Čertovce je volná!";
-
           set({
             isBusy: false,
             outcome: outcomeCheck.outcome,
@@ -3704,7 +3686,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             defeatReason: null,
             combatLog: [
               ...afterState.combatLog,
-              makeLog(afterState.round, "player", logMsg, "story"),
+              makeLog(
+                afterState.round,
+                "player",
+                outcomeCheck.victoryReason === "boat_escape"
+                  ? phrase("log.victory.boat")
+                  : phrase("log.victory.annihilation"),
+                "story",
+              ),
             ],
           });
           return;
@@ -3819,16 +3808,11 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         set((s) => ({
           combatLog: [
             ...s.combatLog,
-            makeLog(
-              s.round,
-              "player",
-              "Bambitka maršála Colloreda je již vystřelená! V boji ji nelze znovu nabít — zbývá pouze úder těžkou pažbou zblízka.",
-              "alert",
-            ),
+            makeLog(s.round, "player", phrase("log.pistol.spent"), "alert"),
           ],
         }));
         triggerUnitFx(attacker.id, {
-          banner: { text: "BAMBITKA VYBITÁ!", tone: "misfire" },
+          banner: { phrase: phrase("banner.pistolEmpty"), tone: "misfire" },
         });
         return;
       }
@@ -3842,14 +3826,22 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             makeLog(
               s.round,
               "player",
-              `Zbraň postavy ${attacker.name} (${attacker.weapon.name}) je vybitá (${curReload}/${reqReloadAp} AP)! Pokračujte ve Fázovém nabíjení [R] po 1 AP nebo udeřte pažbou zblízka [B].`,
+              phrase("log.weapon.empty", {
+                unitId: attacker.id,
+                weaponId: attacker.weapon.id,
+                progress: curReload,
+                required: reqReloadAp,
+              }),
               "alert",
             ),
           ],
         }));
         triggerUnitFx(attacker.id, {
           banner: {
-            text: `HLAVEŇ VYBITÁ! (${curReload}/${reqReloadAp} AP)`,
+            phrase: phrase("banner.barrelEmptyProgress", {
+              progress: curReload,
+              required: reqReloadAp,
+            }),
             tone: "misfire",
           },
         });
@@ -3867,13 +3859,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             makeLog(
               s.round,
               "player",
-              `Těžká mušketa (${attacker.weapon.name}) vyžaduje 2 AP bez pohybu v kole výstřelu pro rozložení furkety!`,
+              phrase("log.fork.requiresTwoAp", { weaponId: attacker.weapon.id }),
               "alert",
             ),
           ],
         }));
         triggerUnitFx(attacker.id, {
-          banner: { text: "VYŽADUJE 2 AP BEZ POHYBU!", tone: "misfire" },
+          banner: { phrase: phrase("banner.needTwoApStill"), tone: "misfire" },
         });
         return;
       }
@@ -4055,9 +4047,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         triggerUnitFx(attacker.id, {
           lunge: true,
           banner: outcome.misfired
-            ? { text: "SELHÁNÍ DOUTNÁKU!", tone: "misfire" }
+            ? { phrase: phrase("banner.misfireMatchcord"), tone: "misfire" }
             : isHipFire
-              ? { text: "STŘELBA OD BOKU! (OTŘESEN)", tone: "overwatch" }
+              ? { phrase: phrase("banner.hipFire"), tone: "overwatch" }
               : undefined,
         });
 
@@ -4111,40 +4103,33 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             };
           });
 
-          const bonusTags: string[] = [];
-          if (isHipFire)
-            bonusTags.push("NOUZOVÁ STŘELBA OD BOKU 1 AP (−35 % Aim, Otřesen)");
-          else if (baseFireAp >= 2)
-            bonusTags.push("opora furkety (2 AP)");
-          if (outcome.heightAdvantage) bonusTags.push("výšková převaha +15 %");
-          if (outcome.flanked) bonusTags.push("OBCHVAT +40 % krit");
-          if (outcome.armorShredded > 0)
-            bonusTags.push(`zničena zbroj −${outcome.armorShredded}`);
-          if (outcome.armorAbsorbed > 0)
-            bonusTags.push(`kyrys pohltil ${outcome.armorAbsorbed} HP`);
-          const tagSuffix =
-            bonusTags.length > 0 ? ` [${bonusTags.join(", ")}]` : "";
-
           const targetAfter = updatedUnits.find((u) => u.id === target.id);
           const wasInstantKilled = targetAfter ? !targetAfter.alive : false;
           const enteredThroesNow = targetAfter ? targetAfter.inDeathThroes && !target.inDeathThroes : false;
-          const statusTag = wasInstantKilled
-            ? " (OKAMŽITĚ PADL!)"
-            : enteredThroesNow
-              ? " (POSLEDNÍ VZEPĚTÍ!)"
-              : targetAfter && targetAfter.inDeathThroes
-                ? ` (V AGÓNII: ${targetAfter.hp} HP)`
-                : "";
-
-          const text = outcome.misfired
-            ? `${attacker.name} stiskl spoušť (${attacker.weapon.name}), ale vlhký střelný prach na pánvičce jen zasyčel (Selhání ${outcome.misfireChance} %)!`
-            : outcome.hit
-              ? `${attacker.name} zasáhl ${target.name} (${outcome.hitChance} %) za ${outcome.damage} HP${outcome.critical ? " — KRITICKÝ PRŮSTŘEL!" : ""}${statusTag}${tagSuffix}.`
-              : `${attacker.name} minul ${target.name} (šance ${outcome.hitChance} %)${tagSuffix}.`;
+          const shotPhrase = phrase("log.shot", {
+            attackerId: attacker.id,
+            targetId: target.id,
+            weaponId: attacker.weapon.id,
+            chance: outcome.hitChance,
+            damage: outcome.damage,
+            misfire: outcome.misfireChance,
+            hit: outcome.hit,
+            critical: outcome.critical,
+            misfired: outcome.misfired,
+            hipFire: isHipFire,
+            fork: baseFireAp >= 2,
+            height: outcome.heightAdvantage,
+            flanked: outcome.flanked,
+            shred: outcome.armorShredded,
+            absorbed: outcome.armorAbsorbed,
+            instant: wasInstantKilled,
+            enteredThroes: enteredThroesNow,
+            agony: !!targetAfter?.inDeathThroes,
+            hp: targetAfter?.hp,
+          });
 
           let finalUnits = updatedUnits;
           let kegDetonated = false;
-          let kegLog = "";
 
           if (willDetonateKegPos) {
             const blast = processExplosions(
@@ -4157,7 +4142,6 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             finalUnits = blast.nextUnits;
             kegVictims = blast.victims;
             kegDetonated = true;
-            kegLog = `VÝBUCH PRACHU! Jiskra z výstřelu odpálila sud se střelným prachem na [${willDetonateKegPos.x}, ${willDetonateKegPos.z}]!`;
           }
 
           const captureSync = syncColloredoCaptureState(finalUnits);
@@ -4176,7 +4160,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             makeLog(
               s.round,
               "player",
-              text,
+              shotPhrase,
               outcome.misfired
                 ? "misfire"
                 : outcome.hit
@@ -4186,26 +4170,26 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                   : "miss",
             ),
           ];
-          if (kegDetonated) {
-            newLogs.push(makeLog(s.round, "player", kegLog, "alert"));
-          }
-          if (captureSync.rescued) {
+          if (kegDetonated && willDetonateKegPos) {
             newLogs.push(
               makeLog(
                 s.round,
                 "player",
-                "ZÁCHRANA VELITELE: Švédský věznitel padl a maršál Colloredo je opět volný!",
-                "story",
+                phrase("log.keg.spark", {
+                  x: willDetonateKegPos.x,
+                  z: willDetonateKegPos.z,
+                }),
+                "alert",
               ),
+            );
+          }
+          if (captureSync.rescued) {
+            newLogs.push(
+              makeLog(s.round, "player", phrase("log.rescue.shot"), "story"),
             );
           } else if (captureSync.newlyDetained) {
             newLogs.push(
-              makeLog(
-                s.round,
-                "enemy",
-                "VAROVÁNÍ (ZADRŽEN 1/2 KOLA): Výbuch srazil maršála Colloreda k zemi (0 HP)! Přiveďte k němu spojence a vyprostěte jej do 2 kol!",
-                "alert",
-              ),
+              makeLog(s.round, "enemy", phrase("log.detained.blast"), "alert"),
             );
           }
 
@@ -4244,8 +4228,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             beforeTargetShoot,
             afterTargetShoot,
             {
-              attackerName: attacker.name,
-              weaponName: attacker.weapon.name,
+              attackerId: attacker.id,
+              weaponId: attacker.weapon.id,
               hit: outcome.hit,
               critical: outcome.critical,
               misfired: outcome.misfired,
@@ -4259,12 +4243,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             loss: targetLoss,
             banner: outcome.hit
               ? {
-                  text: outcome.critical
-                    ? `KRIT −${outcome.damage}!`
-                    : `−${outcome.damage} HP`,
+                  phrase: outcome.critical
+                    ? phrase("banner.critShortBang", { damage: outcome.damage })
+                    : phrase("banner.damage", { damage: outcome.damage }),
                   tone: outcome.critical ? "crit" : "hit",
                 }
-              : { text: "MINUL", tone: "miss" },
+              : { phrase: phrase("banner.missedPlain"), tone: "miss" },
           });
         }
 
@@ -4275,8 +4259,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             const vLoss =
               bUnit && aUnit
                 ? buildUnitCombatLoss(bUnit, aUnit, {
-                    attackerName: attacker.name,
-                    weaponName: "Výbuch prachového sudu",
+                    attackerId: attacker.id,
+                    weaponId: "powder_keg",
                     hit: true,
                     critical: true,
                     misfired: false,
@@ -4287,19 +4271,19 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             triggerUnitFx(vid, {
               hit: true,
               loss: vLoss,
-              banner: { text: "VÝBUCH SUDU −5 HP!", tone: "crit" },
+              banner: { phrase: phrase("banner.kegBlast"), tone: "crit" },
             });
           }
         }
 
         if (rescuedByShot) {
           triggerUnitFx("player-colloredo", {
-            banner: { text: "VYPROŠTĚN!", tone: "buff" },
+            banner: { phrase: phrase("banner.freed"), tone: "buff" },
           });
         } else if (detainedByBlast) {
           triggerUnitFx("player-colloredo", {
             hit: true,
-            banner: { text: "ZADRŽEN! (1/2)", tone: "crit" },
+            banner: { phrase: phrase("banner.detainedHalf"), tone: "crit" },
           });
         }
 
@@ -4365,16 +4349,11 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         set((s) => ({
           combatLog: [
             ...s.combatLog,
-            makeLog(
-              s.round,
-              "player",
-              "Jednorannou bambitku maršála Colloreda nelze v boji znovu nabít! Zbývá pouze úder těžkou pažbou zblízka [B].",
-              "alert",
-            ),
+            makeLog(s.round, "player", phrase("log.pistol.cannotReload"), "alert"),
           ],
         }));
         triggerUnitFx(unit.id, {
-          banner: { text: "BAMBITKA NELZE NABÍT!", tone: "misfire" },
+          banner: { phrase: phrase("banner.pistolNoReload"), tone: "misfire" },
         });
         return;
       }
@@ -4386,13 +4365,16 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             makeLog(
               s.round,
               "player",
-              `Zbraň postavy ${unit.name} (${unit.weapon.name}) je již plně nabitá a připravená k výstřelu!`,
+              phrase("log.weapon.alreadyLoaded", {
+                unitId: unit.id,
+                weaponId: unit.weapon.id,
+              }),
               "info",
             ),
           ],
         }));
         triggerUnitFx(unit.id, {
-          banner: { text: "HLAVEŇ JIŽ NABITA!", tone: "buff" },
+          banner: { phrase: phrase("banner.alreadyLoaded"), tone: "buff" },
         });
         return;
       }
@@ -4404,13 +4386,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             makeLog(
               s.round,
               "player",
-              `Nedostatek akčních bodů! Každý krok fázového nabíjení (${unit.weapon.name}) vyžaduje 1 AP.`,
+              phrase("log.reload.noAp", { weaponId: unit.weapon.id }),
               "alert",
             ),
           ],
         }));
         triggerUnitFx(unit.id, {
-          banner: { text: "NEDOSTATEK AP! (VYŽADUJE 1 AP)", tone: "misfire" },
+          banner: { phrase: phrase("banner.needOneAp"), tone: "misfire" },
         });
         return;
       }
@@ -4421,31 +4403,6 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       const prevProgress = unit.reloadProgress ?? 0;
       const nextProgress = Math.min(requiredAp, prevProgress + 1);
       const isNowLoaded = nextProgress >= requiredAp;
-
-      let stepActionDesc = "";
-      if (requiredAp >= 4) {
-        if (nextProgress === 1) {
-          stepActionDesc =
-            "odměřil dávku černého prachu z apoštola a nasypal ji do hlavně";
-        } else if (nextProgress === 2) {
-          stepActionDesc =
-            "zasunul těžkou olověnou kuli s ucpávkou a zarazil ji nabijákem";
-        } else if (nextProgress === 3) {
-          stepActionDesc =
-            "nasypal jemný prach na pánvičku a přiklopil kryt proti větru";
-        } else {
-          stepActionDesc =
-            "rozdmychal doutnající šňůru v kohoutu a opřel hlaveň o furketu — TĚŽKÁ MUŠKETA JE PLNĚ NABITA!";
-        }
-      } else {
-        if (nextProgress === 1 && !isNowLoaded) {
-          stepActionDesc =
-            "ukousl papírovou patronu, nasypal prach na pánvičku i do hlavně a vložil kuli";
-        } else {
-          stepActionDesc =
-            "utěsnil náboj nabijákem a připravil zámek — ZBRAŇ JE PLNĚ NABITA!";
-        }
-      }
 
       const updatedUnits = state.units.map((u) =>
         u.id === unit.id
@@ -4505,7 +4462,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           makeLog(
             s.round,
             "player",
-            `FÁZOVÉ NABÍJENÍ (1 AP — ${nextProgress}/${requiredAp}): ${unit.name} ${stepActionDesc}`,
+            phrase("log.reload.step", {
+              unitId: unit.id,
+              progress: nextProgress,
+              required: requiredAp,
+              heavy: requiredAp >= 4,
+              loaded: isNowLoaded,
+            }),
             "buff",
           ),
         ],
@@ -4513,9 +4476,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
       triggerUnitFx(unit.id, {
         banner: {
-          text: isNowLoaded
-            ? `PLNĚ NABITO! (${requiredAp}/${requiredAp})`
-            : `NABÍJENÍ ${nextProgress}/${requiredAp} (1 AP)`,
+          phrase: isNowLoaded
+            ? phrase("banner.reloadDone", { required: requiredAp })
+            : phrase("banner.reloadStep", {
+                progress: nextProgress,
+                required: requiredAp,
+              }),
           tone: "buff",
         },
       });
@@ -4634,12 +4600,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         triggerUnitFx(attacker.id, {
           lunge: true,
           banner: spilledReload
-            ? { text: "ÚDER PAŽBOU! (PRACH VYSYPÁN)", tone: "overwatch" }
+            ? { phrase: phrase("banner.buttSpill"), tone: "overwatch" }
             : isFreeChain
-              ? { text: "ZTEČ A SEK! (+0 AP)", tone: "buff" }
+              ? { phrase: phrase("banner.chargeFree"), tone: "buff" }
               : isButt
-                ? { text: "ÚDER PAŽBOU!", tone: "buff" }
-                : { text: "ÚDER ZBLÍZKA!", tone: "buff" },
+                ? { phrase: phrase("banner.buttStrike"), tone: "buff" }
+                : { phrase: phrase("banner.meleeStrike"), tone: "buff" },
         });
 
         // Čekáme na dopad úderu (~680 ms)
@@ -4685,36 +4651,28 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             };
           });
 
-          const bonusTags: string[] = [];
-          if (stunnedByButt) bonusTags.push("OMRÁČEN PAŽBOU (Otřesen)");
-          if (spilledReload)
-            bonusTags.push("vysypáno rozpracované nabíjení (0/4 AP)");
-          if (outcome.heightAdvantage) bonusTags.push("výšková převaha +15 %");
-          if (outcome.armorShredded > 0)
-            bonusTags.push(`zničena zbroj −${outcome.armorShredded}`);
-          if (outcome.armorAbsorbed > 0)
-            bonusTags.push(`kyrys pohltil ${outcome.armorAbsorbed} HP`);
-          const tagSuffix =
-            bonusTags.length > 0 ? ` [${bonusTags.join(", ")}]` : "";
-
           const targetAfter = updatedUnits.find((u) => u.id === target.id);
           const wasInstantKilled = targetAfter ? !targetAfter.alive : false;
           const enteredThroesNow = targetAfter ? targetAfter.inDeathThroes && !target.inDeathThroes : false;
-          const statusTag = wasInstantKilled
-            ? " (OKAMŽITĚ PADL!)"
-            : enteredThroesNow
-              ? " (POSLEDNÍ VZEPĚTÍ!)"
-              : targetAfter && targetAfter.inDeathThroes
-                ? ` (V AGÓNII: ${targetAfter.hp} HP)`
-                : "";
-
-          const text = isButt
-            ? outcome.hit
-              ? `${attacker.name} udeřil ${target.name} pažbou (${meleeWeapon.name}, ${outcome.hitChance} %) za ${outcome.damage} HP${outcome.critical ? " — DRTIVÝ ÚDER!" : ""}${statusTag}${tagSuffix}.`
-              : `${attacker.name} máchl pažbou (${meleeWeapon.name}) naprázdno vedle ${target.name} (${outcome.hitChance} %)${tagSuffix}.`
-            : outcome.hit
-              ? `${attacker.name} zasáhl ${target.name} chladnou zbraní (${meleeWeapon.name}, ${outcome.hitChance} %) za ${outcome.damage} HP${outcome.critical ? " — SMRTÍCÍ SEK!" : ""}${statusTag}${tagSuffix}.`
-              : `${attacker.name} sekl zbraní ${meleeWeapon.name} vedle ${target.name} (${outcome.hitChance} %)${tagSuffix}.`;
+          const meleePhrase = phrase("log.melee", {
+            attackerId: attacker.id,
+            targetId: target.id,
+            meleeId: meleeWeapon.id,
+            butt: isButt,
+            hit: outcome.hit,
+            critical: outcome.critical,
+            chance: outcome.hitChance,
+            damage: outcome.damage,
+            stunned: stunnedByButt,
+            spilled: spilledReload,
+            height: outcome.heightAdvantage,
+            shred: outcome.armorShredded,
+            absorbed: outcome.armorAbsorbed,
+            instant: wasInstantKilled,
+            enteredThroes: enteredThroesNow,
+            agony: !!targetAfter?.inDeathThroes,
+            hp: targetAfter?.hp,
+          });
 
           const captureSync = syncColloredoCaptureState(updatedUnits);
           rescuedByStrike = captureSync.rescued;
@@ -4730,18 +4688,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             makeLog(
               s.round,
               "player",
-              text,
+              meleePhrase,
               outcome.hit ? (outcome.critical ? "crit" : "hit") : "miss",
             ),
           ];
           if (captureSync.rescued) {
             newLogs.push(
-              makeLog(
-                s.round,
-                "player",
-                "ZÁCHRANA VELITELE: Nepřítel poutající maršála padl v souboji muže proti muži!",
-                "story",
-              ),
+              makeLog(s.round, "player", phrase("log.rescue.melee"), "story"),
             );
           }
 
@@ -4769,8 +4722,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               id: fxSeq++,
               timestamp: performance.now(),
               durationMs: 1650,
-              attackerName: attacker.name,
-              weaponName: meleeWeapon.name,
+              attackerId: attacker.id,
+              weaponId: meleeWeapon.id,
               hit: true,
               critical: outcome.critical,
               misfired: false,
@@ -4797,14 +4750,20 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           loss: lossObj,
           banner: outcome.hit
             ? outcome.critical
-              ? { text: `KRITICKÝ ZÁSAH −${outcome.damage} HP!`, tone: "crit" }
-              : { text: `−${outcome.damage} HP`, tone: "hit" }
-            : { text: "MINUTÍ ZBLÍZKA", tone: "miss" },
+              ? {
+                  phrase: phrase("banner.critDamage", { damage: outcome.damage }),
+                  tone: "crit",
+                }
+              : {
+                  phrase: phrase("banner.damage", { damage: outcome.damage }),
+                  tone: "hit",
+                }
+            : { phrase: phrase("banner.meleeMiss"), tone: "miss" },
         });
 
         if (rescuedByStrike) {
           triggerUnitFx("player-colloredo", {
-            banner: { text: "VYPROŠTĚN!", tone: "buff" },
+            banner: { phrase: phrase("banner.freed"), tone: "buff" },
           });
         }
 
@@ -4878,13 +4837,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             makeLog(
               s.round,
               "player",
-              `Zbraň postavy ${unit.name} je vybitá! Nelze přejít do Hlídky / Připravené salvy bez nabité hlavně.`,
+              phrase("log.weapon.emptyOverwatch", { unitId: unit.id }),
               "alert",
             ),
           ],
         }));
         triggerUnitFx(unit.id, {
-          banner: { text: "HLAVEŇ VYBITÁ!", tone: "misfire" },
+          banner: { phrase: phrase("banner.barrelEmpty"), tone: "misfire" },
         });
         return;
       }
@@ -4897,13 +4856,19 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             makeLog(
               s.round,
               "player",
-              `Připravená salva pro těžkou mušketu s furketou (${unit.weapon.name}) vyžaduje ${requiredOwAp} AP!`,
+              phrase("log.overwatch.needAp", {
+                weaponId: unit.weapon.id,
+                required: requiredOwAp,
+              }),
               "alert",
             ),
           ],
         }));
         triggerUnitFx(unit.id, {
-          banner: { text: `VYŽADUJE ${requiredOwAp} AP!`, tone: "misfire" },
+          banner: {
+            phrase: phrase("banner.needAp", { required: requiredOwAp }),
+            tone: "misfire",
+          },
         });
         return;
       }
@@ -4943,8 +4908,11 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             s.round,
             "player",
             isConeVolley
-              ? `${unit.name} zamířil přední kužel: PŘIPRAVENÁ SALVA (OVERWATCH — kužel ${unit.facing}).`
-              : `${unit.name} přešel do režimu HLÍDKA (OVERWATCH 360°).`,
+              ? phrase("log.overwatch.cone", {
+                  unitId: unit.id,
+                  facing: unit.facing,
+                })
+              : phrase("log.overwatch.360", { unitId: unit.id }),
             "overwatch",
           ),
         ],
@@ -4952,7 +4920,9 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
       triggerUnitFx(unit.id, {
         banner: {
-          text: isConeVolley ? "PŘIPRAVENÁ SALVA" : "OVERWATCH 360°",
+          phrase: isConeVolley
+            ? phrase("banner.overwatchCone")
+            : phrase("banner.overwatch360"),
           tone: "overwatch",
         },
       });
@@ -5093,20 +5063,25 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             makeLog(
               s.round,
               "player",
-              `[SCHOPNOST — ${ability.name}] ${unit.name} přiskočil k maršálovi, přehodil přes něj těžký plášť (+2 Zbroj, ${colloredoKeptMortalWound ? "" : "+3 HP, "}+1 AP, kouřová clona 3×3${rescuedMarshal ? ", VYPROŠTĚN ZE ZADRŽENÍ" : ""})!`,
+              phrase("log.ability.cloak", {
+                abilityId: ability.id,
+                unitId: unit.id,
+                keptWound: colloredoKeptMortalWound,
+                rescued: rescuedMarshal,
+              }),
               "buff",
             ),
           ],
         }));
 
         triggerUnitFx(unit.id, {
-          banner: { text: "PŘÍSAHA KOMORNÍKA! [OCHRANA VELITELE]", tone: "buff" },
+          banner: { phrase: phrase("banner.oath"), tone: "buff" },
         });
         triggerUnitFx("player-colloredo", {
           banner: {
-            text: rescuedMarshal
-              ? "VYPROŠTĚN! +2 ZBROJ · +3 HP · DÝM"
-              : "OCHRANNÝ PLÁŠŤ! +2 ZBROJ · +3 HP · DÝM",
+            phrase: rescuedMarshal
+              ? phrase("banner.cloakFreed")
+              : phrase("banner.cloak"),
             tone: "buff",
           },
         });
@@ -5161,14 +5136,17 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             makeLog(
               s.round,
               "player",
-              `[SCHOPNOST — ${ability.name}] ${unit.name} ukryl doutnák pod klobouk a nasypal posvěcený suchý prach: +35 % Zásah, +45 % Krit, +3 DMG, +2 Průraz zbroje, ignoruje kryt zídek, 0 % Selhání v dešti a zisk +1 AP!`,
+              phrase("log.ability.verdict", {
+                abilityId: ability.id,
+                unitId: unit.id,
+              }),
               "crit",
             ),
           ],
         }));
 
         triggerUnitFx(unit.id, {
-          banner: { text: "SVATOVÁCLAVSKÝ ORTEL! 100% ZÁSAH · +3 DMG · +1 AP", tone: "crit" },
+          banner: { phrase: phrase("banner.verdict"), tone: "crit" },
         });
         return;
       }
@@ -5224,7 +5202,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
         // Kontrola a řetězový odpal prachových sudů v zóně výbuchu
         let kegDetonated = false;
-        let kegLog = "";
+        let shrapnelKegX: number | undefined;
+        let shrapnelKegZ: number | undefined;
         for (const hitEnemy of hitEnemyList) {
           const nearbyKegPos = (["N", "E", "S", "W"] as CardinalDir[]).map(
             (dir) => {
@@ -5250,7 +5229,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             );
             updatedUnits = blast.nextUnits;
             kegDetonated = true;
-            kegLog = ` + ŘETĚZOVÁ DETONACE PRACHU na [${nearbyKegPos.x}, ${nearbyKegPos.z}]!`;
+            shrapnelKegX = nearbyKegPos.x;
+            shrapnelKegZ = nearbyKegPos.z;
             break;
           }
         }
@@ -5336,7 +5316,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             makeLog(
               s.round,
               "player",
-              `[SCHOPNOST — ${ability.name}] ${unit.name} odpálil maltézskou pekelnou salvu: zasáhl ${hitEnemyIds.size} nepřátel železným šrapnelem (−3 HP, −2 Zbroj, Omráčení), zahalil se do kouře (3×3) a doplnil si +1 petardu${kegLog}!`,
+              phrase("log.ability.shrapnel", {
+                abilityId: ability.id,
+                unitId: unit.id,
+                count: hitEnemyIds.size,
+                keg: kegDetonated,
+                kegX: shrapnelKegX,
+                kegZ: shrapnelKegZ,
+              }),
               "crit",
             ),
           ],
@@ -5351,7 +5338,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
         triggerUnitFx(unit.id, {
           lunge: true,
-          banner: { text: "PEKELNÁ BOUŘE & ŠRAPNEL! +1 GRANÁT", tone: "crit" },
+          banner: { phrase: phrase("banner.shrapnel"), tone: "crit" },
         });
         for (const eid of hitEnemyIds) {
           const bEnemy = freshState.units.find((u) => u.id === eid);
@@ -5359,8 +5346,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           const shrapnelLoss =
             bEnemy && aEnemy
               ? buildUnitCombatLoss(bEnemy, aEnemy, {
-                  attackerName: unit.name,
-                  weaponName: ability.name,
+                  attackerId: unit.id,
+                  weaponId: ability.id,
                   hit: true,
                   critical: true,
                   misfired: false,
@@ -5371,7 +5358,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           triggerUnitFx(eid, {
             hit: true,
             loss: shrapnelLoss,
-            banner: { text: "ŠRAPNEL −3 HP · −2 ZBROJ · OMRÁČEN!", tone: "crit" },
+            banner: { phrase: phrase("banner.shrapnelHit"), tone: "crit" },
           });
         }
         return;
@@ -5430,19 +5417,19 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             makeLog(
               s.round,
               "player",
-              `[SCHOPNOST — ${ability.name}] Maršál Colloredo vydal autoritativní rozkaz k obraně a průlomu! Všichni spojenci získávají +2 AP a rozšířené zorné pole.`,
+              phrase("log.ability.command", { abilityId: ability.id }),
               "buff",
             ),
           ],
         }));
 
         triggerUnitFx(unit.id, {
-          banner: { text: "ROZKAZ MARŠÁLA! [+2 AP SPOJENCŮM]", tone: "buff" },
+          banner: { phrase: phrase("banner.command"), tone: "buff" },
         });
         for (const ally of syncedUnits) {
           if (ally.faction === "player" && ally.alive && ally.id !== unit.id) {
             triggerUnitFx(ally.id, {
-              banner: { text: "+2 AKČNÍ BODY!", tone: "buff" },
+              banner: { phrase: phrase("banner.plusTwoAp"), tone: "buff" },
             });
           }
         }
@@ -5550,8 +5537,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           const gLoss =
             bUnit && aUnit
               ? buildUnitCombatLoss(bUnit, aUnit, {
-                  attackerName: attacker.name,
-                  weaponName: "Litinová petarda (3×3)",
+                  attackerId: attacker.id,
+                  weaponId: "grenade",
                   hit: true,
                   critical: true,
                   misfired: false,
@@ -5564,14 +5551,17 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             loss: gLoss,
             banner:
               vid === "player-colloredo" && captureSync.newlyDetained
-                ? { text: "ZADRŽEN! (1/2)", tone: "crit" }
-                : { text: `VÝBUCH −${grenadeDamage}`, tone: "crit" },
+                ? { phrase: phrase("banner.detainedHalf"), tone: "crit" }
+                : {
+                    phrase: phrase("banner.grenadeBlast", { damage: grenadeDamage }),
+                    tone: "crit",
+                  },
           });
         }
 
         if (captureSync.rescued) {
           triggerUnitFx("player-colloredo", {
-            banner: { text: "VYPROŠTĚN!", tone: "buff" },
+            banner: { phrase: phrase("banner.freed"), tone: "buff" },
           });
         }
 
@@ -5581,10 +5571,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             pendingDefeatReason = outcomeCheck.defeatReason ?? "zero_hp";
           }
 
-          const kegNote =
-            blast.detonatedKegs.length > 0
-              ? ` + ODPÁLENO ${blast.detonatedKegs.length} PRACHOVÝCH SUDŮ!`
-              : "";
+          const detonatedKeg = blast.detonatedKegs[0];
 
           const nextTutorialStep =
             s.tutorialStep === 3 ? (4 as const) : s.tutorialStep;
@@ -5597,21 +5584,11 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           const extraLogs: CombatLogEntry[] = [];
           if (captureSync.rescued) {
             extraLogs.push(
-              makeLog(
-                s.round,
-                "player",
-                "ZÁCHRANA VELITELE: Výbuch petardy smetl švédského věznitele a maršál Colloredo je opět volný!",
-                "story",
-              ),
+              makeLog(s.round, "player", phrase("log.rescue.grenade"), "story"),
             );
           } else if (captureSync.newlyDetained) {
             extraLogs.push(
-              makeLog(
-                s.round,
-                "enemy",
-                "POZOR (ZADRŽEN 1/2 KOLA): Tlaková vlna výbuchu srazila maršála Colloreda k zemi (0 HP)! Máte 1 kolo na to, abyste k němu přivedli spojence a vyprostili jej!",
-                "alert",
-              ),
+              makeLog(s.round, "enemy", phrase("log.detained.grenade"), "alert"),
             );
           }
 
@@ -5629,7 +5606,18 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               makeLog(
                 s.round,
                 "player",
-                `${attacker.name} hodil petardu na [${targetCoord.x}, patro ${targetCoord.y}, ${targetCoord.z}] — výbuch 3×3 (${hitVictims.length} zasaženo za ${grenadeDamage} HP, −${grenadeShred} zbroj a dým)${kegNote}!`,
+                phrase("log.grenade", {
+                  attackerId: attacker.id,
+                  x: targetCoord.x,
+                  y: targetCoord.y,
+                  z: targetCoord.z,
+                  count: hitVictims.length,
+                  damage: grenadeDamage,
+                  shred: grenadeShred,
+                  keg: blast.detonatedKegs.length > 0,
+                  kegX: detonatedKeg?.x,
+                  kegZ: detonatedKeg?.z,
+                }),
                 "crit",
               ),
               ...extraLogs,
@@ -5710,9 +5698,6 @@ export const useGameStore = create<GameStoreState>((set, get) => {
       const nextState = state.grid.toggleDoor(coord);
       if (!nextState) return;
 
-      const actorName = actor ? actor.name : "Voják";
-      const actionText = nextState === "open" ? "otevřel" : "zavřel";
-
       const sel = deriveSelectionData(
         state.grid,
         state.units,
@@ -5735,7 +5720,14 @@ export const useGameStore = create<GameStoreState>((set, get) => {
           makeLog(
             s.round,
             "player",
-            `${actorName} ${actionText} ${door.label} (${coord.x}, ${coord.z}, P${coord.y}) jako volnou akci (0 AP).`,
+            phrase("log.door.toggle", {
+              unitId: actor?.id,
+              open: nextState === "open",
+              doorId: door.id,
+              x: coord.x,
+              z: coord.z,
+              y: coord.y,
+            }),
             "info",
           ),
         ],
@@ -5790,7 +5782,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                   makeLog(
                     s.round,
                     "player",
-                    "Polní maršál Colloredo v Posledním vzepětí nedokázal dosáhnout rybářské pramice a podlehl zraněním!",
+                    phrase("log.deathThroes.colloredoBoat"),
                     "alert",
                   ),
                 ],
@@ -5811,13 +5803,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                 makeLog(
                   s.round,
                   "player",
-                  `${hero.name} vyčerpal své Poslední vzepětí a padl k zemi s čistým štítem.`,
+                  phrase("log.deathThroes.hero", { heroId: hero.id }),
                   "alert",
                 ),
               ],
             }));
             triggerUnitFx(hero.id, {
-              banner: { text: "PADL V BOJI", tone: "crit" },
+              banner: { phrase: phrase("banner.fallen"), tone: "crit" },
             });
             playHitSound(true, 3);
             await delay(350);
@@ -5858,7 +5850,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             makeLog(
               s.round,
               "enemy",
-              `--- Kolo ${s.round}: Aktivita švédské hlídky ---`,
+              phrase("log.round.enemy", { count: s.round }),
               "alert",
             ),
           ],
@@ -5894,13 +5886,13 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               makeLog(
                 s.round,
                 "enemy",
-                `${finishedEnemy.name} vyčerpal své Poslední vzepětí, podlehl zraněním a padl k zemi.`,
+                phrase("log.deathThroes.enemy", { unitId: finishedEnemy.id }),
                 "alert",
               ),
             ],
           }));
           triggerUnitFx(id, {
-            banner: { text: "PADL (AGÓNIE)", tone: "crit" },
+            banner: { phrase: phrase("banner.fallenThroes"), tone: "crit" },
           });
           playHitSound(true, 3);
           await delay(350);
@@ -5947,7 +5939,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                 makeLog(
                   s.round,
                   "enemy",
-                  `${enemy.name} rozrazil křídlo dveří!`,
+                  phrase("log.door.enemy", { unitId: enemy.id }),
                   "overwatch",
                 ),
               ],
@@ -6021,8 +6013,11 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                 updatedEnemy.facing,
               );
               const logMsg = capCheck.isAdjacent
-                ? `${updatedEnemy.name} přistoupil těsně k hraběti Colloredovi, utratil 1 AP a zajímá jej!`
-                : `${updatedEnemy.name} namířil nabitou mušketu na hraběte Colloreda (${capCheck.distanceTiles} ${capCheck.distanceTiles === 1 ? "pole" : capCheck.distanceTiles <= 4 ? "pole" : "polí"}), utratil 1 AP a drží jej v šachu: „Stůjte, pane hrabě! Ani hnutí!“ — Hrabě Colloredo je zajat!`;
+                ? phrase("log.capture.adjacent", { unitId: updatedEnemy.id })
+                : phrase("log.capture.gunpoint", {
+                    unitId: updatedEnemy.id,
+                    distance: capCheck.distanceTiles,
+                  });
 
               set((s) => ({
                 units: s.units.map((u) =>
@@ -6050,13 +6045,15 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               triggerUnitFx(updatedEnemy.id, {
                 lunge: true,
                 banner: {
-                  text: capCheck.isGunpoint ? "DRŽÍ V ŠACHU (1 AP)" : "ZAJETÍ (1 AP)",
+                  phrase: capCheck.isGunpoint
+                    ? phrase("banner.gunpoint")
+                    : phrase("banner.captureAp"),
                   tone: "crit",
                 },
               });
               triggerUnitFx(colloredo.id, {
                 hit: true,
-                banner: { text: "ZAJAT ŠVÉDY! (2/2)", tone: "crit" },
+                banner: { phrase: phrase("banner.captured"), tone: "crit" },
               });
 
               playHitSound(true, 2);
@@ -6081,8 +6078,11 @@ export const useGameStore = create<GameStoreState>((set, get) => {
             );
             if (capCheck.canCapture) {
               const warningMsg = capCheck.isAdjacent
-                ? `POZOR (HROZBA ZAJETÍ): ${updatedEnemy.name} pronikl těsně k hraběti Colloredovi, ale vyčerpal AP na přesun! Pokud jej v příštím tahu nezlikvidujete nebo neustoupíte, hrabě bude zajat!`
-                : `POZOR (HROZBA ZAJETÍ): ${updatedEnemy.name} namířil nabitou mušketu na hraběte Colloreda (${capCheck.distanceTiles} pole), ale vyčerpal AP na pohyb! Pokud v příštím tahu nezrušíte přímou viditelnost nebo jej nezlikvidujete, hrabě bude zajat!`;
+                ? phrase("log.capture.threatAdjacent", { unitId: updatedEnemy.id })
+                : phrase("log.capture.threatGunpoint", {
+                    unitId: updatedEnemy.id,
+                    distance: capCheck.distanceTiles,
+                  });
 
               set((s) => ({
                 units: s.units.map((u) =>
@@ -6102,7 +6102,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
               triggerUnitFx(colloredo.id, {
                 hit: true,
-                banner: { text: "HROZBA ZAJETÍ! (1/2)", tone: "crit" },
+                banner: { phrase: phrase("banner.threat"), tone: "crit" },
               });
             }
           }
@@ -6180,9 +6180,12 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                     afterTargetStrike =
                       syncedUnits.find((u) => u.id === targetUnit.id) ?? targetUnit;
 
-                    const msg = outcome.hit
-                      ? `${updatedEnemy.name} v Posledním vzepětí udeřil pažbou do ${targetUnit.name} za ${outcome.damage} HP!`
-                      : `${updatedEnemy.name} v Posledním vzepětí máchl pažbou po ${targetUnit.name}, ale minul.`;
+                    const msg = phrase("log.enemy.throesMelee", {
+                      attackerId: updatedEnemy.id,
+                      targetId: targetUnit.id,
+                      hit: outcome.hit,
+                      damage: outcome.damage,
+                    });
 
                     return {
                       units: syncedUnits,
@@ -6204,8 +6207,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                       beforeTargetStrike,
                       afterTargetStrike,
                       {
-                        attackerName: updatedEnemy.name,
-                        weaponName: "Úder pažbou švédské muškety",
+                        attackerId: updatedEnemy.id,
+                        weaponId: "swedish_musket_butt",
                         hit: outcome.hit,
                         critical: outcome.critical,
                         misfired: false,
@@ -6248,18 +6251,24 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                 makeLog(
                   s.round,
                   "enemy",
-                  isNowLoaded
-                    ? `${updatedEnemy.name} dokončil nabíjení muškety (${reqReloadAp}/${reqReloadAp} AP) s papírovou patronou!`
-                    : `${updatedEnemy.name} fázově nabíjí mušketu (${nextReload}/${reqReloadAp} AP).`,
+                  phrase("log.enemy.reload", {
+                    unitId: updatedEnemy.id,
+                    loaded: isNowLoaded,
+                    progress: nextReload,
+                    required: reqReloadAp,
+                  }),
                   "info",
                 ),
               ],
             }));
             triggerUnitFx(updatedEnemy.id, {
               banner: {
-                text: isNowLoaded
-                  ? `NABITO (${reqReloadAp}/${reqReloadAp})`
-                  : `NABÍJENÍ ${nextReload}/${reqReloadAp}`,
+                phrase: isNowLoaded
+                  ? phrase("banner.loaded", { required: reqReloadAp })
+                  : phrase("banner.reloading", {
+                      progress: nextReload,
+                      required: reqReloadAp,
+                    }),
                 tone: "buff",
               },
             });
@@ -6393,7 +6402,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               triggerUnitFx(updatedEnemy.id, {
                 lunge: true,
                 banner: outcome.misfired
-                  ? { text: "SELHÁNÍ!", tone: "misfire" }
+                  ? { phrase: phrase("banner.misfire"), tone: "misfire" }
                   : undefined,
               });
               await delay(730);
@@ -6451,11 +6460,16 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                   syncedUnits.find((u) => u.id === targetUnit.id) ??
                   beforeEnemyShotTarget;
 
-                const msg = outcome.misfired
-                  ? `${updatedEnemy.name} chtěl vystřelit na ${targetUnit.name}, ale doutnák v dešti selhal!`
-                  : outcome.hit
-                    ? `${updatedEnemy.name} zasáhl ${targetUnit.name} (${outcome.hitChance} %) za ${outcome.damage} HP${outcome.armorShredded > 0 ? ` (−${outcome.armorShredded} zbroj)` : ""}${outcome.critical ? " (KRITICKÝ!)" : ""}!`
-                    : `${updatedEnemy.name} vystřelil na ${targetUnit.name} (${outcome.hitChance} %), ale minul.`;
+                const msg = phrase("log.enemy.shot", {
+                  attackerId: updatedEnemy.id,
+                  targetId: targetUnit.id,
+                  misfired: outcome.misfired,
+                  hit: outcome.hit,
+                  chance: outcome.hitChance,
+                  damage: outcome.damage,
+                  shred: outcome.armorShredded,
+                  critical: outcome.critical,
+                });
 
                 const outcomeCheck = checkMissionOutcome(s.grid, syncedUnits);
                 if (outcomeCheck.outcome === "defeat") {
@@ -6469,7 +6483,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                     makeLog(
                       s.round,
                       "enemy",
-                      "POZOR (ZADRŽEN 1/2 KOLA): Maršál Colloredo klesl k zemi! Přiveďte k němu v příštím kole spojence a vyčistěte okolí, jinak bude na konci příštího kola zajat!",
+                      phrase("log.detained.enemyShot"),
                       "alert",
                     ),
                   );
@@ -6511,8 +6525,8 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                   beforeEnemyShotTarget,
                   afterEnemyShotTarget,
                   {
-                    attackerName: updatedEnemy.name,
-                    weaponName: updatedEnemy.weapon.name,
+                    attackerId: updatedEnemy.id,
+                    weaponId: updatedEnemy.weapon.id,
                     hit: outcome.hit,
                     critical: outcome.critical,
                     misfired: outcome.misfired,
@@ -6525,15 +6539,17 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                   hit: outcome.hit,
                   loss: enemyShotLoss,
                   banner: newlyDetainedByEnemyShot
-                    ? { text: "ZADRŽEN! (1/2)", tone: "crit" }
+                    ? { phrase: phrase("banner.detainedHalf"), tone: "crit" }
                     : outcome.hit
                        ? {
-                           text: outcome.critical
-                             ? `KRIT −${outcome.damage}!`
-                             : `−${outcome.damage} HP`,
+                           phrase: outcome.critical
+                             ? phrase("banner.critShortBang", {
+                                 damage: outcome.damage,
+                               })
+                             : phrase("banner.damage", { damage: outcome.damage }),
                            tone: outcome.critical ? "crit" : "hit",
                          }
-                       : { text: "VEDLE", tone: "miss" },
+                       : { phrase: phrase("banner.miss"), tone: "miss" },
                 });
               }
 
@@ -6580,13 +6596,16 @@ export const useGameStore = create<GameStoreState>((set, get) => {
                 makeLog(
                   s.round,
                   "enemy",
-                  `${updatedEnemy.name} zaujal kryt a drží Připravenou salvu (OVERWATCH — kužel ${updatedEnemy.facing}).`,
+                  phrase("log.enemy.overwatch", {
+                    unitId: updatedEnemy.id,
+                    facing: updatedEnemy.facing,
+                  }),
                   "overwatch",
                 ),
               ],
             }));
             triggerUnitFx(updatedEnemy.id, {
-              banner: { text: "PŘIPRAVENÁ SALVA", tone: "overwatch" },
+              banner: { phrase: phrase("banner.preparedVolley"), tone: "overwatch" },
             });
             await delay(240);
           }
@@ -6610,21 +6629,11 @@ export const useGameStore = create<GameStoreState>((set, get) => {
 
           if (nextRound === 3) {
             extraRoundLogs.push(
-              makeLog(
-                3,
-                "enemy",
-                "VÝSTRAHA: Z Mostecké ulice zazněly polnice švédských dragounů! Generál Königsmarck vysílá posily, máte 2 kola k dosažení rybářské pramice!",
-                "alert",
-              ),
+              makeLog(3, "enemy", phrase("log.warn.reinforcement.3"), "alert"),
             );
           } else if (nextRound === 4) {
             extraRoundLogs.push(
-              makeLog(
-                4,
-                "enemy",
-                "NEBEZPEČÍ: Dusot kovaných kopyt se blíží k severní bráně! Švédská jízda vtrhne do zahrady v příštím kole!",
-                "alert",
-              ),
+              makeLog(4, "enemy", phrase("log.warn.reinforcement.4"), "alert"),
             );
           } else if (nextRound >= s.reinforcementRound && !s.reinforcementsSpawned) {
             spawnedReinforcements = true;
@@ -6637,7 +6646,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               makeLog(
                 nextRound,
                 "enemy",
-                "POPLACH: Švédské posily z Mostecké ulice prorazily severní bránu! 2 těžcí jezdci (Královský dragoun a Švédský kyrysník) vpadli do zahrady!",
+                phrase("log.reinforcement.arrive"),
                 "alert",
               ),
             );
@@ -6741,7 +6750,7 @@ export const useGameStore = create<GameStoreState>((set, get) => {
               makeLog(
                 nextRound,
                 "player",
-                `--- Kolo ${nextRound}: Útěk velkopřevora Colloreda ---`,
+                phrase("log.round.player", { count: nextRound }),
                 "info",
               ),
               ...extraRoundLogs,
@@ -6823,20 +6832,37 @@ export const useGameStore = create<GameStoreState>((set, get) => {
         lightFlashes: [],
         unitFx: {},
         combatLog: [
-          makeLog(
-            1,
-            "player",
-            "26. července 1648, 02:30 ráno (Noční liják): Zrádce Arnošt Odowalsky otevřel Strahovskou bránu švédským dragounům generála Königsmarcka!",
-            "alert",
-          ),
-          makeLog(
-            1,
-            "player",
-            "Maršál Rudolf Colloredo vyskočil z lůžka v noční košili. Malostranská mostecká věž je odříznuta! Dostaňte zraněného maršála zahradou k rybářské pramici na Čertovce!",
-            "story",
-          ),
+          makeLog(1, "player", phrase("log.briefing.gate"), "alert"),
+          makeLog(1, "player", phrase("log.briefing.escape"), "story"),
         ],
       }));
     },
   };
+});
+
+subscribeLocale(() => {
+  relabelCatalogs();
+  useGameStore.setState((state) => {
+    state.grid.applyLocaleLabels();
+    const units = state.units.map((unit) => projectUnit(unit));
+    const derived = deriveSelectionData(
+      state.grid,
+      units,
+      state.selectedUnitId,
+      state.weather,
+      state.selectedTargetId,
+      state.fogSnapshot.exploredCoords,
+      state.blastZones,
+      state.fogOfWarEnabled,
+    );
+    return {
+      units: derived.units,
+      reachableTiles: derived.reachableTiles,
+      visibleTargets: derived.visibleTargets,
+      visibleMeleeTargets: derived.visibleMeleeTargets,
+      selectedTargetId: derived.selectedTargetId,
+      fogSnapshot: derived.fogSnapshot,
+      gridVersion: state.gridVersion + 1,
+    };
+  });
 });

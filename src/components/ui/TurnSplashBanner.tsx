@@ -8,9 +8,11 @@
 
 import { ShieldAlert, Swords } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { text, useLocale } from "../../i18n";
 import { useGameStore } from "../../store/useGameStore";
 
 export function TurnSplashBanner() {
+  const locale = useLocale();
   const turn = useGameStore((s) => s.turn);
   const round = useGameStore((s) => s.round);
   const [visible, setVisible] = useState(false);
@@ -59,7 +61,7 @@ export function TurnSplashBanner() {
               <ShieldAlert className="w-5 h-5 text-rose-400" />
             )}
             <span className="font-cinzel text-xs font-bold tracking-widest uppercase text-amber-300">
-              Kolo {round} · Anno 1648
+              {text("ui.splash.round", { count: round }, locale)}
             </span>
           </div>
           <span className="text-amber-500/80 text-xs">❖ ✦ ❖</span>
@@ -70,21 +72,25 @@ export function TurnSplashBanner() {
             isPlayer ? "baroque-gold" : "text-rose-200"
           }`}
         >
-          {isPlayer ? "Útěk maršála Colloreda" : "Přepad Odowalského"}
+          {text(isPlayer ? "ui.splash.player" : "ui.splash.enemy", undefined, locale)}
         </h2>
 
         <div className="w-48 h-px bg-gradient-to-r from-transparent via-amber-500/60 to-transparent my-2" />
 
         <p className="font-literata italic text-xs text-amber-200/90 tracking-wide text-center px-4">
-          {isPlayer
-            ? round === 3
-              ? "Polnice z Mostecké ulice! Těžké švédské posily dorazí v kole 5!"
-              : round === 4
-                ? "POZOR: Švédská jízda obkličuje bránu — posily vtrhnou v příštím kole!"
-                : round >= 5
-                  ? "POPLACH: Švédská jízda generála Königsmarcka vpadla do zahrady!"
-                  : "Eskortujte kulhajícího maršála k rybářské pramici na Čertovce!"
-            : "Švédští dragouni prohledávají zahradu Velkopřevorství!"}
+          {text(
+            isPlayer
+              ? round === 3
+                ? "ui.splash.player.r3"
+                : round === 4
+                  ? "ui.splash.player.r4"
+                  : round >= 5
+                    ? "ui.splash.player.r5"
+                    : "ui.splash.player.escort"
+              : "ui.splash.enemy.body",
+            undefined,
+            locale,
+          )}
         </p>
       </div>
     </div>

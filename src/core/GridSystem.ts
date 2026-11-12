@@ -5,6 +5,14 @@
  * Bez závislostí na Three.js a Reactu.
  */
 
+import {
+  doorLabel,
+  getPack,
+  meleeLabel,
+  projectUnit,
+  text,
+  weaponLabel,
+} from "../i18n/runtime";
 import type {
   CardinalDir,
   CoverLevel,
@@ -227,6 +235,13 @@ export class GridSystem {
 
   public getAllDoors(): DoorData[] {
     return Array.from(this.doors.values());
+  }
+
+  /** Live door objects. Labels are filled from the active locale pack. */
+  public applyLocaleLabels(): void {
+    for (const door of this.getAllDoors()) {
+      door.label = doorLabel(door.id);
+    }
   }
 
   /**
@@ -763,7 +778,7 @@ export function createInitialGrid(): GridSystem {
     coord: { x: 11, y: 0, z: 16 },
     state: "open",
     axis: "E_W",
-    label: "Západní křídlo portálu Sala Terreny",
+    label: doorLabel("door-salaterrena-west"),
     isDoubleLeaf: true,
     pairedCoord: { x: 12, y: 0, z: 16 },
     leafRole: "left",
@@ -773,7 +788,7 @@ export function createInitialGrid(): GridSystem {
     coord: { x: 12, y: 0, z: 16 },
     state: "open",
     axis: "E_W",
-    label: "Východní křídlo portálu Sala Terreny",
+    label: doorLabel("door-salaterrena-east"),
     isDoubleLeaf: true,
     pairedCoord: { x: 11, y: 0, z: 16 },
     leafRole: "right",
@@ -786,7 +801,7 @@ export function createInitialGrid(): GridSystem {
     coord: { x: 5, y: 1, z: 21 },
     state: "closed",
     axis: "E_W",
-    label: "Západní křídlo dveří ložnice velkopřevora (P1)",
+    label: doorLabel("door-bedroom-west"),
     isDoubleLeaf: true,
     pairedCoord: { x: 6, y: 1, z: 21 },
     leafRole: "left",
@@ -796,7 +811,7 @@ export function createInitialGrid(): GridSystem {
     coord: { x: 6, y: 1, z: 21 },
     state: "closed",
     axis: "E_W",
-    label: "Východní křídlo dveří ložnice velkopřevora (P1)",
+    label: doorLabel("door-bedroom-east"),
     isDoubleLeaf: true,
     pairedCoord: { x: 5, y: 1, z: 21 },
     leafRole: "right",
@@ -809,7 +824,7 @@ export function createInitialGrid(): GridSystem {
     coord: { x: 5, y: 0, z: 17 },
     state: "closed",
     axis: "E_W",
-    label: "Kované dveře maltézské zbrojnice",
+    label: doorLabel("door-armory"),
   });
 
   // 4. Kovaná zahradní branka v ohradní zdi zahrady (x: 1, z: 10, y = 0)
@@ -819,7 +834,7 @@ export function createInitialGrid(): GridSystem {
     coord: { x: 1, y: 0, z: 10 },
     state: "closed",
     axis: "N_S",
-    label: "Západní branka do Maltézské uličky",
+    label: doorLabel("door-garden-west-gate"),
   });
 
   // 5. Dubové dveře východního konventního křídla (x: 15, z: 21, y = 0)
@@ -829,7 +844,7 @@ export function createInitialGrid(): GridSystem {
     coord: { x: 15, y: 0, z: 21 },
     state: "closed",
     axis: "N_S",
-    label: "Dveře kapitulního sálu a knihovny",
+    label: doorLabel("door-convent-east"),
   });
 
   // ===========================================================================
@@ -872,6 +887,7 @@ export function createInitialGrid(): GridSystem {
   }
 
   grid.bakeCoverFromObstacles();
+  grid.applyLocaleLabels();
 
   return grid;
 }
@@ -930,7 +946,7 @@ export function getMission1TutorialBeacon(
     if (!keg) return null;
     return {
       coord: { ...keg.coord },
-      label: "Prachový sud (Odpálit!)",
+      label: text("tutorial.keg"),
       color: "#f97316",
     };
   }
@@ -939,7 +955,7 @@ export function getMission1TutorialBeacon(
     if (!dock) return null;
     return {
       coord: { ...dock.coord },
-      label: "Rybářská pramice (Cíl)",
+      label: text("tutorial.dock"),
       color: "#38bdf8",
     };
   }
@@ -1183,6 +1199,21 @@ export const MELEE_CATALOG: Record<string, MeleeWeaponStats> = {
   },
 };
 
+/** Weapon and melee copy follows the active locale pack. */
+export function relabelCatalogs(): void {
+  for (const weapon of Object.values(WEAPON_CATALOG)) {
+    weapon.name = weaponLabel(weapon.id);
+  }
+  const meleePack = getPack().melee;
+  for (const melee of Object.values(MELEE_CATALOG)) {
+    melee.name = meleeLabel(melee.id);
+    const description = meleePack[melee.id]?.description;
+    if (description) melee.description = description;
+  }
+}
+
+relabelCatalogs();
+
 /**
  * Rozestavení 1. mise: Útěk hraběte Colloreda z Velkopřevorského paláce přes zahradu k Čertovce.
  * Obránci (4):
@@ -1193,7 +1224,7 @@ export const MELEE_CATALOG: Record<string, MeleeWeaponStats> = {
  * Švédský přepad (4): Mušketýři pod velením Arnošta Odowalského se Švédskými odlehčenými mušketami M1624.
  */
 export function createInitialUnits(): UnitData[] {
-  return [
+  const units: UnitData[] = [
     // 1. Vrchní polní maršál a velkopřevor Rudolf hrabě Colloredo-Wallsee (VIP cíl eskorty)
     // Začíná v soukromé ložnici v 1. patře (Piano Nobile) v noční košili, nikoliv pod schody!
     {
@@ -1224,6 +1255,7 @@ export function createInitialUnits(): UnitData[] {
       isVip: true,
       detainedTurns: 0,
       captureReason: null,
+      buffId: "limp",
       buffTitle: "Těžké kulhání (zranění z Lützenu)",
       ability: undefined,
       abilityBuffActive: false,
@@ -1433,6 +1465,7 @@ export function createInitialUnits(): UnitData[] {
       alive: true,
     },
   ];
+  return units.map((unit) => projectUnit(unit));
 }
 
 /**
@@ -1441,7 +1474,7 @@ export function createInitialUnits(): UnitData[] {
  * Všichni nepřátelé jsou mušketýři se Švédskými odlehčenými mušketami M1624.
  */
 export function createReinforcementUnits(): UnitData[] {
-  return [
+  const units: UnitData[] = [
     {
       id: "enemy-reinforcement-vanguard",
       name: "Předsunutý mušketýr",
@@ -1495,4 +1528,5 @@ export function createReinforcementUnits(): UnitData[] {
       alive: true,
     },
   ];
+  return units.map((unit) => projectUnit(unit));
 }

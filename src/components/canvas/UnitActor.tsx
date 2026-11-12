@@ -35,6 +35,7 @@ import {
   findBestMeleeChargeTile,
   useGameStore,
 } from "../../store/useGameStore";
+import { formatPhrase, text, useLocale } from "../../i18n";
 import { BaroqueCoverBadge } from "../ui/BaroqueCoverBadge";
 import { wasRecentRightCameraPan } from "./TacticalCamera";
 import { UnitVisual2D } from "./UnitVisual2D";
@@ -80,6 +81,7 @@ export function UnitActor({ unit }: UnitActorProps) {
   const [lossTick, setLossTick] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const moveProgressRef = useRef(0);
+  const locale = useLocale();
 
   const isHiddenInFog =
     unit.faction === "enemy" &&
@@ -98,6 +100,18 @@ export function UnitActor({ unit }: UnitActorProps) {
         : null,
     [isHiddenInFog, fogSnapshot.soundContacts, unit.id],
   );
+
+  const contactLabel = soundContact
+    ? text(
+        soundContact.kind === "matchcord_glow"
+          ? "contact.matchcord"
+          : soundContact.kind === "footsteps"
+            ? "contact.footsteps"
+            : "contact.gunfire",
+        undefined,
+        locale,
+      )
+    : text("ui.contact.fog", undefined, locale);
 
   const isSelected = selectedUnitId === unit.id;
   const isDetainedMarshal =
@@ -132,7 +146,7 @@ export function UnitActor({ unit }: UnitActorProps) {
         isAdjacent: true,
         apCost: 1,
         hitChance: calc.hitChance,
-        weaponName: calc.weaponName,
+        weaponId: calc.weaponId,
       };
     }
 
@@ -154,7 +168,7 @@ export function UnitActor({ unit }: UnitActorProps) {
       isAdjacent: false,
       apCost: chargeReach.apCost,
       hitChance: calc.hitChance,
-      weaponName: calc.weaponName,
+      weaponId: calc.weaponId,
     };
   }, [
     unit,
@@ -535,12 +549,12 @@ export function UnitActor({ unit }: UnitActorProps) {
                 handleUnitClick(unit.id);
               }}
               style={{ pointerEvents: "auto", cursor: "pointer" }}
-              title={`${soundContact?.label ?? "Kontakt v šerosvitu"} — Přibližte se s jednotkou nebo vystoupejte na strážní věž pro odhalení cíle`}
+              title={text("ui.contact.approach", { names: contactLabel }, locale)}
               className="select-none flex flex-col items-center gap-0.5 px-2 py-0.5 rounded-lg bg-slate-950/92 border border-amber-500/60 backdrop-blur-md shadow-[0_0_14px_rgba(249,115,22,0.35)] text-amber-200 whitespace-nowrap"
             >
               {unitFx?.floatingBanner && (
                 <div className="text-[10px] font-cinzel font-black px-1.5 py-0.2 rounded bg-slate-800 text-amber-200 border border-amber-500/50 uppercase">
-                  {unitFx.floatingBanner.text}
+                  {formatPhrase(unitFx.floatingBanner.phrase, locale)}
                 </div>
               )}
               {soundContact && (
@@ -551,7 +565,7 @@ export function UnitActor({ unit }: UnitActorProps) {
                     <Footprints className="w-3 h-3 text-amber-400 shrink-0" />
                   )}
                   <span className="text-amber-300 font-black">[?]</span>
-                  <span>{soundContact.label}</span>
+                  <span>{contactLabel}</span>
                   {unit.pos.y > 0 && (
                     <span className="px-1 rounded bg-amber-500/25 text-amber-300 text-[9px]">
                       P{unit.pos.y}
@@ -841,8 +855,8 @@ export function UnitActor({ unit }: UnitActorProps) {
             {isDetainedMarshal && (
               <div className="text-[9px] font-cinzel font-black px-1.5 py-0.5 rounded bg-red-600 text-white uppercase tracking-wider animate-pulse border border-amber-300 shadow-lg whitespace-nowrap">
                 {(unit.detainedTurns ?? 0) >= 2 || isCapturingAnim
-                  ? "ZAJAT! (2/2)"
-                  : `ZADRŽEN (${unit.detainedTurns ?? 1}/2)`}
+                  ? text("ui.loss.captured", undefined, locale)
+                  : text("ui.loss.detained", { progress: unit.detainedTurns ?? 1 }, locale)}
               </div>
             )}
 
@@ -851,10 +865,13 @@ export function UnitActor({ unit }: UnitActorProps) {
               <div className="flex items-center gap-1 text-[9px] font-cinzel font-black px-1.5 py-0.5 rounded bg-red-600/95 text-amber-100 uppercase tracking-wider animate-pulse border border-amber-300 shadow-md whitespace-nowrap">
                 <Target className="w-2.5 h-2.5 text-amber-300 animate-spin shrink-0" />
                 <span>
-                  PALBA
-                  {activeProjectile?.hitChance !== undefined
-                    ? ` · ${activeProjectile.hitChance}%`
-                    : ""}
+                  {text(
+                    "ui.loss.volley",
+                    activeProjectile?.hitChance !== undefined
+                      ? { chance: activeProjectile.hitChance }
+                      : {},
+                    locale,
+                  )}
                 </span>
               </div>
             )}
@@ -866,7 +883,7 @@ export function UnitActor({ unit }: UnitActorProps) {
               !activeCombatLoss && (
                 <div className="flex items-center gap-1 text-[9px] font-cinzel font-black px-1.5 py-0.5 rounded bg-red-950/95 text-amber-200 uppercase tracking-wider border border-amber-400 shadow-[0_0_10px_rgba(239,68,68,0.8)] whitespace-nowrap">
                   <Target className="w-2.5 h-2.5 text-amber-300 animate-spin" />
-                  <span>V mušce</span>
+                  <span>{text("banner.inSights", undefined, locale)}</span>
                 </div>
               )}
 
@@ -888,7 +905,7 @@ export function UnitActor({ unit }: UnitActorProps) {
                             : "bg-slate-800 text-slate-100 border border-slate-600"
                 }`}
               >
-                {unitFx.floatingBanner.text}
+                {formatPhrase(unitFx.floatingBanner.phrase, locale)}
               </div>
             )}
 
@@ -914,26 +931,30 @@ export function UnitActor({ unit }: UnitActorProps) {
                 {activeCombatLoss.killed ? (
                   <>
                     <Skull className="w-3 h-3 text-amber-200 shrink-0" />
-                    <span>{activeCombatLoss.instantKilled ? "OKAMŽITĚ PADL!" : "VYŘAZEN!"}</span>
+                    <span>
+                      {activeCombatLoss.instantKilled
+                        ? text("banner.instantKill", undefined, locale)
+                        : text("banner.eliminated", undefined, locale)}
+                    </span>
                   </>
                 ) : activeCombatLoss.enteredDeathThroes ? (
                   <>
                     <Skull className="w-3 h-3 text-rose-300 shrink-0 animate-pulse" />
-                    <span className="text-rose-200">POSLEDNÍ VZEPĚTÍ!</span>
+                    <span className="text-rose-200">{text("banner.deathThroes", undefined, locale)}</span>
                   </>
                 ) : activeCombatLoss.hit ? (
                   activeCombatLoss.critical ? (
                     <>
                       <Zap className="w-3 h-3 text-slate-950 shrink-0" />
-                      <span>KRITICKÝ PRŮSTŘEL!</span>
+                      <span>{text("banner.criticalPierce", undefined, locale)}</span>
                     </>
                   ) : activeCombatLoss.hpLost > 0 ? (
-                    <span>ZÁSAH!</span>
+                    <span>{text("banner.hit", undefined, locale)}</span>
                   ) : (
-                    <span>ODRAŽENO KYRYSEM!</span>
+                    <span>{text("banner.armorBounce", undefined, locale)}</span>
                   )
                 ) : (
-                  <span>MINUTÍ</span>
+                  <span>{text("banner.missedShot", undefined, locale)}</span>
                 )}
               </div>
             )}
@@ -947,7 +968,7 @@ export function UnitActor({ unit }: UnitActorProps) {
 
                 {tileMeta.inSmoke && (
                   <span
-                    title="Kouř z černého prachu (−20 % k zásahu)"
+                    title={text("ui.smoke.title", undefined, locale)}
                     className="flex items-center gap-0.5 text-[8px] font-cinzel font-black text-slate-300"
                   >
                     <Cloud className="w-2.5 h-2.5" />
@@ -989,8 +1010,12 @@ export function UnitActor({ unit }: UnitActorProps) {
                     <span
                       title={
                         meleeChargeInfo.isAdjacent
-                          ? `Pravým kliknutím okamžitý útok zblízka (${meleeChargeInfo.weaponName}, 1 AP)`
-                          : `XCOM 2 Zteč zblízka: Pravým kliknutím okamžitý přesun (${meleeChargeInfo.apCost} AP) spojený se seknutím (${meleeChargeInfo.weaponName}, +0 AP navíc)!`
+                          ? text("ui.melee.now", { meleeId: meleeChargeInfo.weaponId }, locale)
+                          : text(
+                              "ui.melee.charge",
+                              { meleeId: meleeChargeInfo.weaponId, count: meleeChargeInfo.apCost },
+                              locale,
+                            )
                       }
                       className="flex items-center gap-0.5 text-[9px] font-cinzel font-black px-1 rounded bg-amber-500/35 text-amber-100 border border-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.5)] tabular-nums"
                     >
@@ -1030,12 +1055,12 @@ export function UnitActor({ unit }: UnitActorProps) {
               {/* Odznak Posledního vzepětí (agónie, ADR-0012) */}
               {unit.inDeathThroes && (
                 <div
-                  title={`Poslední vzepětí (1 tah do pádu) · Okamžitá smrt při ≤ ${-(unit.maxHp + 1)} HP`}
+                  title={`${text("inspect.cond.throes", undefined, locale)} · ${text("inspect.cond.overkill", { hp: -(unit.maxHp + 1) }, locale)}`}
                   className="flex items-center gap-1 px-1 py-0.5 rounded bg-purple-950/95 border border-rose-500/80 shadow-[0_0_6px_rgba(244,63,94,0.5)] animate-pulse"
                 >
                   <Skull className="w-2.5 h-2.5 text-rose-300 shrink-0" />
                   <span className="text-[8px] font-cinzel font-black tracking-wider text-rose-200">
-                    VZEPĚTÍ ({unit.hp} HP)
+                    {text("ui.loss.throesBadge", { hp: unit.hp }, locale)}
                   </span>
                 </div>
               )}
@@ -1146,7 +1171,7 @@ export function UnitActor({ unit }: UnitActorProps) {
 
               {unit.isOverwatch && (
                 <span
-                  title="Hlídka (Overwatch) aktivní"
+                  title={text("ui.overwatch.active", undefined, locale)}
                   className="flex items-center justify-center pl-0.5 text-sky-300"
                 >
                   <Eye className="w-2.5 h-2.5" />
@@ -1158,16 +1183,22 @@ export function UnitActor({ unit }: UnitActorProps) {
             {activeCombatLoss && activeCombatLoss.hit && (
               <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-950/95 border border-red-400/70 text-[8px] font-cinzel font-black text-amber-100 whitespace-nowrap tabular-nums">
                 {activeCombatLoss.hpLost > 0 && (
-                  <span className="text-rose-300">−{activeCombatLoss.hpLost} HP</span>
+                  <span className="text-rose-300">
+                    {text("banner.damage", { damage: activeCombatLoss.hpLost }, locale)}
+                  </span>
                 )}
                 {activeCombatLoss.armorLost > 0 && (
-                  <span className="text-amber-300">−{activeCombatLoss.armorLost} ZBROJ</span>
+                  <span className="text-amber-300">
+                    {text("banner.armorLost", { shred: activeCombatLoss.armorLost }, locale)}
+                  </span>
                 )}
                 {activeCombatLoss.armorAbsorbed > 0 && (
-                  <span className="text-slate-300">KYRYS ({activeCombatLoss.armorAbsorbed})</span>
+                  <span className="text-slate-300">
+                    {text("ui.loss.cuirass", { count: activeCombatLoss.armorAbsorbed }, locale)}
+                  </span>
                 )}
                 {activeCombatLoss.shakenApplied && (
-                  <span className="text-purple-300">OTŘESEN</span>
+                  <span className="text-purple-300">{text("ui.loss.shaken", undefined, locale)}</span>
                 )}
               </div>
             )}

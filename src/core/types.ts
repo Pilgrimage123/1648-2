@@ -1,7 +1,10 @@
 /**
  * Datové modely pro bezhlavé (headless) taktické jádro (/src/core/types.ts).
  * Neobsahuje žádné závislosti na Three.js ani Reactu.
+ * User-facing sentences are `Phrase` values resolved by `src/i18n`.
  */
+import type { Phrase } from "../i18n/phrase";
+import type { MeasureUnit } from "../i18n/types";
 
 export type FloorLevel = 0 | 1 | 2;
 
@@ -161,6 +164,9 @@ export type CaptureReason =
   | "surrounded_unprotected"
   | "all_companions_fallen";
 
+/** Status identity. The visible title comes from the locale pack. */
+export type BuffId = "limp" | "detained_1" | "detained_2" | "choking";
+
 /** Identifikátory unikátních aktivovaných schopností postav v 1. misi */
 export type SpecialAbilityId =
   | "protector_oath"
@@ -235,6 +241,8 @@ export interface UnitData {
   detainedTurns?: number;
   /** Důvod aktuálního zadržení nebo zajetí VIP maršála */
   captureReason?: CaptureReason | null;
+  /** Language-neutral status. The title is projected from the locale pack. */
+  buffId?: BuffId;
   /** Popisek aktivního stavu (např. "Těžké kulhání (zranění z Lützenu)") */
   buffTitle?: string;
   /** Zda je palná zbraň (mušketa/karabina) plně nabitá a připravená k výstřelu */
@@ -265,14 +273,14 @@ export type TargetRibbonCategory = "flanked" | "covered" | "extreme_range";
  */
 export interface StatModifier {
   id: string;
-  /** Název modifikátoru v UI (např. "Opření o furketu (vidlici)") */
-  label: string;
+  /** Phrase resolved by the active locale. */
+  label: Phrase;
   /** Volitelný podtitulek vysvětlující historický/herní kontext */
-  detail?: string;
+  detail?: Phrase;
   /** Číselná hodnota modifikátoru (např. +15, -20, -40) */
   value: number;
   /** Jednotka zobrazená u hodnoty */
-  unit: "%" | "HP" | "ZBROJ";
+  unit: MeasureUnit;
   /** Typ položky určující barvu v UI (bonus = zelená/zlatá, penalty = červená, base = neutrální) */
   kind: "base" | "bonus" | "penalty" | "neutral";
 }
@@ -299,6 +307,7 @@ export interface ActiveLightFlash {
 export interface ShotCalculationResult {
   shooterId: string;
   targetId: string;
+  weaponId: string;
   weaponName: string;
   lockType: FirearmLockType;
   distance: number;
@@ -355,6 +364,7 @@ export interface TargetEvaluation {
 export interface MeleeCalculationResult {
   attackerId: string;
   targetId: string;
+  weaponId: string;
   weaponName: string;
   kind: MeleeWeaponStats["kind"];
   hitChance: number;
@@ -404,7 +414,7 @@ export interface CombatLogEntry {
   id: string;
   round: number;
   faction: Faction;
-  text: string;
+  message: Phrase;
   tone: "info" | "hit" | "crit" | "miss" | "misfire" | "overwatch" | "alert" | "buff" | "story";
 }
 
@@ -484,7 +494,7 @@ export interface GuidedTutorialState {
   enabled: boolean;
   currentStep: GuidedTutorialStep;
   dismissed: boolean;
-  rejectFeedback: string | null;
+  rejectFeedback: Phrase | null;
   rejectTimestamp: number;
 }
 

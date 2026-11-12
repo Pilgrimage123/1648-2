@@ -33,6 +33,13 @@ import {
 import { useState } from "react";
 import { bestTileCover } from "../../core/GridSystem";
 import type { StatModifier } from "../../core/types";
+import {
+  formatMeasure,
+  formatPhrase,
+  text,
+  useLocale,
+  weaponLabel,
+} from "../../i18n";
 import { useGameStore } from "../../store/useGameStore";
 import { BaroqueCoverBadge } from "./BaroqueCoverBadge";
 import { UnitPortrait } from "./UnitPortrait";
@@ -49,24 +56,21 @@ interface AbilityTooltipData {
 }
 
 function ModifierRow({ item }: { item: StatModifier }) {
+  useLocale();
   const isPositive =
     item.kind === "bonus" || (item.kind === "base" && item.value > 0);
   const isPenalty = item.kind === "penalty" || item.value < 0;
-
-  const formattedValue =
-    item.unit === "%"
-      ? `${item.value > 0 ? `+${item.value}` : item.value} %`
-      : `${item.value > 0 ? `+${item.value}` : item.value} ${item.unit}`;
+  const formattedValue = formatMeasure(item.unit, item.value);
 
   return (
     <div className="flex items-start justify-between gap-2.5 py-1 px-2 rounded bg-slate-950/90 border border-amber-500/40 text-[10px]">
       <div className="min-w-0">
         <div className="font-cinzel font-black text-amber-100 leading-tight truncate">
-          {item.label}
+          {formatPhrase(item.label)}
         </div>
         {item.detail && (
           <div className="font-literata italic text-[9px] text-amber-200/80 leading-tight">
-            {item.detail}
+            {formatPhrase(item.detail)}
           </div>
         )}
       </div>
@@ -120,8 +124,8 @@ export function TacticalActionRibbon() {
   const visibleMeleeTargets = useGameStore((s) => s.visibleMeleeTargets);
   const guidedTutorial = useGameStore((s) => s.guidedTutorial);
 
-  const [hoveredAbility, setHoveredAbility] =
-    useState<AbilityTooltipData | null>(null);
+  const [hoveredAbilityId, setHoveredAbilityId] = useState<string | null>(null);
+  const locale = useLocale();
   const [hoverBreakdownPreview, setHoverBreakdownPreview] = useState(false);
 
   const aimDrag = useDraggableHud();
@@ -235,6 +239,191 @@ export function TacticalActionRibbon() {
 
   const showBreakdownWings = breakdownOpen || hoverBreakdownPreview;
 
+  const hoveredAbility: AbilityTooltipData | null = (() => {
+    if (!hoveredAbilityId) return null;
+    switch (hoveredAbilityId) {
+      case "move":
+        return {
+          id: "move",
+          title: text("ui.ribbon.move.title", undefined, locale),
+          hotkey: "1 / PKM",
+          costLabel: text("ui.ribbon.move.cost", undefined, locale),
+          summary: text("ui.ribbon.move.summary", { count: selectedUnit?.movePerAp ?? 4 }, locale),
+          detail: text("ui.ribbon.move.detail", undefined, locale),
+          warning: !canCommand
+            ? text("ui.ribbon.move.blocked", undefined, locale)
+            : !hasAp
+              ? text("ui.ribbon.move.noAp", undefined, locale)
+              : undefined,
+        };
+      case "shoot":
+        return {
+          id: "shoot",
+          title: text("ui.ribbon.fireTitle", { weaponId: selectedUnit?.weapon.id }, locale),
+          hotkey: "2",
+          costLabel: text("ui.ribbon.fireEnds", { count: selectedUnit?.weapon.fireApCost ?? 1 }, locale),
+          summary: text(
+            "ui.ribbon.shoot.summary",
+            {
+              damage: selectedUnit?.weapon.minDamage ?? 4,
+              required: selectedUnit?.weapon.maxDamage ?? 6,
+              armor: selectedUnit?.weapon.armorPierce ?? 1,
+              distance: selectedUnit?.weapon.maxRange ?? 12,
+            },
+            locale,
+          ),
+          detail: text("ui.ribbon.shoot.detail", undefined, locale),
+          warning: !canCommand
+            ? text("ui.ribbon.shoot.blocked", undefined, locale)
+            : !hasAp
+              ? text("ui.ribbon.shoot.noAp", undefined, locale)
+              : isColloredoDischarged
+                ? text("ui.ribbon.shoot.pistolSpent", undefined, locale)
+                : isFirearmEmpty
+                  ? text(
+                      "ui.ribbon.shoot.empty",
+                      { progress: reloadProgress, required: reloadApCost },
+                      locale,
+                    )
+                  : visibleTargets.length === 0
+                    ? text("ui.ribbon.shoot.noLos", undefined, locale)
+                    : undefined,
+        };
+      case "reload":
+        return {
+          id: "reload",
+          title: text("ui.ribbon.reload.title", undefined, locale),
+          hotkey: "R",
+          costLabel: text("ui.ribbon.reload.cost", undefined, locale),
+          summary:
+            selectedUnit?.id === "player-colloredo"
+              ? text("ui.ribbon.reload.pistol", undefined, locale)
+              : isFirearmEmpty
+                ? text(
+                    "ui.ribbon.reload.progress",
+                    { progress: reloadProgress, required: reloadApCost },
+                    locale,
+                  )
+                : text(
+                    "ui.ribbon.reload.ready",
+                    { progress: reloadApCost, required: reloadApCost },
+                    locale,
+                  ),
+          warning: !canCommand
+            ? text("ui.ribbon.reload.blocked", undefined, locale)
+            : selectedUnit?.id === "player-colloredo"
+              ? text("ui.ribbon.reload.pistolNo", undefined, locale)
+              : isFirearmEmpty === false
+                ? text("ui.ribbon.reload.full", undefined, locale)
+                : (selectedUnit?.ap ?? 0) < 1
+                  ? text("ui.ribbon.reload.noAp", undefined, locale)
+                  : undefined,
+        };
+      case "melee":
+        return {
+          id: "melee",
+          title: text("ui.ribbon.meleeTitle", { meleeId: selectedUnit?.meleeWeapon?.id }, locale),
+          hotkey: "B / PKM",
+          costLabel: text("ui.ribbon.melee.cost", undefined, locale),
+          summary: text(
+            "ui.ribbon.melee.summary",
+            {
+              damage: selectedUnit?.meleeWeapon?.minDamage ?? 2,
+              required: selectedUnit?.meleeWeapon?.maxDamage ?? 4,
+            },
+            locale,
+          ),
+          detail: text("ui.ribbon.melee.detail", undefined, locale),
+          warning: !canCommand
+            ? text("ui.ribbon.melee.blocked", undefined, locale)
+            : !hasAp
+              ? text("ui.ribbon.melee.noAp", undefined, locale)
+              : visibleMeleeTargets.length === 0
+                ? text("ui.ribbon.melee.none", undefined, locale)
+                : undefined,
+        };
+      case "overwatch":
+        return {
+          id: "overwatch",
+          title:
+            selectedUnit?.weapon.overwatchMode === "prepared_volley_cone"
+              ? text("ui.ribbon.overwatch.cone", undefined, locale)
+              : text("ui.ribbon.overwatch.ring", undefined, locale),
+          hotkey: "3",
+          costLabel: `${selectedUnit?.weapon.fireApCost ?? 1} AP`,
+          summary:
+            selectedUnit?.weapon.overwatchMode === "prepared_volley_cone"
+              ? text(
+                  "ui.ribbon.overwatch.coneBody",
+                  { facing: selectedUnit?.facing ?? "" },
+                  locale,
+                )
+              : text("ui.ribbon.overwatch.ringBody", undefined, locale),
+          warning: !canCommand
+            ? text("ui.ribbon.overwatch.blocked", undefined, locale)
+            : selectedUnit?.isOverwatch
+              ? text("ui.ribbon.overwatch.active", undefined, locale)
+              : isFirearmEmpty || isColloredoDischarged
+                ? text("ui.ribbon.overwatch.empty", undefined, locale)
+                : (selectedUnit?.ap ?? 0) < (selectedUnit?.weapon.fireApCost ?? 1)
+                  ? text(
+                      "ui.ribbon.overwatch.need",
+                      { required: selectedUnit?.weapon.fireApCost ?? 1 },
+                      locale,
+                    )
+                  : undefined,
+        };
+      case "grenade":
+        return {
+          id: "grenade",
+          title: text("ui.ribbon.grenade.title", undefined, locale),
+          hotkey: "4",
+          costLabel: text("ui.ribbon.grenade.cost", undefined, locale),
+          summary: text("ui.ribbon.grenade.summary", undefined, locale),
+          detail: text("ui.ribbon.grenade.detail", { count: selectedUnit?.grenades ?? 0 }, locale),
+          warning: !canCommand
+            ? text("ui.ribbon.grenade.blocked", undefined, locale)
+            : (selectedUnit?.grenades ?? 0) <= 0
+              ? text("ui.ribbon.grenade.none", undefined, locale)
+              : !hasAp
+                ? text("ui.ribbon.grenade.noAp", undefined, locale)
+                : undefined,
+        };
+      case "ability":
+        if (!ability) return null;
+        return {
+          id: "ability",
+          title: ability.name,
+          hotkey: "5",
+          costLabel: `${ability.apCost} AP`,
+          summary: ability.description,
+          detail:
+            ability.currentCooldown > 0
+              ? text("ui.ribbon.ability.renew", { count: ability.currentCooldown }, locale)
+              : text("ui.ribbon.ability.ready", { count: ability.cooldownTurns }, locale),
+          warning: !canCommand
+            ? text("ui.ribbon.ability.blocked", undefined, locale)
+            : ability.currentCooldown > 0
+              ? text("ui.ribbon.ability.cooling", { count: ability.currentCooldown }, locale)
+              : (selectedUnit?.ap ?? 0) < ability.apCost
+                ? text("ui.ribbon.ability.need", { required: ability.apCost }, locale)
+                : undefined,
+        };
+      case "endturn":
+        return {
+          id: "endturn",
+          title: text("ui.ribbon.end.title", undefined, locale),
+          hotkey: "Space",
+          costLabel: text("ui.ribbon.end.cost", undefined, locale),
+          summary: !anyUnitHasAp
+            ? text("ui.ribbon.end.spent", undefined, locale)
+            : text("ui.ribbon.end.open", undefined, locale),
+        };
+      default:
+        return null;
+    }
+  })();
+
   const cycleSquadMember = (delta: 1 | -1) => {
     const activeSquad = playerUnits.filter(
       (u) =>
@@ -260,7 +449,7 @@ export function TacticalActionRibbon() {
          ===================================================================== */}
       {!isAimingOverShoulder && selectedUnit && (
         <aside
-          aria-label="Status vybraného vojáka"
+          aria-label={text("ui.ribbon.soldierAria", undefined, locale)}
           style={medallionDrag.dragStyle}
           className="pointer-events-auto fixed bottom-3 left-3 z-30 flex flex-col gap-1 select-none max-w-[270px]"
         >
@@ -268,7 +457,7 @@ export function TacticalActionRibbon() {
             {/* Horní mikro-pás přepínání čety (nahrazuje široký redundantní pás karet) */}
             <div
               onPointerDown={medallionDrag.onPointerDown}
-              title="Tažením lze medailon posunout · Kliknutím nebo klávesou [Tab] přepnete vojáka"
+              title={text("ui.ribbon.medallionDrag", undefined, locale)}
               className="flex items-center justify-between gap-1.5 pb-1.5 mb-1.5 border-b border-amber-900/60 cursor-grab active:cursor-grabbing"
             >
               <div className="flex items-center gap-1">
@@ -283,7 +472,14 @@ export function TacticalActionRibbon() {
                       type="button"
                       disabled={!u.alive || !canCommand}
                       onClick={() => selectUnit(u.id)}
-                      title={`${u.name} (${u.inDeathThroes ? `V POSLEDNÍM VZEPĚTÍ: ${u.hp}/${u.maxHp}` : `${u.hp}/${u.maxHp}`} HP, ${u.ap} AP)${isTurnEnded ? " — Tah ukončen" : ""}`}
+                      title={text("ui.ribbon.squadTip", {
+                        names: u.name,
+                        hp: u.hp,
+                        required: u.maxHp,
+                        count: u.ap,
+                        agony: u.inDeathThroes,
+                        open: !isTurnEnded,
+                      }, locale)}
                       className={`relative w-5 h-5 rounded-md flex items-center justify-center border text-[10px] font-cinzel font-black transition-all cursor-pointer ${
                         !u.alive
                           ? "bg-slate-950/50 border-slate-800 text-slate-600 opacity-35"
@@ -317,7 +513,7 @@ export function TacticalActionRibbon() {
                 type="button"
                 disabled={!canCommand || playerUnits.filter((u) => u.alive && u.ap > 0 && (u.detainedTurns ?? 0) === 0).length <= 1}
                 onClick={() => cycleSquadMember(1)}
-                title="Další dostupný voják čety [Tab]"
+                title={text("ui.ribbon.nextSoldier", undefined, locale)}
                 className="px-1.5 py-0.5 rounded bg-slate-900 border border-amber-700/50 hover:border-amber-400 disabled:opacity-35 text-[10px] font-cinzel font-black text-amber-300 cursor-pointer"
               >
                 Tab ⇥
@@ -346,7 +542,7 @@ export function TacticalActionRibbon() {
 
                 {/* Čistá neorámovaná metadata zbraně (Zero-Pill Discipline) */}
                 <div className="font-literata text-[10px] text-amber-200/85 truncate leading-tight mt-0.5 tabular-nums">
-                  <span>{selectedUnit.weapon.name}</span>
+                  <span>{weaponLabel(selectedUnit.weapon.id, locale)}</span>
                   <span aria-hidden="true"> · </span>
                   <span>
                     {selectedUnit.weapon.minDamage}–
@@ -355,12 +551,12 @@ export function TacticalActionRibbon() {
                   {selectedUnit.id === "player-colloredo" ? (
                     <span className="text-amber-300">
                       {" "}
-                      · {selectedUnit.pistolLoaded ? "1/1" : "Vybitá"}
+                      · {selectedUnit.pistolLoaded ? "1/1" : text("ui.ribbon.pistolEmpty", undefined, locale)}
                     </span>
                   ) : selectedUnit.firearmLoaded === false ? (
                     <span className="text-orange-300 font-semibold">
                       {" "}
-                      · Nabití {reloadProgress}/{reloadApCost}
+                      · {text("ui.ribbon.reload", { progress: reloadProgress, required: reloadApCost }, locale)}
                     </span>
                   ) : null}
                 </div>
@@ -370,7 +566,7 @@ export function TacticalActionRibbon() {
                   <div className="flex items-center gap-1.5">
                     <div
                       className="flex items-center gap-[2px]"
-                      title={`Zdraví: ${selectedUnit.hp}/${selectedUnit.maxHp}`}
+                      title={text("ui.ribbon.health", { hp: selectedUnit.hp, required: selectedUnit.maxHp }, locale)}
                     >
                       {Array.from({ length: selectedUnit.maxHp }, (_, i) => (
                         <span
@@ -387,7 +583,7 @@ export function TacticalActionRibbon() {
                     {selectedUnit.maxArmor > 0 && (
                       <div
                         className="flex items-center gap-[2px] pl-1 border-l border-amber-900/70"
-                        title={`Zbroj: ${selectedUnit.armor}/${selectedUnit.maxArmor}`}
+                        title={text("ui.ribbon.armor", { armor: selectedUnit.armor, required: selectedUnit.maxArmor }, locale)}
                       >
                         {Array.from(
                           { length: selectedUnit.maxArmor },
@@ -409,7 +605,7 @@ export function TacticalActionRibbon() {
                   {/* Zlaté tečky AP */}
                   <div
                     className="flex items-center gap-1"
-                    title={`Akční body: ${selectedUnit.ap}/${selectedUnit.maxAp} AP`}
+                    title={text("ui.ribbon.ap", { count: selectedUnit.ap, required: selectedUnit.maxAp }, locale)}
                   >
                     {Array.from({ length: selectedUnit.maxAp }, (_, i) => (
                       <span
@@ -435,7 +631,7 @@ export function TacticalActionRibbon() {
          ===================================================================== */}
       {canCommand && visibleTargets.length > 0 && !isAimingMelee && (
         <aside
-          aria-label="Viditelné cíle v dohledu"
+          aria-label={text("ui.ribbon.targetsAria", undefined, locale)}
           onContextMenu={(e) => {
             e.preventDefault();
             if (actionMode !== "move") setActionMode("move");
@@ -446,7 +642,7 @@ export function TacticalActionRibbon() {
             <button
               type="button"
               onClick={() => cycleTarget(-1)}
-              title="Předchozí cíl [Shift+Tab]"
+              title={text("ui.ribbon.prevTarget", undefined, locale)}
               className="p-1 rounded hover:bg-red-950/80 text-amber-300 cursor-pointer"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
@@ -470,7 +666,7 @@ export function TacticalActionRibbon() {
                       setActionMode("shoot");
                     }
                   }}
-                  title={`${enemy.name} · ${ev.calculation.hitChance}% zásah (LKM: Zaměřit cíl)`}
+                  title={text("ui.ribbon.targetTip", { names: enemy.name, chance: ev.calculation.hitChance }, locale)}
                   className={`relative flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-cinzel font-black tabular-nums transition-all cursor-pointer ${
                     isSelTarget
                       ? isFlanked
@@ -500,7 +696,7 @@ export function TacticalActionRibbon() {
             <button
               type="button"
               onClick={() => cycleTarget(1)}
-              title="Další cíl [Tab]"
+              title={text("ui.ribbon.nextTarget", undefined, locale)}
               className="p-1 rounded hover:bg-red-950/80 text-amber-300 cursor-pointer"
             >
               <ChevronRight className="w-3.5 h-3.5" />
@@ -513,7 +709,7 @@ export function TacticalActionRibbon() {
           SPODNÍ STŘEDOVÁ KOTVA: BUĎ ZAMĚŘOVACÍ RETIKUL (MÍŘENÍ), NEBO DOK IKON
          ===================================================================== */}
       <footer
-        aria-label="Taktická akční lišta"
+        aria-label={text("ui.ribbon.barAria", undefined, locale)}
         onContextMenu={(e) => {
           if (actionMode !== "move") {
             e.preventDefault();
@@ -533,14 +729,14 @@ export function TacticalActionRibbon() {
             {visibleTargets.length === 0 || !calc || !targetUnit ? (
               <div className="pointer-events-auto flex items-center gap-3 baroque-cartouche baroque-border rounded-xl px-4 py-2 bg-slate-950/92 border-amber-500/70 text-xs shadow-2xl">
                 <span className="font-cinzel text-amber-200 font-bold">
-                  Žádný cíl v přímém dohledu (3D LoS)
+                  {text("ui.ribbon.noLos", undefined, locale)}
                 </span>
                 <button
                   type="button"
                   onClick={() => setActionMode("move")}
                   className="px-3 py-1 rounded baroque-bronze-btn text-xs font-cinzel font-bold text-amber-200 hover:text-amber-100 cursor-pointer"
                 >
-                  Zpět (PKM / Esc)
+                  {text("ui.ribbon.backAim", undefined, locale)}
                 </button>
               </div>
             ) : (
@@ -551,7 +747,7 @@ export function TacticalActionRibbon() {
                     <aside className="pointer-events-auto w-full xl:w-64 baroque-cartouche baroque-border rounded-xl p-2.5 text-amber-50 shadow-2xl bg-slate-950/95 border-amber-500/60 animate-in fade-in duration-150">
                       <div className="flex items-center justify-between border-b border-amber-900/70 pb-1 mb-1.5">
                         <span className="font-cinzel font-black text-[10px] uppercase tracking-wider text-amber-200">
-                          Rozpad zásahu
+                          {text("ui.ribbon.hitBreak", undefined, locale)}
                         </span>
                         <span className="font-cinzel text-xs font-black text-emerald-400 tabular-nums">
                           {calc.hitChance} %
@@ -577,7 +773,7 @@ export function TacticalActionRibbon() {
                         onClick={toggleBreakdown}
                         onMouseEnter={() => setHoverBreakdownPreview(true)}
                         onMouseLeave={() => setHoverBreakdownPreview(false)}
-                        title="Zobrazit matematický rozpad bonusů a postihů"
+                        title={text("ui.ribbon.breakdownTip", undefined, locale)}
                         className={`flex items-center gap-1 px-2 py-0.5 rounded border text-[9px] font-cinzel font-black uppercase tracking-wider transition-all cursor-pointer ${
                           isStep2Highlight
                             ? "bg-amber-500/30 border-amber-300 text-amber-100 ring-2 ring-amber-400 animate-pulse"
@@ -587,7 +783,7 @@ export function TacticalActionRibbon() {
                         }`}
                       >
                         <ChevronLeft className="w-3 h-3 text-amber-400" />
-                        <span>Rozpad</span>
+                        <span>{text("ui.ribbon.breakdown", undefined, locale)}</span>
                         <ChevronRight className="w-3 h-3 text-amber-400" />
                       </button>
 
@@ -608,7 +804,7 @@ export function TacticalActionRibbon() {
                       <button
                         type="button"
                         onClick={() => setActionMode("move")}
-                        title="Zrušit míření [Pravé tlačítko myši / Esc]"
+                        title={text("ui.ribbon.cancelAim", undefined, locale)}
                         className="p-0.5 rounded text-amber-400 hover:text-amber-100 cursor-pointer"
                       >
                         <X className="w-3.5 h-3.5" />
@@ -620,7 +816,7 @@ export function TacticalActionRibbon() {
                       <div className="grid grid-cols-4 gap-1.5 flex-1 text-center tabular-nums">
                         <div className="bg-slate-900/90 border border-emerald-500/50 rounded-lg py-1 px-1.5">
                           <div className="text-[8px] font-cinzel font-bold uppercase text-amber-200/80">
-                            Zásah
+                            {text("inspect.combat.hit", undefined, locale)}
                           </div>
                           <div className="text-base font-cinzel font-black text-emerald-400 leading-none mt-0.5">
                             {calc.hitChance}%
@@ -629,7 +825,7 @@ export function TacticalActionRibbon() {
 
                         <div className="bg-slate-900/90 border border-amber-500/50 rounded-lg py-1 px-1.5">
                           <div className="text-[8px] font-cinzel font-bold uppercase text-amber-200/80">
-                            Krit
+                            {text("inspect.combat.crit", undefined, locale)}
                           </div>
                           <div className="text-base font-cinzel font-black text-amber-300 leading-none mt-0.5">
                             {calc.critChance}%
@@ -638,7 +834,7 @@ export function TacticalActionRibbon() {
 
                         <div className="bg-slate-900/90 border border-rose-500/50 rounded-lg py-1 px-1.5">
                           <div className="text-[8px] font-cinzel font-bold uppercase text-amber-200/80">
-                            Zranění
+                            {text("inspect.combat.wound", undefined, locale)}
                           </div>
                           <div className="text-sm font-cinzel font-black text-rose-300 leading-none mt-0.5">
                             {calc.minDamage}–{calc.maxDamage}
@@ -648,7 +844,7 @@ export function TacticalActionRibbon() {
                         <div className="bg-slate-900/90 border border-orange-500/50 rounded-lg py-1 px-1.5">
                           <div className="text-[8px] font-cinzel font-bold uppercase text-amber-200/80 flex items-center justify-center gap-0.5">
                             <AlertTriangle className="w-2 h-2 text-orange-400" />
-                            <span>Selhání</span>
+                            <span>{text("inspect.combat.misfire", undefined, locale)}</span>
                           </div>
                           <div className="text-base font-cinzel font-black text-orange-400 leading-none mt-0.5">
                             {calc.misfireChance}%
@@ -663,10 +859,10 @@ export function TacticalActionRibbon() {
                       >
                         <div className="flex items-center gap-1">
                           <Flame className="w-3.5 h-3.5 text-stone-950" />
-                          <span>PAL!</span>
+                          <span>{text("ui.ribbon.fire", undefined, locale)}</span>
                         </div>
                         <span className="text-[9px] font-bold opacity-90 tabular-nums">
-                          {calc.fireApCost ?? 1} AP · [LKM / ⎵]
+                          {text("ui.ribbon.fireCost", { count: calc.fireApCost ?? 1 }, locale)}
                         </span>
                       </button>
                     </div>
@@ -677,7 +873,7 @@ export function TacticalActionRibbon() {
                     <aside className="pointer-events-auto w-full xl:w-64 baroque-cartouche baroque-border rounded-xl p-2.5 text-amber-50 shadow-2xl bg-slate-950/95 border-amber-500/60 animate-in fade-in duration-150">
                       <div className="flex items-center justify-between border-b border-amber-900/70 pb-1 mb-1.5">
                         <span className="font-cinzel font-black text-[10px] uppercase tracking-wider text-amber-200">
-                          Krit & Kyrys
+                          {text("ui.ribbon.critArmor", undefined, locale)}
                         </span>
                         <span className="font-cinzel text-xs font-black text-amber-300 tabular-nums">
                           {calc.critChance} %
@@ -709,21 +905,21 @@ export function TacticalActionRibbon() {
             !meleeTargetUnit ? (
               <div className="pointer-events-auto flex items-center gap-3 baroque-cartouche baroque-border rounded-xl px-4 py-2 bg-slate-950/92 border-amber-500/70 text-xs shadow-2xl">
                 <span className="font-cinzel text-amber-200 font-bold">
-                  Žádný nepřítel na sousední dlaždici (1m)
+                  {text("ui.ribbon.noMelee", undefined, locale)}
                 </span>
                 <button
                   type="button"
                   onClick={() => setActionMode("move")}
                   className="px-3 py-1 rounded baroque-bronze-btn text-xs font-cinzel font-bold text-amber-200 hover:text-amber-100 cursor-pointer"
                 >
-                  Zpět (Esc)
+                  {text("ui.ribbon.backMelee", undefined, locale)}
                 </button>
               </div>
             ) : (
               <div className="pointer-events-auto w-full max-w-md baroque-cartouche baroque-border rounded-xl px-3 py-2 shadow-[0_8px_32px_rgba(0,0,0,0.95)] text-amber-50 bg-slate-950/92 border-amber-500/80 backdrop-blur-md">
                 <div className="flex items-center justify-between gap-2 pb-1.5 mb-1.5 border-b border-amber-900/70">
                   <span className="font-cinzel font-black text-[10px] uppercase tracking-wider text-amber-300">
-                    Zblízka · {meleeCalc.weaponName}
+                    {text("ui.ribbon.meleeHead", { meleeId: meleeCalc.weaponId }, locale)}
                   </span>
                   <span className="font-cinzel font-black text-xs text-amber-100 truncate">
                     {meleeTargetUnit.name}
@@ -772,10 +968,10 @@ export function TacticalActionRibbon() {
                   >
                     <div className="flex items-center gap-1">
                       <Swords className="w-3.5 h-3.5 text-stone-950" />
-                      <span>ÚDER!</span>
+                      <span>{text("ui.ribbon.strike", undefined, locale)}</span>
                     </div>
                     <span className="text-[9px] font-bold opacity-90">
-                      1 AP · [⎵]
+                      {text("ui.ribbon.strikeCost", undefined, locale)}
                     </span>
                   </button>
                 </div>
@@ -831,7 +1027,7 @@ export function TacticalActionRibbon() {
             <div className="flex items-center gap-1.5 baroque-cartouche baroque-border rounded-xl px-2 py-1.5 shadow-[0_6px_28px_rgba(0,0,0,0.92)] bg-slate-950/90 border-amber-500/70 backdrop-blur-md">
               <div
                 onPointerDown={dockDrag.onPointerDown}
-                title="Tažením lze dok schopností odsunout"
+                title={text("ui.ribbon.dockDrag", undefined, locale)}
                 className="px-0.5 text-amber-400/50 hover:text-amber-300 cursor-grab active:cursor-grabbing"
               >
                 <GripHorizontal className="w-3.5 h-3.5" />
@@ -839,29 +1035,14 @@ export function TacticalActionRibbon() {
 
               {/* [1] Pohyb */}
               <div
-                onMouseEnter={() =>
-                  setHoveredAbility({
-                    id: "move",
-                    title: "Taktický přesun & Sprint",
-                    hotkey: "1 / PKM",
-                    costLabel: "1–2 AP",
-                    summary: `Pravým tlačítkem myši (PKM) na políčko okamžitě vyšlete vojáka na cestu. Modrá zóna (1 AP): Běžný přesun (${selectedUnit?.movePerAp ?? 4} polí). Zlatá zóna (2 AP): Sprint.`,
-                    detail:
-                      "XCOM 2 Zteč: Pravým klikem přímo na nepřítele v dosahu provedete okamžitý přesun spojený se seknutím (+0 AP navíc)!",
-                    warning: !canCommand
-                      ? "Nyní nelze zadat rozkaz"
-                      : !hasAp
-                        ? "Voják již nemá žádné volné akční body (tah ukončen)"
-                        : undefined,
-                  })
-                }
-                onMouseLeave={() => setHoveredAbility(null)}
+                onMouseEnter={() => setHoveredAbilityId("move")}
+                onMouseLeave={() => setHoveredAbilityId(null)}
               >
                 <button
                   type="button"
                   disabled={!canCommand}
                   onClick={() => setActionMode("move")}
-                  aria-label="Pohyb [1]"
+                  aria-label={text("ui.ribbon.move.aria", undefined, locale)}
                   className={`relative w-10 h-10 rounded-lg border flex items-center justify-center transition-all cursor-pointer ${
                     actionMode === "move" && canCommand
                       ? "bg-amber-500/35 border-amber-300 text-amber-100 shadow-[0_0_12px_rgba(245,158,11,0.45)]"
@@ -881,29 +1062,8 @@ export function TacticalActionRibbon() {
 
               {/* [2] Střelba */}
               <div
-                onMouseEnter={() =>
-                  setHoveredAbility({
-                    id: "shoot",
-                    title: `Palba: ${selectedUnit?.weapon.name ?? "Střelná zbraň"}`,
-                    hotkey: "2",
-                    costLabel: `${selectedUnit?.weapon.fireApCost ?? 1} AP (ukončuje tah)`,
-                    summary: `Výstřel z pušky/muškety ukončuje tah vojáka. Zranění ${selectedUnit?.weapon.minDamage ?? 4}–${selectedUnit?.weapon.maxDamage ?? 6} HP · Průraz zbroje ${selectedUnit?.weapon.armorPierce ?? 1} · Dostřel ${selectedUnit?.weapon.maxRange ?? 12}m.`,
-                    detail:
-                      "LKM na ikonu hlavy nepřítele vpravo dole přepíná cíle · PKM míření zruší.",
-                    warning: !canCommand
-                      ? "Nyní nelze střílet"
-                      : !hasAp
-                        ? "Nedostatek AP pro střelbu"
-                        : isColloredoDischarged
-                          ? "Kolečková bambitka maršála byla vystřelena (použijte pažbu [B])"
-                          : isFirearmEmpty
-                            ? `Hlaveň je prázdná — nejprve nabijte [R] (${reloadProgress}/${reloadApCost} AP)`
-                            : visibleTargets.length === 0
-                              ? "Žádný nepřítel není v přímé viditelnosti (3D LoS) z této dlaždice"
-                              : undefined,
-                  })
-                }
-                onMouseLeave={() => setHoveredAbility(null)}
+                onMouseEnter={() => setHoveredAbilityId("shoot")}
+                onMouseLeave={() => setHoveredAbilityId(null)}
               >
                 <button
                   type="button"
@@ -917,7 +1077,7 @@ export function TacticalActionRibbon() {
                   onClick={() =>
                     setActionMode(actionMode === "shoot" ? "move" : "shoot")
                   }
-                  aria-label="Střelba [2]"
+                  aria-label={text("ui.ribbon.shoot.aria", undefined, locale)}
                   className={`relative w-10 h-10 rounded-lg border flex items-center justify-center transition-all cursor-pointer ${
                     actionMode === "shoot"
                       ? "bg-red-900/90 border-red-400 text-rose-100 shadow-[0_0_12px_rgba(239,68,68,0.5)]"
@@ -948,30 +1108,8 @@ export function TacticalActionRibbon() {
 
               {/* [R] Fázové přebíjení */}
               <div
-                onMouseEnter={() =>
-                  setHoveredAbility({
-                    id: "reload",
-                    title: "Fázové nabíjení hlavně",
-                    hotkey: "R",
-                    costLabel: "1 AP / krok",
-                    summary:
-                      selectedUnit?.id === "player-colloredo"
-                        ? "Kolečkovou bambitku maršála Colloreda nelze uprostřed šarvátky znovu natáhnout."
-                        : isFirearmEmpty
-                          ? `Postup nabíjení: ${reloadProgress}/${reloadApCost} AP. Každý stisk investuje 1 AP a postup se přenáší do dalších kol.`
-                          : `Zbraň je plně nabitá (${reloadApCost}/${reloadApCost} AP) a připravená k výstřelu.`,
-                    warning: !canCommand
-                      ? "Nyní nelze nabíjet"
-                      : selectedUnit?.id === "player-colloredo"
-                        ? "Jednoranná bambitka nelze v boji přebít"
-                        : isFirearmEmpty === false
-                          ? "Zbraň je již plně nabitá"
-                          : (selectedUnit?.ap ?? 0) < 1
-                            ? "Nedostatek AP (vyžaduje 1 AP na krok)"
-                            : undefined,
-                  })
-                }
-                onMouseLeave={() => setHoveredAbility(null)}
+                onMouseEnter={() => setHoveredAbilityId("reload")}
+                onMouseLeave={() => setHoveredAbilityId(null)}
               >
                 <button
                   type="button"
@@ -983,7 +1121,7 @@ export function TacticalActionRibbon() {
                     (selectedUnit?.ap ?? 0) < 1
                   }
                   onClick={executeReload}
-                  aria-label="Nabít zbraň [R]"
+                  aria-label={text("ui.ribbon.reload.aria", undefined, locale)}
                   className={`relative w-10 h-10 rounded-lg border flex items-center justify-center transition-all cursor-pointer ${
                     canReload || isReloadHighlight
                       ? "bg-amber-600/40 border-amber-300 text-amber-100 ring-2 ring-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.5)] animate-pulse"
@@ -1004,25 +1142,8 @@ export function TacticalActionRibbon() {
 
               {/* [B] Útok zblízka / Pažbou */}
               <div
-                onMouseEnter={() =>
-                  setHoveredAbility({
-                    id: "melee",
-                    title: `Boj zblízka: ${selectedUnit?.meleeWeapon?.name ?? "Pažba"}`,
-                    hotkey: "B / PKM",
-                    costLabel: "1 AP (0 AP při zteči)",
-                    summary: `Zranění ${selectedUnit?.meleeWeapon?.minDamage ?? 2}–${selectedUnit?.meleeWeapon?.maxDamage ?? 4} HP. Pravým kliknutím (PKM) přímo na nepřítele v dosahu provedete okamžitý přesun spojený se seknutím bez další AP ceny!`,
-                    detail:
-                      "Tip: Klikněte pravým tlačítkem přímo na nepřítele v dosahu pohybu pro okamžitou zteč!",
-                    warning: !canCommand
-                      ? "Nyní nelze útočit"
-                      : !hasAp
-                        ? "Nedostatek AP pro úder"
-                        : visibleMeleeTargets.length === 0
-                          ? "Žádný nepřítel nestojí na sousední dlaždici (použijte PKM zteč z dálky)"
-                          : undefined,
-                  })
-                }
-                onMouseLeave={() => setHoveredAbility(null)}
+                onMouseEnter={() => setHoveredAbilityId("melee")}
+                onMouseLeave={() => setHoveredAbilityId(null)}
               >
                 <button
                   type="button"
@@ -1032,7 +1153,7 @@ export function TacticalActionRibbon() {
                   onClick={() =>
                     setActionMode(actionMode === "melee" ? "move" : "melee")
                   }
-                  aria-label="Útok zblízka [B]"
+                  aria-label={text("ui.ribbon.melee.aria", undefined, locale)}
                   className={`relative w-10 h-10 rounded-lg border flex items-center justify-center transition-all cursor-pointer ${
                     isMeleeHighlight
                       ? "bg-rose-900/60 border-rose-400 text-rose-100 ring-2 ring-rose-400 shadow-[0_0_12px_rgba(244,63,94,0.6)] animate-pulse"
@@ -1055,33 +1176,8 @@ export function TacticalActionRibbon() {
 
               {/* [3] Hlídka / Připravená salva */}
               <div
-                onMouseEnter={() =>
-                  setHoveredAbility({
-                    id: "overwatch",
-                    title:
-                      selectedUnit?.weapon.overwatchMode ===
-                      "prepared_volley_cone"
-                        ? "Připravená salva (90° kužel)"
-                        : "Hlídka — Overwatch (360°)",
-                    hotkey: "3",
-                    costLabel: `${selectedUnit?.weapon.fireApCost ?? 1} AP`,
-                    summary:
-                      selectedUnit?.weapon.overwatchMode ===
-                      "prepared_volley_cone"
-                        ? `Doutnáková mušketa zaměří 90° palebný sektor před střelcem (${selectedUnit?.facing}) a automaticky vypálí na prvního Švéda v pohybu.`
-                        : "Kolečkový zámek umožňuje okamžitou reaktivní palbu v okruhu 360° na pohybujícího se nepřítele.",
-                    warning: !canCommand
-                      ? "Nyní nelze aktivovat hlídku"
-                      : selectedUnit?.isOverwatch
-                        ? "Hlídka je již aktivní"
-                        : isFirearmEmpty || isColloredoDischarged
-                          ? "Nelze držet hlídku s vybitou hlavní (nejprve nabijte [R])"
-                          : (selectedUnit?.ap ?? 0) < (selectedUnit?.weapon.fireApCost ?? 1)
-                            ? `Vyžaduje ${selectedUnit?.weapon.fireApCost ?? 1} AP`
-                            : undefined,
-                  })
-                }
-                onMouseLeave={() => setHoveredAbility(null)}
+                onMouseEnter={() => setHoveredAbilityId("overwatch")}
+                onMouseLeave={() => setHoveredAbilityId(null)}
               >
                 <button
                   type="button"
@@ -1095,7 +1191,7 @@ export function TacticalActionRibbon() {
                       (selectedUnit?.weapon.fireApCost ?? 1)
                   }
                   onClick={activateOverwatch}
-                  aria-label="Hlídka [3]"
+                  aria-label={text("ui.ribbon.overwatch.aria", undefined, locale)}
                   className={`relative w-10 h-10 rounded-lg border flex items-center justify-center transition-all cursor-pointer ${
                     selectedUnit?.isOverwatch
                       ? "bg-sky-900/80 border-sky-400 text-sky-200"
@@ -1111,24 +1207,8 @@ export function TacticalActionRibbon() {
 
               {/* [4] Granát / Petarda */}
               <div
-                onMouseEnter={() =>
-                  setHoveredAbility({
-                    id: "grenade",
-                    title: "Litinová petarda s černým prachem",
-                    hotkey: "4",
-                    costLabel: "1 AP",
-                    summary: `Plošný výbuch 3×3 (dosah 8m): způsobí 4 HP poškození, strhne 1 bod zbroje, zničí nízké kryty a odpálí prachové sudy.`,
-                    detail: `LKM: Potvrdit hod do zóny · PKM: Zrušit míření (Zbývá: ${selectedUnit?.grenades ?? 0})`,
-                    warning: !canCommand
-                      ? "Nyní nelze házet petardu"
-                      : (selectedUnit?.grenades ?? 0) <= 0
-                        ? "Voják již nemá žádné další petardy"
-                        : !hasAp
-                          ? "Nedostatek AP pro hod petardy"
-                          : undefined,
-                  })
-                }
-                onMouseLeave={() => setHoveredAbility(null)}
+                onMouseEnter={() => setHoveredAbilityId("grenade")}
+                onMouseLeave={() => setHoveredAbilityId(null)}
               >
                 <button
                   type="button"
@@ -1138,7 +1218,7 @@ export function TacticalActionRibbon() {
                   onClick={() =>
                     setActionMode(actionMode === "grenade" ? "move" : "grenade")
                   }
-                  aria-label="Petarda [4]"
+                  aria-label={text("ui.ribbon.grenade.aria", undefined, locale)}
                   className={`relative w-10 h-10 rounded-lg border flex items-center justify-center transition-all cursor-pointer ${
                     actionMode === "grenade"
                       ? "bg-orange-900/90 border-orange-400 text-amber-100 shadow-[0_0_12px_rgba(249,115,22,0.5)]"
@@ -1167,33 +1247,14 @@ export function TacticalActionRibbon() {
               {/* [5] Zvláštní schopnost hrdiny */}
               {ability && (
                 <div
-                  onMouseEnter={() =>
-                    setHoveredAbility({
-                      id: "ability",
-                      title: ability.name,
-                      hotkey: "5",
-                      costLabel: `${ability.apCost} AP`,
-                      summary: ability.description,
-                      detail:
-                        ability.currentCooldown > 0
-                          ? `Obnovení za ${ability.currentCooldown} kola`
-                          : `Obnova: ${ability.cooldownTurns} kola`,
-                      warning: !canCommand
-                        ? "Nyní nelze použít schopnost"
-                        : ability.currentCooldown > 0
-                          ? `Schopnost je v obnově (${ability.currentCooldown} kola)`
-                          : (selectedUnit?.ap ?? 0) < ability.apCost
-                            ? `Vyžaduje ${ability.apCost} AP`
-                            : undefined,
-                    })
-                  }
-                  onMouseLeave={() => setHoveredAbility(null)}
+                  onMouseEnter={() => setHoveredAbilityId("ability")}
+                  onMouseLeave={() => setHoveredAbilityId(null)}
                 >
                   <button
                     type="button"
                     disabled={!canUseAbility}
                     onClick={() => activateSpecialAbility()}
-                    aria-label={`${ability.name} [5]`}
+                    aria-label={text("ui.ribbon.ability.aria", { names: ability.name }, locale)}
                     className={`relative w-10 h-10 rounded-lg border flex items-center justify-center transition-all cursor-pointer ${
                       selectedUnit?.abilityBuffActive
                         ? "bg-amber-500/40 border-amber-300 text-amber-100 shadow-[0_0_12px_rgba(245,158,11,0.5)]"
@@ -1223,24 +1284,14 @@ export function TacticalActionRibbon() {
 
               {/* [Space] Ukončit tah */}
               <div
-                onMouseEnter={() =>
-                  setHoveredAbility({
-                    id: "endturn",
-                    title: "Ukončit tah obránců",
-                    hotkey: "Space",
-                    costLabel: "Konec kola",
-                    summary: !anyUnitHasAp
-                      ? "Všichni obránci již vyčerpali své akční body. Předá iniciativu švédské hlídce."
-                      : "Předá tah švédské hlídce generála Königsmarcka i se zbývajícími AP.",
-                  })
-                }
-                onMouseLeave={() => setHoveredAbility(null)}
+                onMouseEnter={() => setHoveredAbilityId("endturn")}
+                onMouseLeave={() => setHoveredAbilityId(null)}
               >
                 <button
                   type="button"
                   disabled={!canCommand}
                   onClick={endTurn}
-                  aria-label="Ukončit tah [Mezerník]"
+                  aria-label={text("ui.ribbon.end.aria", undefined, locale)}
                   className={`relative h-10 px-3 rounded-lg border flex items-center gap-1.5 font-cinzel font-black text-xs uppercase tracking-wider text-stone-950 transition-all cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed ${
                     !anyUnitHasAp && canCommand
                       ? "bg-amber-400 hover:bg-amber-300 border-amber-100 ring-2 ring-amber-300 shadow-[0_0_16px_rgba(251,191,36,0.8)] animate-pulse"
@@ -1248,7 +1299,7 @@ export function TacticalActionRibbon() {
                   }`}
                 >
                   <SkipForward className="w-4 h-4 text-stone-950 shrink-0" />
-                  <span className="hidden sm:inline">Konec</span>
+                  <span className="hidden sm:inline">{text("ui.ribbon.end.label", undefined, locale)}</span>
                   <span className="text-[10px] opacity-85">[⎵]</span>
                 </button>
               </div>

@@ -8,26 +8,25 @@
 import { GripHorizontal, X } from "lucide-react";
 import { buildInspectView, type InspectLabeledValue, type InspectView } from "../../core/inspectView";
 import type { StatModifier } from "../../core/types";
+import { formatMeasure, formatPhrase, text, useLocale } from "../../i18n";
 import { useGameStore } from "../../store/useGameStore";
 import { BaroqueCoverBadge } from "./BaroqueCoverBadge";
 import { UnitPortrait } from "./UnitPortrait";
 import { useDraggableHud } from "./useDraggableHud";
 
 function ModifierRow({ item }: { item: StatModifier }) {
+  useLocale();
   const isPositive = item.kind === "bonus" || (item.kind === "base" && item.value > 0);
   const isPenalty = item.kind === "penalty" || item.value < 0;
-  const formatted =
-    item.unit === "%"
-      ? `${item.value > 0 ? `+${item.value}` : item.value} %`
-      : `${item.value > 0 ? `+${item.value}` : item.value} ${item.unit}`;
+  const formatted = formatMeasure(item.unit, item.value);
 
   return (
     <div className="flex items-start justify-between gap-2 py-0.5 text-[11px]">
       <div className="min-w-0">
-        <div className="font-cinzel font-bold text-amber-100 leading-tight">{item.label}</div>
+        <div className="font-cinzel font-bold text-amber-100 leading-tight">{formatPhrase(item.label)}</div>
         {item.detail && (
           <div className="font-literata italic text-[10px] text-amber-200/75 leading-tight">
-            {item.detail}
+            {formatPhrase(item.detail)}
           </div>
         )}
       </div>
@@ -85,6 +84,7 @@ export function InspectDossier() {
   const visibleMeleeTargets = useGameStore((s) => s.visibleMeleeTargets);
   const closeInspect = useGameStore((s) => s.closeInspect);
   const drag = useDraggableHud();
+  const locale = useLocale();
 
   if (!inspectOpen) return null;
 
@@ -138,7 +138,7 @@ export function InspectDossier() {
     <div className={`fixed inset-0 z-[70] ${inspectKeyHeld ? "pointer-events-none" : ""}`}>
       <button
         type="button"
-        aria-label="Zavřít úplný přehled"
+        aria-label={text("inspect.close", undefined, locale)}
         className={`absolute inset-0 bg-slate-950/40 ${
           inspectKeyHeld ? "pointer-events-none" : "cursor-default"
         }`}
@@ -167,7 +167,7 @@ export function InspectDossier() {
             <button
               type="button"
               onClick={() => closeInspect()}
-              title="Zavřít [F1 / 0 / Esc]"
+              title={text("inspect.closeKeys", undefined, locale)}
               className="p-1 rounded text-amber-300 hover:text-amber-100 cursor-pointer"
             >
               <X className="w-4 h-4" />
@@ -191,6 +191,7 @@ function EmptyBody({ detail }: { detail: string }) {
 }
 
 function ContactBody({ view }: { view: Extract<InspectView, { kind: "contact" }> }) {
+  const locale = useLocale();
   return (
     <div className="space-y-2">
       <p className="font-cinzel font-black text-base text-amber-100">{view.headline}</p>
@@ -199,20 +200,21 @@ function ContactBody({ view }: { view: Extract<InspectView, { kind: "contact" }>
         <p className="font-cinzel text-xs text-amber-300 tabular-nums">{view.distance}</p>
       )}
       <p className="font-literata italic text-[11px] text-amber-200/70">
-        Jméno, zbraň a schopnosti zůstávají skryté, dokud postavu neuvidíte.
+        {text("ui.inspect.hidden", undefined, locale)}
       </p>
     </div>
   );
 }
 
 function TerrainBody({ view }: { view: Extract<InspectView, { kind: "terrain" }> }) {
+  const locale = useLocale();
   return (
     <div className="space-y-3">
       <p className="font-literata text-sm text-amber-100/90 leading-relaxed">{view.summary}</p>
       {view.lines.length > 0 && <LineList lines={view.lines} />}
       {view.cover && (
         <div>
-          <SectionTitle>Kryt proti střelbě</SectionTitle>
+          <SectionTitle>{text("ui.inspect.cover", undefined, locale)}</SectionTitle>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
             {view.cover.map((side) => (
               <div
@@ -229,7 +231,7 @@ function TerrainBody({ view }: { view: Extract<InspectView, { kind: "terrain" }>
       )}
       {view.occupant && (
         <p className="font-cinzel text-xs text-amber-200">
-          Na poli stojí {view.occupant}. Klepněte na postavu pro její list.
+          {text("ui.inspect.occupant", { names: view.occupant }, locale)}
         </p>
       )}
     </div>
@@ -237,6 +239,7 @@ function TerrainBody({ view }: { view: Extract<InspectView, { kind: "terrain" }>
 }
 
 function UnitBody({ view }: { view: Extract<InspectView, { kind: "unit" }> }) {
+  const locale = useLocale();
   return (
     <div className="space-y-3">
       <div className="flex items-start gap-3">
@@ -258,7 +261,10 @@ function UnitBody({ view }: { view: Extract<InspectView, { kind: "unit" }> }) {
           </div>
           <p className="font-literata italic text-xs text-amber-200/85 leading-snug">{view.roleTitle}</p>
           <p className="font-cinzel text-[11px] text-amber-300/90 mt-1">
-            {view.factionLine} · {view.place} · hledí {view.facing}
+            {text("ui.inspect.glance", {
+              names: `${view.factionLine} · ${view.place}`,
+              facing: view.facing,
+            }, locale)}
           </p>
         </div>
       </div>
@@ -294,14 +300,14 @@ function UnitBody({ view }: { view: Extract<InspectView, { kind: "unit" }> }) {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <section>
-          <SectionTitle>Palná zbraň</SectionTitle>
+          <SectionTitle>{text("ui.inspect.firearm", undefined, locale)}</SectionTitle>
           <p className="font-cinzel font-bold text-xs text-amber-100 mb-1">{view.firearmName}</p>
           <LineList lines={view.firearm} />
         </section>
         <div className="space-y-3">
           {view.meleeName && (
             <section>
-              <SectionTitle>Zbraň nablízko</SectionTitle>
+              <SectionTitle>{text("ui.inspect.melee", undefined, locale)}</SectionTitle>
               <p className="font-cinzel font-bold text-xs text-amber-100 mb-1">{view.meleeName}</p>
               <LineList lines={view.melee} />
             </section>
@@ -309,7 +315,7 @@ function UnitBody({ view }: { view: Extract<InspectView, { kind: "unit" }> }) {
           {(view.ability ||
             (view.passive && !view.conditions.includes(view.passive))) && (
             <section>
-              <SectionTitle>Schopnosti a stavy</SectionTitle>
+              <SectionTitle>{text("ui.inspect.abilities", undefined, locale)}</SectionTitle>
               {view.passive && !view.conditions.includes(view.passive) && (
                 <p className="font-literata text-[12px] text-amber-100/90 mb-1.5">{view.passive}</p>
               )}
@@ -333,10 +339,12 @@ function UnitBody({ view }: { view: Extract<InspectView, { kind: "unit" }> }) {
             <section>
               <SectionTitle>{view.combat.title}</SectionTitle>
               <div className="grid grid-cols-2 gap-1.5 mb-1.5">
-                <Metric label="Zásah" value={`${view.combat.hitChance} %`} />
-                <Metric label="Krit" value={`${view.combat.critChance} %`} />
-                <Metric label="Zranění" value={view.combat.damage} />
-                {view.combat.misfire && <Metric label="Selhání" value={view.combat.misfire} />}
+                <Metric label={text("inspect.combat.hit", undefined, locale)} value={`${view.combat.hitChance} %`} />
+                <Metric label={text("inspect.combat.crit", undefined, locale)} value={`${view.combat.critChance} %`} />
+                <Metric label={text("inspect.combat.wound", undefined, locale)} value={view.combat.damage} />
+                {view.combat.misfire && (
+                  <Metric label={text("inspect.combat.misfire", undefined, locale)} value={view.combat.misfire} />
+                )}
               </div>
               <p className="font-cinzel text-[10px] text-amber-300/90 mb-1">{view.combat.pierce}</p>
               <div className="space-y-0.5">

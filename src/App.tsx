@@ -23,7 +23,23 @@ import { InspectDossier } from "./components/ui/InspectDossier";
 import { TacticalUtilitiesCapsule } from "./components/ui/TacticalUtilitiesCapsule";
 import { TurnSplashBanner } from "./components/ui/TurnSplashBanner";
 import { TutorialOrderBanner } from "./components/ui/TutorialOrderBanner";
+import { perkCopy, text, unitName, useLocale } from "./i18n";
 import { useGameStore } from "./store/useGameStore";
+
+const SACRIFICE_CLAUSE =
+  "Jeden z vašich věrných společníků musí zůstat u palácové branky a odpálit sudy s prachem";
+const VIGIL_QUOTE =
+  "„Tvá oběť z tebe smyla strach. Od této chvíle jsi mečem Železné vigilie.“";
+
+function splitAround(source: string, mark: string) {
+  const at = source.indexOf(mark);
+  if (at < 0) return null;
+  return {
+    before: source.slice(0, at),
+    mark,
+    after: source.slice(at + mark.length),
+  };
+}
 
 function isInspectKey(e: KeyboardEvent): boolean {
   return e.key === "F1" || e.code === "Digit0" || e.code === "Numpad0" || e.key === "0";
@@ -40,6 +56,12 @@ export default function App() {
   const sacrificeDilemmaOpen = useGameStore((s) => s.sacrificeDilemmaOpen);
   const ironVigilPerk = useGameStore((s) => s.ironVigilPerk);
   const chooseSacrifice = useGameStore((s) => s.chooseSacrifice);
+  const locale = useLocale();
+  const sacrificeBody = text("ui.sacrifice.body", undefined, locale);
+  const sacrificeParts = splitAround(sacrificeBody, SACRIFICE_CLAUSE);
+  const boat3 = text("ui.epilogue.boat.3.body", undefined, locale);
+  const boat3Parts = splitAround(boat3, VIGIL_QUOTE);
+  const vigilPerk = ironVigilPerk ? perkCopy(ironVigilPerk.perkId, locale) : null;
 
   // Globální klávesové zkratky pro minimalistické taktické velení (XCOM Style):
   // - 1: Režim pohybu
@@ -290,10 +312,10 @@ export default function App() {
         <div className="pointer-events-none fixed inset-x-0 top-24 z-40 flex justify-center px-4">
           <div className="baroque-crimson-cartouche baroque-border rounded-xl px-7 py-3.5 shadow-[0_0_50px_rgba(239,68,68,0.7)] text-center animate-bounce">
             <div className="font-cinzel text-xs font-bold uppercase tracking-widest text-amber-300">
-              Zajetí dokonáno · 2/2 kola zadržení
+              {text("ui.capture.done", undefined, locale)}
             </div>
             <div className="font-cinzel text-lg md:text-xl font-black uppercase tracking-wider text-rose-100 mt-0.5">
-              Švédští dragouni spoutali maršála Colloreda!
+              {text("ui.capture.shackled", undefined, locale)}
             </div>
           </div>
         </div>
@@ -327,24 +349,26 @@ export default function App() {
               </div>
               <div>
                 <h2 className="font-cinzel text-xl md:text-2xl font-black uppercase tracking-wider text-amber-200">
-                  Dilema oběti: Kdo zadrží Švédy u palácové branky?
+                  {text("ui.sacrifice.title", undefined, locale)}
                 </h2>
                 <div className="font-literata italic text-xs text-amber-400/90 mt-0.5">
-                  Anno Salutis 1648, 26. července, 02:45 · Rameno Čertovky u Velkopřevorství
+                  {text("ui.sacrifice.when", undefined, locale)}
                 </div>
               </div>
             </div>
 
             <p className="font-literata text-sm text-amber-100/90 leading-relaxed bg-black/60 p-4 rounded-xl border border-amber-900/60">
-              Švédští dragouni generála Königsmarcka vpadli do zahrady a střílejí
-              ze všech stran! Rozvodněná Vltava a malá rybářská pramice neunesou
-              všechny.{" "}
-              <strong className="font-cinzel text-amber-300 font-bold">
-                Jeden z vašich věrných společníků musí zůstat u palácové branky a
-                odpálit sudy s prachem
-              </strong>
-              , aby maršál Colloredo mohl bezpečně odrazit do proudu řeky. Koho
-              pověříte tímto osudovým úkolem?
+              {sacrificeParts ? (
+                <>
+                  {sacrificeParts.before}
+                  <strong className="font-cinzel text-amber-300 font-bold">
+                    {sacrificeParts.mark}
+                  </strong>
+                  {sacrificeParts.after}
+                </>
+              ) : (
+                sacrificeBody
+              )}
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -359,20 +383,22 @@ export default function App() {
                     <div className="flex items-center gap-2 mb-1.5">
                       <UserCheck className="w-4 h-4 text-amber-400" />
                       <span className="font-cinzel font-bold text-sm text-amber-100 group-hover:text-amber-200">
-                        Jan Matěj
+                        {unitName("player-jan-matej", "nom", locale)}
                       </span>
                     </div>
                     <span className="text-[10px] text-amber-400/70 font-literata uppercase tracking-wider font-bold block mb-2">
-                      Osobní komorník
+                      {text("ui.sacrifice.matej.role", undefined, locale)}
                     </span>
                     <p className="text-xs text-amber-200/90 italic font-literata leading-snug mb-3">
-                      „Můj život už patří minulosti, milostivý pane. Odražte s maršálem!“
+                      {text("ui.sacrifice.matej.line", undefined, locale)}
                     </p>
                   </div>
                   <div className="pt-2 border-t border-amber-900/60 text-[11px] text-amber-300 font-cinzel font-bold">
-                    Perk: Ocelová věrnost
+                    {text("ui.sacrifice.perkLabel", {
+                      names: text("ui.sacrifice.matej.perkName", undefined, locale),
+                    }, locale)}
                     <span className="block text-[10px] text-amber-200/70 font-literata font-normal">
-                      +20 % odolnost proti šoku, +1 AP při záchraně raněného
+                      {text("ui.sacrifice.matej.perk", undefined, locale)}
                     </span>
                   </div>
                 </button>
@@ -389,20 +415,22 @@ export default function App() {
                     <div className="flex items-center gap-2 mb-1.5">
                       <Wrench className="w-4 h-4 text-amber-400" />
                       <span className="font-cinzel font-bold text-sm text-amber-100 group-hover:text-amber-200">
-                        Bratr Bartoloměj
+                        {unitName("player-bartolomej", "nom", locale)}
                       </span>
                     </div>
                     <span className="text-[10px] text-amber-400/70 font-literata uppercase tracking-wider font-bold block mb-2">
-                      Maltézský zbrojmistr
+                      {text("ui.sacrifice.bart.role", undefined, locale)}
                     </span>
                     <p className="text-xs text-amber-200/90 italic font-literata leading-snug mb-3">
-                      „Zasypu branku olovem a odpálím zbrojnici i se Švédy!“
+                      {text("ui.sacrifice.bart.line", undefined, locale)}
                     </p>
                   </div>
                   <div className="pt-2 border-t border-amber-900/60 text-[11px] text-amber-300 font-cinzel font-bold">
-                    Perk: Maltézský pyrotechnik
+                    {text("ui.sacrifice.perkLabel", {
+                      names: text("ui.sacrifice.bart.perkName", undefined, locale),
+                    }, locale)}
                     <span className="block text-[10px] text-amber-200/70 font-literata font-normal">
-                      +2 dosah granátů, výbuchy prachu o +1 silnější
+                      {text("ui.sacrifice.bart.perk", undefined, locale)}
                     </span>
                   </div>
                 </button>
@@ -421,20 +449,22 @@ export default function App() {
                     <div className="flex items-center gap-2 mb-1.5">
                       <Sparkles className="w-4 h-4 text-amber-400" />
                       <span className="font-cinzel font-bold text-sm text-amber-100 group-hover:text-amber-200">
-                        Václav z Michalovic
+                        {unitName("player-vaclav-michalovic", "nom", locale)}
                       </span>
                     </div>
                     <span className="text-[10px] text-amber-400/70 font-literata uppercase tracking-wider font-bold block mb-2">
-                      Klementinský klerik & písař
+                      {text("ui.sacrifice.vaclav.role", undefined, locale)}
                     </span>
                     <p className="text-xs text-amber-200/90 italic font-literata leading-snug mb-3">
-                      „Bůh mě ochraňuj, zdržím je s křížem a karabinou!“
+                      {text("ui.sacrifice.vaclav.line", undefined, locale)}
                     </p>
                   </div>
                   <div className="pt-2 border-t border-amber-900/60 text-[11px] text-amber-300 font-cinzel font-bold">
-                    Perk: Klementinský zápal
+                    {text("ui.sacrifice.perkLabel", {
+                      names: text("ui.sacrifice.vaclav.perkName", undefined, locale),
+                    }, locale)}
                     <span className="block text-[10px] text-amber-200/70 font-literata font-normal">
-                      +10 % k zásahu z výšky, spolehlivost v dešti
+                      {text("ui.sacrifice.vaclav.perk", undefined, locale)}
                     </span>
                   </div>
                 </button>
@@ -459,14 +489,14 @@ export default function App() {
               <h2 className="font-cinzel text-2xl font-black uppercase tracking-wider text-amber-200">
                 {outcome === "victory"
                   ? victoryReason === "boat_escape"
-                    ? "Útěk na Vltavě dokonán & Zrod Železné vigilie"
-                    : "Přepadový oddíl zničen!"
-                  : "Vrchní velitel padl do zajetí"}
+                    ? text("ui.epilogue.boatTitle", undefined, locale)
+                    : text("ui.epilogue.wipeTitle", undefined, locale)
+                  : text("ui.epilogue.defeatTitle", undefined, locale)}
               </h2>
               <div className="font-cinzel text-xs uppercase tracking-widest text-amber-400 mt-1">
                 {outcome === "victory"
-                  ? `Mise splněna v ${round}. kole · Anno Salutis 1648, 26. července`
-                  : `Katastrofa v ${round}. kole · Maršál Colloredo zadržen po 2 kola`}
+                  ? text("ui.epilogue.victoryMeta", { count: round }, locale)
+                  : text("ui.epilogue.defeatMeta", { count: round }, locale)}
               </div>
             </div>
 
@@ -476,39 +506,47 @@ export default function App() {
                   <>
                     <div>
                       <strong className="font-cinzel text-amber-300 block mb-0.5">
-                        1. Smrt v loďce a záchrana maršála:
+                        {text("ui.epilogue.boat.1.title", undefined, locale)}
                       </strong>
-                      Když pramice odrazila do temného proudu Vltavy, švédští mušketýři spustili ze břehu prudkou palbu. Dva věrní společníci v loďce vlastním tělem zakryli maršála Colloreda v noční košili. Na staroměstském břehu u křižovnického kláštera předali zraněného velitele strážím a v kalužích krve a nočního deště vydechli naposledy. Stráž na Staroměstské mostecké věži spustila železnou mříž doslova před nosem švédských dragounů!
+                      {text("ui.epilogue.boat.1.body", undefined, locale)}
                     </div>
 
                     <div>
                       <strong className="font-cinzel text-amber-400 block mb-0.5">
-                        2. Zázrak u palácové branky (Paradoxní oběť):
+                        {text("ui.epilogue.boat.2.title", undefined, locale)}
                       </strong>
-                      Mezitím u palácové branky {ironVigilPerk?.heroName ?? "obětovaný hrdina"} odpálil sudy s prachem. Ohlušující detonace smetla švédský předvoj a tlaková vlna jej odmrštila do rozvodněné Čertovky. Zraněný, popálený, ale živý se v temnotě proplížil podél Kampy a přeplaval řeku na Staré Město!
+                      {text("ui.epilogue.boat.2.body", { heroId: ironVigilPerk?.heroId }, locale)}
                     </div>
 
                     <div>
                       <strong className="font-cinzel text-amber-200 block mb-0.5">
-                        3. Přijetí do ŽELEZNÉ VIGILIE Klementinských jezuitů:
+                        {text("ui.epilogue.boat.3.title", undefined, locale)}
                       </strong>
-                      Polomrtvého hrdinu na schodech Klementina zvedl sám Pater Jiří Plachý. Když spatřil jeho odvahu, vtiskl mu do rukou posvěcenou zbraň a zahalil jej černým pláštěm: <em>„Tvá oběť z tebe smyla strach. Od této chvíle jsi mečem Železné vigilie.“</em>
+                      {boat3Parts ? (
+                        <>
+                          {boat3Parts.before}
+                          <em>{boat3Parts.mark}</em>
+                          {boat3Parts.after}
+                        </>
+                      ) : (
+                        boat3
+                      )}
                     </div>
 
-                    {ironVigilPerk && (
+                    {ironVigilPerk && vigilPerk && (
                       <div className="bg-amber-950/70 border border-amber-500/60 rounded-xl p-3 flex items-start gap-3 mt-2">
                         <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-400/50 flex items-center justify-center text-amber-300 shrink-0 mt-0.5">
                           <Shield className="w-4 h-4" />
                         </div>
                         <div>
                           <div className="font-cinzel text-xs font-bold uppercase tracking-wider text-amber-300">
-                            Nový člen Železné vigilie: {ironVigilPerk.heroName}
+                            {text("ui.epilogue.perk.member", { heroId: ironVigilPerk.heroId }, locale)}
                           </div>
                           <div className="font-cinzel text-xs font-bold text-amber-100 mt-0.5">
-                            Trvalý perk: {ironVigilPerk.name}
+                            {text("ui.epilogue.perk.name", { names: vigilPerk.name }, locale)}
                           </div>
                           <div className="font-literata text-[11px] text-amber-200/80 mt-0.5">
-                            {ironVigilPerk.desc}
+                            {vigilPerk.desc}
                           </div>
                         </div>
                       </div>
@@ -517,50 +555,26 @@ export default function App() {
                 ) : (
                   <>
                     <strong className="font-cinzel text-amber-300 block mb-1">
-                      Odowalského zrada odražena:
+                      {text("ui.epilogue.wipe.heading", undefined, locale)}
                     </strong>
-                    Švédský přepadový oddíl byl v zahradě Velkopřevorství do jednoho
-                    pobit! Cesta k rybářské pramici na Čertovce je zcela volná. Maršál
-                    Colloredo bezpečně přeplouvá rozvodněnou Vltavu, aby na pravém
-                    břehu zorganizoval legendární obranu Prahy.
+                    {text("ui.epilogue.wipe.body", undefined, locale)}
                   </>
                 )
               ) : (
                 <>
                   <strong className="font-cinzel text-rose-300 block mb-1">
                     {defeatReason === "surrounded_unprotected"
-                      ? "Obklíčen bez ochranky a zajat po 2 kolech (Kořist a výkupné):"
+                      ? text("ui.epilogue.defeat.surrounded", undefined, locale)
                       : defeatReason === "all_companions_fallen"
-                        ? "Družina padla a maršál zůstal v moci Švédů:"
-                        : "Sražen k zemi a nevyproštěn včas (Zajetí po 2 kolech):"}
+                        ? text("ui.epilogue.defeat.fallen", undefined, locale)
+                        : text("ui.epilogue.defeat.down", undefined, locale)}
                   </strong>
-                  {defeatReason === "surrounded_unprotected" ? (
-                    <>
-                      Švédští vojáci pronikli přímo k nechráněnému maršálu Rudolfu
-                      Colloredovi a drželi jej v šachu po dvě kola, aniž by jej jeho
-                      družina dokázala vyprostit. Maršál byl v noční košili odzbrojen a
-                      spoután pro královské výkupné (100 000 říšských tolarů).
-                    </>
-                  ) : defeatReason === "all_companions_fallen" ? (
-                    <>
-                      Všichni věrní obránci z maršálova doprovodu v zahradě
-                      Velkopřevorství padli. Zraněného polního maršála Rudolfa Colloreda
-                      už neměl kdo vyprostit ze švédského obklíčení a dragouni jej
-                      odvlekli v poutech.
-                    </>
-                  ) : (
-                    <>
-                      Polní maršál Rudolf Colloredo klesl pod švédskou palbou k zemi
-                      (0 HP) a během dvou kol nebyl svou družinou vyproštěn. Švédští
-                      dragouni jej v noční košili spoutali pro tučné výkupné (100 000
-                      říšských tolarů).
-                    </>
-                  )}{" "}
-                  Stejně jako na Hradčanech a Malé Straně, kde padlo do zajetí přes
-                  200 šlechticů včetně kardinála Harracha a purkrabího Martinice,
-                  ztratila Praha svého vrchního velitele — nikdo nezorganizoval
-                  posádku na Karlově mostě včas a celá Praha padla do rukou generála
-                  Königsmarcka!
+                  {defeatReason === "surrounded_unprotected"
+                    ? text("ui.epilogue.defeat.surroundedBody", undefined, locale)
+                    : defeatReason === "all_companions_fallen"
+                      ? text("ui.epilogue.defeat.fallenBody", undefined, locale)
+                      : text("ui.epilogue.defeat.downBody", undefined, locale)}{" "}
+                  {text("ui.epilogue.defeat.coda", undefined, locale)}
                 </>
               )}
             </div>
@@ -571,7 +585,7 @@ export default function App() {
               className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 border border-amber-300 text-stone-950 font-cinzel font-bold text-sm uppercase tracking-wider shadow-[0_4px_16px_rgba(245,158,11,0.5)] transition-colors cursor-pointer"
             >
               <RotateCcw className="w-4 h-4" />
-              <span>Hrát znovu</span>
+              <span>{text("ui.epilogue.again", undefined, locale)}</span>
             </button>
           </div>
         </div>

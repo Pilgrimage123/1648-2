@@ -6,6 +6,8 @@
  * - Barokní diegetický dabing a imperativní rozkazy.
  */
 
+import type { Phrase } from "../i18n/phrase";
+import { phrase, text, type MessageId } from "../i18n/runtime";
 import { GridSystem, sameCoord } from "./GridSystem";
 import type {
   ActionMode,
@@ -14,6 +16,13 @@ import type {
   GuidedTutorialStep,
   UnitData,
 } from "./types";
+
+function tutorialField(
+  step: GuidedTutorialStep,
+  field: "speaker" | "role" | "title" | "order" | "tip" | "beacon",
+): string {
+  return text(`tutorial.${step}.${field}` as MessageId);
+}
 
 export const GUIDED_TUTORIAL_STEPS: Record<
   GuidedTutorialStep,
@@ -203,7 +212,18 @@ export const GUIDED_TUTORIAL_STEPS: Record<
 export function getGuidedStepData(
   step: GuidedTutorialStep,
 ): GuidedTutorialInstruction {
-  return GUIDED_TUTORIAL_STEPS[step] ?? GUIDED_TUTORIAL_STEPS.step_1_matej_move;
+  const base = GUIDED_TUTORIAL_STEPS[step] ?? GUIDED_TUTORIAL_STEPS.step_1_matej_move;
+  return {
+    ...base,
+    speaker: tutorialField(base.step, "speaker"),
+    role: tutorialField(base.step, "role"),
+    title: tutorialField(base.step, "title"),
+    orderText: tutorialField(base.step, "order"),
+    tacticalTip: tutorialField(base.step, "tip"),
+    beacon: base.beacon
+      ? { ...base.beacon, label: tutorialField(base.step, "beacon") }
+      : null,
+  };
 }
 
 export function isTileAllowedForGuidedMove(
@@ -231,41 +251,31 @@ export function isActionAllowedForGuidedStep(
 export function getGuidedRejectFeedback(
   step: GuidedTutorialStep,
   reason: "unit" | "tile" | "action",
-): string {
+): Phrase {
   switch (step) {
     case "step_1_matej_move":
-      if (reason === "unit") {
-        return "Jan Matěj: „Vaše Excelence, teď musím zajistit cestu já! Pohněte se mnou za balustrádu.“";
-      }
-      if (reason === "tile") {
-        return "Jan Matěj: „Tam ne, Vaše Excelence! Na volném prostranství bych byl snadným terčem. Kryjme se za balustrádou!“";
-      }
-      return "Jan Matěj: „Nejprve se musíme přesunout do krytu!“";
+      if (reason === "unit") return phrase("tutorial.reject.step_1_matej_move.unit");
+      if (reason === "tile") return phrase("tutorial.reject.step_1_matej_move.tile");
+      return phrase("tutorial.reject.step_1_matej_move.action");
 
     case "step_2_colloredo_escort":
-      if (reason === "unit") {
-        return "Jan Matěj: „Pomohu vám, milostivý pane! Nyní musíme vyvést maršála.“";
-      }
-      if (reason === "tile") {
-        return "Jan Matěj: „Držte se těsně v mém závěsu za zdí, pane! Švédové nesmí maršála obklíčit.“";
-      }
-      return "Jan Matěj: „Musíme maršála dostat do bezpečí!“";
+      if (reason === "unit") return phrase("tutorial.reject.step_2_colloredo_escort.unit");
+      if (reason === "tile") return phrase("tutorial.reject.step_2_colloredo_escort.tile");
+      return phrase("tutorial.reject.step_2_colloredo_escort.action");
 
     case "step_3_vaclav_aim":
     case "step_4_vaclav_shoot":
-      if (reason === "unit") {
-        return "Václav z Michalovic: „Mám výbornou pozici na arkádě, nechte mě zamířit!“";
-      }
-      return "Václav z Michalovic: „Stiskněte [2] pro míření a [Mezerník] pro výstřel!“";
+      if (reason === "unit") return phrase("tutorial.reject.step_3_vaclav_aim.unit");
+      return phrase("tutorial.reject.step_3_vaclav_aim.action");
 
     case "step_6_vaclav_reload":
-      return "Bratr Bartoloměj: „Prázdná hlaveň nestřílí! Stiskněte [R] a nabijte prach.“";
+      return phrase("tutorial.reject.step_6_vaclav_reload.action");
 
     case "step_7_keg_explosion":
-      return "Bratr Bartoloměj: „Ten Švéd je v plném krytu! Odpalte petardou [4] prachový sud!“";
+      return phrase("tutorial.reject.step_7_keg_explosion.action");
 
     default:
-      return "Rádce: „Soustřeďte se na rozkaz velení.“";
+      return phrase("tutorial.reject.default");
   }
 }
 
@@ -279,7 +289,7 @@ export function getGuidedTutorialBeacon(
   color: string;
   icon?: "shield" | "crosshair" | "keg" | "melee" | "dock";
 } | null {
-  const data = GUIDED_TUTORIAL_STEPS[step];
+  const data = getGuidedStepData(step);
   if (!data) return null;
 
   // Speciální dynamický beacon pro krok 8 (Zteč zblízka)
@@ -290,7 +300,7 @@ export function getGuidedTutorialBeacon(
     if (woundedEnemy) {
       return {
         coord: { ...woundedEnemy.pos },
-        label: `Zteč chladnou zbraní na ${woundedEnemy.name} [PKM]`,
+        label: text("tutorial.step_8_melee_finish.beacon", { unitId: woundedEnemy.id }),
         color: "#dc2626",
         icon: "melee",
       };

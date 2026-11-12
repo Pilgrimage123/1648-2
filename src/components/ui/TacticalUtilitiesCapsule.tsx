@@ -26,31 +26,32 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import type { FloorLevel } from "../../core/types";
+import { listLocales, setLocale, text, useLocale, type MessageId } from "../../i18n";
 import { useGameStore } from "../../store/useGameStore";
 
 const FLOOR_META: {
   floor: FloorLevel;
   code: string;
-  title: string;
-  subtitle: string;
+  title: MessageId;
+  subtitle: MessageId;
 }[] = [
   {
     floor: 2,
     code: "P2",
-    title: "Maltézská věž",
-    subtitle: "Střešní ochoz (+15 % zásah, +5.5 dohled)",
+    title: "ui.floor.2.title",
+    subtitle: "ui.floor.2.sub",
   },
   {
     floor: 1,
     code: "P1",
-    title: "Piano Nobile & Belveder",
-    subtitle: "1. patro paláce a terasa (+2.2 dohled)",
+    title: "ui.floor.1.title",
+    subtitle: "ui.floor.1.sub",
   },
   {
     floor: 0,
     code: "P0",
-    title: "Přízemí & Zahrada",
-    subtitle: "Nádvoří, Sala Terrena, Čertovka",
+    title: "ui.floor.0.title",
+    subtitle: "ui.floor.0.sub",
   },
 ];
 
@@ -82,6 +83,8 @@ export function TacticalUtilitiesCapsule() {
   const toggleTutorial = useGameStore((s) => s.toggleTutorial);
   const rotateCamera = useGameStore((s) => s.rotateCamera);
   const resetGame = useGameStore((s) => s.resetGame);
+  const locale = useLocale();
+  const locales = listLocales();
 
   // Kontextové vrstvení (Pillar 1): Průřez pater je ve výchozím stavu sbalený, rozbalí se na vyžádání
   const [stackExpanded, setStackExpanded] = useState(false);
@@ -118,7 +121,7 @@ export function TacticalUtilitiesCapsule() {
     <div className="pointer-events-none flex flex-col items-end gap-1.5 select-none">
       {/* 1. Kompaktní jednořádková lišta nástrojů */}
       <nav
-        aria-label="Taktické nástroje a kamera"
+        aria-label={text("ui.tools.aria", undefined, locale)}
         className="pointer-events-auto flex items-center gap-1 baroque-cartouche baroque-border rounded-xl px-2 py-1 shadow-[0_4px_20px_rgba(0,0,0,0.85)] text-amber-100 bg-slate-950/88 border-amber-500/65 backdrop-blur-md"
       >
         {/* Rotace kamery (Q / E) */}
@@ -126,7 +129,7 @@ export function TacticalUtilitiesCapsule() {
           <button
             type="button"
             onClick={() => rotateCamera(-1)}
-            title="Otočit kameru o 90° vlevo [Q]"
+            title={text("ui.camera.left", undefined, locale)}
             className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-cinzel font-black text-amber-200 hover:text-amber-100 hover:bg-amber-950/80 transition-colors cursor-pointer"
           >
             <RotateCcw className="w-3 h-3 text-amber-400" />
@@ -135,7 +138,7 @@ export function TacticalUtilitiesCapsule() {
           <button
             type="button"
             onClick={() => rotateCamera(1)}
-            title="Otočit kameru o 90° vpravo [E]"
+            title={text("ui.camera.right", undefined, locale)}
             className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-cinzel font-black text-amber-200 hover:text-amber-100 hover:bg-amber-950/80 transition-colors cursor-pointer"
           >
             <span>E</span>
@@ -146,7 +149,7 @@ export function TacticalUtilitiesCapsule() {
         {/* Rychlá přímá tlačítka pater P0 / P1 / P2 */}
         <div
           role="group"
-          aria-label="Výběr podlaží"
+          aria-label={text("ui.floors.aria", undefined, locale)}
           className="flex items-center bg-slate-900/90 rounded-lg p-0.5 border border-amber-900/70"
         >
           {([0, 1, 2] as const).map((floor) => {
@@ -156,7 +159,7 @@ export function TacticalUtilitiesCapsule() {
                 key={floor}
                 type="button"
                 onClick={() => setActiveFloor(floor)}
-                title={`Přepnout patro P${floor} [V / PgUp / PgDn]`}
+                title={text("ui.floors.switch", { floor }, locale)}
                 className={`px-1.5 py-0.5 rounded text-[10px] font-cinzel font-black transition-all cursor-pointer ${
                   isActive
                     ? "bg-amber-400 text-slate-950 shadow-[0_0_6px_rgba(245,158,11,0.5)]"
@@ -169,11 +172,34 @@ export function TacticalUtilitiesCapsule() {
           })}
         </div>
 
+        <div
+          role="group"
+          aria-label={text("ui.locale.switch", { names: locales.map((pack) => pack.endonym).join(", ") }, locale)}
+          className="flex items-center bg-slate-900/90 rounded-lg p-0.5 border border-amber-900/70"
+        >
+          {locales.map((pack) => (
+            <button
+              key={pack.id}
+              type="button"
+              title={text("ui.locale.switch", { names: pack.endonym }, locale)}
+              aria-pressed={locale === pack.id}
+              onClick={() => setLocale(pack.id)}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-cinzel font-black transition-all cursor-pointer ${
+                locale === pack.id
+                  ? "bg-amber-400 text-slate-950 shadow-[0_0_6px_rgba(245,158,11,0.5)]"
+                  : "text-amber-300/80 hover:text-amber-100"
+              }`}
+            >
+              {pack.endonym}
+            </button>
+          ))}
+        </div>
+
         {/* Tlačítko rozbalení / sbalení průřezu pater */}
         <button
           type="button"
           onClick={() => setStackExpanded((p) => !p)}
-          title="Zobrazit architektonický průřez pater a pozice jednotek"
+          title={text("ui.floors.stack", undefined, locale)}
           className={`flex items-center gap-1 px-1.5 py-1 rounded-lg border text-[10px] font-cinzel font-black transition-all cursor-pointer ${
             stackExpanded
               ? "bg-amber-950/90 border-amber-400 text-amber-100"
@@ -181,7 +207,7 @@ export function TacticalUtilitiesCapsule() {
           }`}
         >
           <Layers className="w-3 h-3 text-amber-400" />
-          <span className="hidden md:inline">Patra</span>
+          <span className="hidden md:inline">{text("ui.floors.word", undefined, locale)}</span>
           {stackExpanded ? (
             <ChevronUp className="w-2.5 h-2.5 text-amber-300" />
           ) : (
@@ -193,7 +219,7 @@ export function TacticalUtilitiesCapsule() {
         <button
           type="button"
           onClick={toggleFogOfWar}
-          title="Barokní šerosvit / Mlha války [G]"
+          title={text("ui.fog.title", undefined, locale)}
           className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
             fogOfWarEnabled
               ? "bg-amber-600/35 border-amber-400 text-amber-200"
@@ -211,7 +237,7 @@ export function TacticalUtilitiesCapsule() {
         <button
           type="button"
           onClick={toggleActionCam}
-          title="Akční kinematická kamera [C]"
+          title={text("ui.camera.action", undefined, locale)}
           className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
             actionCamEnabled
               ? "bg-amber-600/35 border-amber-400 text-amber-200"
@@ -225,7 +251,7 @@ export function TacticalUtilitiesCapsule() {
         <button
           type="button"
           onClick={toggleRenderMode}
-          title="Přepnout 2D sprity / 3D modely [M]"
+          title={text("ui.render.mode", undefined, locale)}
           className="flex items-center gap-1 px-1.5 py-1 rounded-lg baroque-bronze-btn text-[10px] font-cinzel font-black text-amber-200 hover:text-amber-100 cursor-pointer"
         >
           {renderMode === "2D_SPRITE" ? (
@@ -240,7 +266,7 @@ export function TacticalUtilitiesCapsule() {
         <button
           type="button"
           onClick={toggleFullscreen}
-          title="Celá obrazovka [F]"
+          title={text("ui.fullscreen", undefined, locale)}
           className="p-1.5 rounded-lg baroque-bronze-btn text-amber-300 hover:text-amber-100 cursor-pointer"
         >
           {isFullscreen ? (
@@ -254,7 +280,7 @@ export function TacticalUtilitiesCapsule() {
         <button
           type="button"
           onClick={toggleTutorial}
-          title="Taktický rádce [H]"
+          title={text("ui.advisor.toggle", undefined, locale)}
           className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
             !tutorialDismissed && tutorialStep !== null
               ? "bg-amber-600/35 border-amber-400 text-amber-200"
@@ -268,7 +294,7 @@ export function TacticalUtilitiesCapsule() {
         <button
           type="button"
           onClick={resetGame}
-          title="Restartovat bitvu"
+          title={text("ui.battle.restart", undefined, locale)}
           className="p-1.5 rounded-lg baroque-bronze-btn text-amber-300 hover:text-rose-300 transition-colors cursor-pointer"
         >
           <RefreshCw className="w-3.5 h-3.5" />
@@ -278,18 +304,18 @@ export function TacticalUtilitiesCapsule() {
       {/* 2. Na vyžádání rozbalitelný Průřez pater (Progressive Disclosure) */}
       {stackExpanded && (
         <aside
-          aria-label="Průřez pater Velkopřevorského paláce"
+          aria-label={text("ui.floors.sectionAria", undefined, locale)}
           className="pointer-events-auto w-72 baroque-cartouche baroque-border rounded-xl p-2 shadow-[0_8px_28px_rgba(0,0,0,0.9)] bg-slate-950/92 border-amber-500/70 backdrop-blur-md flex flex-col gap-1.5 animate-in fade-in duration-150"
         >
           <div className="flex items-center justify-between px-1 pb-1 border-b border-amber-900/70">
             <div className="flex items-center gap-1.5">
               <Layers className="w-3.5 h-3.5 text-amber-400" />
               <span className="font-cinzel font-black text-[10px] uppercase tracking-wider text-amber-200">
-                Průřez pater
+                {text("ui.floors.section", undefined, locale)}
               </span>
               {fogOfWarEnabled && selectedSightRadius !== undefined && (
                 <span className="text-[9px] font-cinzel font-bold text-amber-300 tabular-nums">
-                  · Dohled {selectedSightRadius}m
+                  {text("ui.floors.sight", { distance: selectedSightRadius }, locale)}
                 </span>
               )}
             </div>
@@ -298,7 +324,7 @@ export function TacticalUtilitiesCapsule() {
               onClick={toggleFloor}
               className="px-1.5 py-0.5 rounded bg-slate-900 border border-amber-800/80 hover:border-amber-400 text-[9px] font-cinzel font-black text-amber-300 cursor-pointer"
             >
-              [V] Přepnout
+              {text("ui.floors.cycle", undefined, locale)}
             </button>
           </div>
 
@@ -347,10 +373,10 @@ export function TacticalUtilitiesCapsule() {
                       </span>
                       <div className="min-w-0">
                         <div className="font-cinzel font-bold text-[11px] text-amber-100 truncate leading-tight">
-                          {title}
+                          {text(title, undefined, locale)}
                         </div>
                         <div className="font-literata text-[9px] text-amber-300/75 truncate leading-tight">
-                          {subtitle}
+                          {text(subtitle, undefined, locale)}
                         </div>
                       </div>
                     </div>
@@ -411,7 +437,7 @@ export function TacticalUtilitiesCapsule() {
                             ) : (
                               <Flame className="w-2.5 h-2.5 text-orange-400" />
                             )}
-                            <span>{isSpotted ? enemy.name : "[?] Kontakt"}</span>
+                            <span>{isSpotted ? enemy.name : text("ui.contact.mark", undefined, locale)}</span>
                           </button>
                         );
                       })}

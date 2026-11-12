@@ -3,6 +3,7 @@
  * Bez Reactu a bez Three.js. UI jen vykreslí vrácený pohled.
  */
 
+import { contactPhrase, doorLabel, text } from "../i18n/runtime";
 import { getTileVisibility } from "./FogOfWar";
 import { bestTileCover, sameCoord } from "./GridSystem";
 import type {
@@ -104,6 +105,7 @@ export interface InspectUnitView {
     pierce: string;
     hitModifiers: StatModifier[];
     critModifiers: StatModifier[];
+    metrics: InspectLabeledValue[];
   } | null;
 }
 
@@ -140,72 +142,43 @@ export type InspectView =
   | InspectTerrainView
   | InspectEmptyView;
 
-const COVER_LABEL: Record<CoverLevel, string> = {
-  none: "Žádný",
-  half: "Poloviční",
-  full: "Plný",
-};
+function coverLabel(level: CoverLevel): string {
+  return text(`inspect.cover.${level}`);
+}
 
-const FACING_LABEL: Record<CardinalDir, string> = {
-  N: "Sever",
-  E: "Východ",
-  S: "Jih",
-  W: "Západ",
-};
+function facingLabel(dir: CardinalDir): string {
+  return text(`inspect.dir.${dir}`);
+}
 
-const LOCK_LABEL: Record<FirearmLockType, string> = {
-  matchlock: "Doutnákový zámek",
-  wheellock: "Kolečkový zámek",
-  artillery: "Dělostřelectvo",
-};
+function lockLabel(lock: FirearmLockType): string {
+  return text(`inspect.lock.${lock}`);
+}
 
-const MELEE_KIND: Record<MeleeWeaponStats["kind"], string> = {
-  sword: "Meč",
-  dagger: "Dýka",
-  polearm: "Sudlice",
-  pistol_butt: "Pažba pistole",
-  musket_butt: "Pažba muškety",
-  fist: "Pěst",
-};
+function meleeKindLabel(kind: MeleeWeaponStats["kind"]): string {
+  return text(`inspect.meleeKind.${kind}`);
+}
 
-const SURFACE_LABEL: Record<TileData["surface"], string> = {
-  cobble: "Dlážděná ulice",
-  stone_floor: "Kamenná podlaha",
-  palace_carpet: "Palácový koberec",
-  wood_roof: "Dřevěná střecha",
-  rubble: "Suť",
-  scorched_ruin: "Ohořelá ruina",
-  water: "Voda Čertovky",
-  wood_dock: "Dřevěné molo",
-};
+function surfaceLabel(surface: TileData["surface"]): string {
+  return text(`inspect.surface.${surface}`);
+}
 
-const OBSTACLE_LABEL: Record<ObstacleType, string> = {
-  none: "Žádná",
-  low_wall: "Nízká zídka",
-  high_wall: "Vysoká zeď",
-  pillar: "Pilíř",
-  powder_keg: "Prachový sud",
-};
+function obstacleLabel(obstacle: ObstacleType): string {
+  return text(`inspect.obstacle.${obstacle}`);
+}
 
-const STAIR_LABEL: Record<StairType, string> = {
-  none: "Žádné",
-  straight_stairs: "Přímé schodiště",
-  spiral_stairs: "Točité schodiště",
-  ladder: "Žebřík",
-  grand_stairs: "Monumentální schodiště",
-};
+function stairLabel(stair: StairType): string {
+  return text(`inspect.stair.${stair}`);
+}
 
-const CONTACT_DETAIL: Record<SoundContactKind, string> = {
-  matchcord_glow: "Žhnoucí doutnák doutnákové muškety. Postava sama zůstává skrytá.",
-  footsteps: "Kroky a cinkot kyrysu ve tmě. Postava sama zůstává skrytá.",
-  gunfire_flash: "Záblesk pánvičky. Postava sama zůstává skrytá.",
-};
+function floorLabel(floor: FloorLevel): string {
+  return text(`inspect.floor.${floor}`);
+}
 
-const FLOOR_LABEL: Record<FloorLevel, string> = {
-  0: "Přízemí (P0)",
-  1: "Piano Nobile (P1)",
-  2: "Maltézská věž (P2)",
-};
+function contactDetail(kind: SoundContactKind): string {
+  if (kind === "matchcord_glow") return text("contact.matchcord.detail");
+  if (kind === "footsteps") return text("contact.footsteps.detail");
+  return text("contact.gunfire.detail");
+}
 
 export function buildInspectView(ctx: InspectContext): InspectView {
   if (ctx.pin?.kind === "tile") {
@@ -244,66 +217,82 @@ function emptyView(): InspectEmptyView {
   return {
     kind: "empty",
     tone: "stone",
-    title: "Žádný výběr",
-    detail: "Vyberte vojáka, nebo podržte F1 či 0 a klepněte na postavu, dveře nebo terén.",
+    title: text("inspect.none.title"),
+    detail: text("inspect.none.detail"),
   };
 }
 
 function buildContact(ctx: InspectContext, unit: UnitData): InspectContactView {
   const contact = ctx.fog.soundContacts.find((c) => c.unitId === unit.id) ?? null;
+  const kind = contact?.kind ?? "matchcord_glow";
   return {
     kind: "contact",
     tone: "amber",
-    title: "Kontakt v šerosvitu",
-    headline: contact?.label ?? "Skryto v šerosvitu",
-    detail: contact
-      ? CONTACT_DETAIL[contact.kind]
-      : "Žádný doutnák, krok ani záblesk. Podrobnosti zůstávají skryté.",
+    title: text("inspect.contact.title"),
+    headline: contact ? text(contactPhrase(kind).id) : text("contact.hidden"),
+    detail: contact ? contactDetail(contact.kind) : text("inspect.contact.silent"),
     distance: contact ? formatDistance(contact) : null,
   };
 }
 
 function formatDistance(contact: SoundContact): string {
-  const tiles = contact.distanceToNearestAlly;
-  const rounded = Number.isInteger(tiles) ? String(tiles) : tiles.toFixed(1);
-  return `${rounded} polí od nejbližšího obránce`;
+  return text("inspect.contact.distance", { distance: contact.distanceToNearestAlly });
 }
 
 function buildUnit(ctx: InspectContext, unit: UnitData): InspectUnitView {
   const tile = ctx.tileAt(unit.pos);
   const detained = (unit.detainedTurns ?? 0) > 0;
+  const damage = ctx.activeCombat
+    ? `${ctx.activeCombat.minDamage}–${ctx.activeCombat.maxDamage} HP`
+    : "";
+  const misfire =
+    ctx.activeCombat?.mode === "shot" ? `${ctx.activeCombat.misfireChance ?? 0} %` : null;
+  const metrics: InspectLabeledValue[] = ctx.activeCombat
+    ? [
+        { label: text("inspect.combat.hit"), value: `${ctx.activeCombat.hitChance} %` },
+        { label: text("inspect.combat.crit"), value: `${ctx.activeCombat.critChance} %` },
+        { label: text("inspect.combat.wound"), value: damage },
+      ]
+    : [];
+  if (ctx.activeCombat && misfire) {
+    metrics.push({ label: text("inspect.combat.misfire"), value: misfire });
+  }
   const combat =
     ctx.activeCombat && ctx.activeCombat.targetId === unit.id
       ? {
           mode: ctx.activeCombat.mode,
-          title: ctx.activeCombat.mode === "shot" ? "Výstřel na tento cíl" : "Úder na tento cíl",
+          title:
+            ctx.activeCombat.mode === "shot"
+              ? text("inspect.combat.shotTitle")
+              : text("inspect.combat.meleeTitle"),
           hitChance: ctx.activeCombat.hitChance,
           critChance: ctx.activeCombat.critChance,
-          damage: `${ctx.activeCombat.minDamage}–${ctx.activeCombat.maxDamage} HP`,
-          misfire:
-            ctx.activeCombat.mode === "shot"
-              ? `${ctx.activeCombat.misfireChance ?? 0} %`
-              : null,
-          pierce: `průraz ${ctx.activeCombat.armorPierce} · stržení ${ctx.activeCombat.armorShred}`,
+          damage,
+          misfire,
+          pierce: text("inspect.combat.pierceLine", {
+            count: ctx.activeCombat.armorPierce,
+            shred: ctx.activeCombat.armorShred,
+          }),
           hitModifiers: ctx.activeCombat.hitModifiers,
           critModifiers: ctx.activeCombat.critModifiers,
+          metrics,
         }
       : null;
 
   return {
     kind: "unit",
     tone: unit.faction === "enemy" ? "crimson" : "amber",
-    title: unit.faction === "enemy" ? "Přehled nepřítele" : "Přehled obránce",
+    title: unit.faction === "enemy" ? text("inspect.unit.enemy") : text("inspect.unit.player"),
     name: unit.name,
     roleTitle: unit.roleTitle,
-    factionLine: unit.faction === "enemy" ? "Švédská hlídka" : "Obránce Prahy",
+    factionLine: unit.faction === "enemy" ? text("inspect.faction.enemy") : text("inspect.faction.player"),
     faction: unit.faction,
     archetype: unit.archetype,
     isVip: Boolean(unit.isVip),
     alive: unit.alive,
     detained,
-    place: `${FLOOR_LABEL[unit.pos.y]} · ${unit.pos.x}, ${unit.pos.z}`,
-    facing: FACING_LABEL[unit.facing],
+    place: `${floorLabel(unit.pos.y)} · ${unit.pos.x}, ${unit.pos.z}`,
+    facing: facingLabel(unit.facing),
     bestCover: tile ? bestTileCover(tile.cover) : "none",
     stats: unitStats(unit),
     conditions: unitConditions(unit),
@@ -316,7 +305,11 @@ function buildUnit(ctx: InspectContext, unit: UnitData): InspectUnitView {
           name: unit.ability.name,
           subtitle: unit.ability.subtitle,
           description: unit.ability.description,
-          meta: `Cena ${unit.ability.apCost} AP · obnovení ${unit.ability.cooldownTurns} kol · zbývá ${unit.ability.currentCooldown}`,
+          meta: text("inspect.ability.meta", {
+            count: unit.ability.apCost,
+            required: unit.ability.cooldownTurns,
+            progress: unit.ability.currentCooldown,
+          }),
         }
       : null,
     passive: unit.buffTitle ?? null,
@@ -326,96 +319,109 @@ function buildUnit(ctx: InspectContext, unit: UnitData): InspectUnitView {
 
 function unitStats(unit: UnitData): InspectLabeledValue[] {
   return [
-    { label: "Zdraví", value: `${unit.hp}/${unit.maxHp}` },
-    { label: "Zbroj", value: `${unit.armor}/${unit.maxArmor}` },
-    { label: "Akční body", value: `${unit.ap}/${unit.maxAp}` },
-    { label: "Muška", value: `${unit.marksmanship} %` },
-    { label: "Pohyb", value: `${unit.movePerAp} polí / AP` },
-    { label: "Granáty", value: String(unit.grenades) },
+    { label: text("inspect.stat.hp"), value: `${unit.hp}/${unit.maxHp}` },
+    { label: text("inspect.stat.armor"), value: `${unit.armor}/${unit.maxArmor}` },
+    { label: text("inspect.stat.ap"), value: `${unit.ap}/${unit.maxAp}` },
+    { label: text("inspect.stat.aim"), value: `${unit.marksmanship} %` },
+    { label: text("inspect.stat.move"), value: text("inspect.moveValue", { count: unit.movePerAp }) },
+    { label: text("inspect.stat.grenades"), value: String(unit.grenades) },
   ];
 }
 
 function unitConditions(unit: UnitData): string[] {
   const chips: string[] = [];
   if (!unit.alive) {
-    chips.push("Padl");
+    chips.push(text("inspect.cond.dead"));
   } else if (unit.inDeathThroes || unit.hp <= 0) {
-    chips.push("Poslední vzepětí (1 tah do pádu)");
-    chips.push(`Okamžitá smrt při ≤ ${-(unit.maxHp + 1)} HP`);
+    chips.push(text("inspect.cond.throes"));
+    chips.push(text("inspect.cond.overkill", { hp: -(unit.maxHp + 1) }));
   }
   if ((unit.detainedTurns ?? 0) > 0) {
     const reason = captureLabel(unit.captureReason);
     chips.push(
-      reason
-        ? `Zadržen ${unit.detainedTurns}/2 · ${reason}`
-        : `Zadržen ${unit.detainedTurns}/2`,
+      text("inspect.cond.detained", {
+        progress: unit.detainedTurns ?? 0,
+        names: reason ?? undefined,
+      }),
     );
   }
-  if (unit.isVip) chips.push("Velitel k ochraně");
-  if (unit.isShaken) chips.push("Otřesený");
-  if (unit.isOverwatch) chips.push("V hlídce");
-  if (unit.movedThisTurn) chips.push("V tomto kole se pohnul");
+  if (unit.isVip) chips.push(text("inspect.cond.vip"));
+  if (unit.isShaken) chips.push(text("inspect.cond.shaken"));
+  if (unit.isOverwatch) chips.push(text("inspect.cond.overwatch"));
+  if (unit.movedThisTurn) chips.push(text("inspect.cond.moved"));
   if (unit.buffTitle) chips.push(unit.buffTitle);
   if (unit.id === "player-colloredo") {
-    chips.push(unit.pistolLoaded === false ? "Bambitka vybitá" : "Bambitka 1/1");
+    chips.push(
+      unit.pistolLoaded === false
+        ? text("inspect.cond.pistolEmpty")
+        : text("inspect.cond.pistolLoaded"),
+    );
   } else if (unit.firearmLoaded === false) {
     const cost = unit.weapon.reloadApCost ?? 2;
-    chips.push(`Nabíjení ${unit.reloadProgress ?? 0}/${cost}`);
+    chips.push(
+      text("inspect.cond.reloading", {
+        progress: unit.reloadProgress ?? 0,
+        required: cost,
+      }),
+    );
   }
   return chips;
 }
 
 function captureLabel(reason: UnitData["captureReason"]): string | null {
-  if (reason === "zero_hp") return "padl na 0 HP";
-  if (reason === "surrounded_unprotected") return "obklíčen bez ochrany";
-  if (reason === "all_companions_fallen") return "všichni druhové padli";
+  if (reason === "zero_hp") return text("inspect.capture.zero");
+  if (reason === "surrounded_unprotected") return text("inspect.capture.surrounded");
+  if (reason === "all_companions_fallen") return text("inspect.capture.fallen");
   return null;
 }
 
 function firearmLines(unit: UnitData): InspectLabeledValue[] {
   const weapon = unit.weapon;
   const lines: InspectLabeledValue[] = [
-    { label: "Zámek", value: LOCK_LABEL[weapon.lockType] },
-    { label: "Poškození", value: `${weapon.minDamage}–${weapon.maxDamage} HP` },
+    { label: text("inspect.weapon.lock"), value: lockLabel(weapon.lockType) },
+    { label: text("inspect.weapon.damage"), value: `${weapon.minDamage}–${weapon.maxDamage} HP` },
     {
-      label: "Kritický bonus",
+      label: text("inspect.weapon.critBonus"),
       value: critBonusLabel(weapon),
     },
-    { label: "Základní krit", value: `${weapon.baseCritChance} %` },
-    { label: "Základní přesnost", value: `${weapon.baseAccuracy} %` },
-    { label: "Bodový dostřel", value: `${weapon.pointBlankRange} polí` },
-    { label: "Optimální dostřel", value: `${weapon.optimalRange} polí` },
-    { label: "Maximální dostřel", value: `${weapon.maxRange} polí` },
-    { label: "Pokles přesnosti", value: `${weapon.falloffPerTile} % / pole` },
-    { label: "Průraz zbroje", value: String(weapon.armorPierce) },
-    { label: "Stržení zbroje", value: String(weapon.armorShred) },
-    { label: "Selhání", value: `${weapon.baseMisfireChance} %` },
+    { label: text("inspect.weapon.baseCrit"), value: `${weapon.baseCritChance} %` },
+    { label: text("inspect.weapon.baseAim"), value: `${weapon.baseAccuracy} %` },
+    { label: text("inspect.weapon.pointBlank"), value: text("inspect.tiles", { count: weapon.pointBlankRange }) },
+    { label: text("inspect.weapon.optimal"), value: text("inspect.tiles", { count: weapon.optimalRange }) },
+    { label: text("inspect.weapon.max"), value: text("inspect.tiles", { count: weapon.maxRange }) },
     {
-      label: "Furketa",
-      value: weapon.supportsRestFork ? "Ano" : "Ne",
+      label: text("inspect.weapon.falloff"),
+      value: text("inspect.weapon.falloffValue", { count: weapon.falloffPerTile }),
     },
-    { label: "Cena výstřelu", value: `${weapon.fireApCost ?? 1} AP` },
-    { label: "Nabíjení", value: `${weapon.reloadApCost ?? 2} AP` },
+    { label: text("inspect.weapon.pierce"), value: String(weapon.armorPierce) },
+    { label: text("inspect.weapon.shred"), value: String(weapon.armorShred) },
+    { label: text("inspect.weapon.misfire"), value: `${weapon.baseMisfireChance} %` },
     {
-      label: "Postih pohybu",
+      label: text("inspect.weapon.fork"),
+      value: weapon.supportsRestFork ? text("inspect.yes") : text("inspect.no"),
+    },
+    { label: text("inspect.weapon.fireCost"), value: `${weapon.fireApCost ?? 1} AP` },
+    { label: text("inspect.weapon.reload"), value: `${weapon.reloadApCost ?? 2} AP` },
+    {
+      label: text("inspect.weapon.mobility"),
       value:
         unit.id === "player-colloredo"
-          ? "Kulhání má přednost před vahou zbraně"
-          : `${weapon.mobilityPenalty ?? 0} polí`,
+          ? text("inspect.weapon.limpOverrides")
+          : text("inspect.tiles", { count: weapon.mobilityPenalty ?? 0 }),
     },
     {
-      label: "Hlídka",
+      label: text("inspect.weapon.overwatch"),
       value:
         weapon.overwatchMode === "prepared_volley_cone"
-          ? "Připravená salva v kuželu"
-          : "Kruhová hlídka",
+          ? text("inspect.weapon.cone")
+          : text("inspect.weapon.circle"),
     },
   ];
 
   if (weapon.allowEmergencyHipFire) {
     lines.push({
-      label: "Střelba od boku",
-      value: `1 AP, −${weapon.hipFireAimPenalty ?? 35} % muška, otřesení`,
+      label: text("inspect.weapon.hipLabel"),
+      value: text("inspect.weapon.hip", { count: weapon.hipFireAimPenalty ?? 35 }),
     });
   }
 
@@ -431,20 +437,20 @@ function critBonusLabel(weapon: WeaponStats): string {
 
 function meleeLines(weapon: MeleeWeaponStats): InspectLabeledValue[] {
   const lines: InspectLabeledValue[] = [
-    { label: "Druh", value: MELEE_KIND[weapon.kind] },
-    { label: "Poškození", value: `${weapon.minDamage}–${weapon.maxDamage} HP` },
-    { label: "Kritický bonus", value: `+${weapon.critBonusDamage} HP` },
-    { label: "Základní krit", value: `${weapon.baseCritChance} %` },
-    { label: "Přesnost", value: `${weapon.baseAccuracy} %` },
-    { label: "Průraz zbroje", value: String(weapon.armorPierce) },
-    { label: "Stržení zbroje", value: String(weapon.armorShred) },
-    { label: "Popis", value: weapon.description },
+    { label: text("inspect.melee.kind"), value: meleeKindLabel(weapon.kind) },
+    { label: text("inspect.weapon.damage"), value: `${weapon.minDamage}–${weapon.maxDamage} HP` },
+    { label: text("inspect.weapon.critBonus"), value: `+${weapon.critBonusDamage} HP` },
+    { label: text("inspect.weapon.baseCrit"), value: `${weapon.baseCritChance} %` },
+    { label: text("inspect.melee.accuracy"), value: `${weapon.baseAccuracy} %` },
+    { label: text("inspect.weapon.pierce"), value: String(weapon.armorPierce) },
+    { label: text("inspect.weapon.shred"), value: String(weapon.armorShred) },
+    { label: text("inspect.melee.desc"), value: weapon.description },
   ];
   if (weapon.stunChance != null) {
-    lines.push({ label: "Omráčení", value: `${weapon.stunChance} %` });
+    lines.push({ label: text("inspect.melee.stun"), value: `${weapon.stunChance} %` });
   }
   if (weapon.spillsReloadOnStrike) {
-    lines.push({ label: "Nabíjení", value: "Úder vysype rozpracované nabíjení" });
+    lines.push({ label: text("inspect.weapon.reload"), value: text("inspect.melee.spill") });
   }
   return lines;
 }
@@ -455,9 +461,9 @@ function buildTerrain(ctx: InspectContext, coord: GridCoord): InspectTerrainView
     return {
       kind: "terrain",
       tone: "stone",
-      title: "Neprozkoumáno",
+      title: text("inspect.unexplored.title"),
       censored: true,
-      summary: "Toto pole je stále v temnotě. Kryt, dveře ani překážky odtud nejsou vidět.",
+      summary: text("inspect.unexplored.summary"),
       lines: [],
       cover: null,
       occupant: null,
@@ -469,10 +475,10 @@ function buildTerrain(ctx: InspectContext, coord: GridCoord): InspectTerrainView
     return {
       kind: "terrain",
       tone: "stone",
-      title: "Prázdné pole",
+      title: text("inspect.empty.title"),
       censored: false,
-      summary: "Na těchto souřadnicích není dlaždice.",
-      lines: [{ label: "Souřadnice", value: coordLabel(coord) }],
+      summary: text("inspect.empty.summary"),
+      lines: [{ label: text("inspect.line.coord"), value: coordLabel(coord) }],
       cover: null,
       occupant: null,
     };
@@ -481,44 +487,44 @@ function buildTerrain(ctx: InspectContext, coord: GridCoord): InspectTerrainView
   const door = ctx.doorAt(coord) ?? null;
   const title = terrainTitle(tile, door);
   const lines: InspectLabeledValue[] = [
-    { label: "Souřadnice", value: coordLabel(coord) },
-    { label: "Patro", value: FLOOR_LABEL[tile.coord.y] },
-    { label: "Povrch", value: SURFACE_LABEL[tile.surface] },
-    { label: "Pohyb", value: tile.walkable ? "Pochozí" : "Nepochozí" },
-    { label: "Podlaha", value: tile.hasFloor ? "Ano" : "Ne" },
+    { label: text("inspect.line.coord"), value: coordLabel(coord) },
+    { label: text("inspect.line.floor"), value: floorLabel(tile.coord.y) },
+    { label: text("inspect.line.surface"), value: surfaceLabel(tile.surface) },
+    { label: text("inspect.line.move"), value: tile.walkable ? text("inspect.walkable") : text("inspect.blocked") },
+    { label: text("inspect.line.flooring"), value: tile.hasFloor ? text("inspect.yes") : text("inspect.no") },
     {
-      label: "Poškození",
+      label: text("inspect.line.damage"),
       value: damageLabel(tile.damageLevel ?? 0),
     },
     {
-      label: "Kouř",
-      value: tile.smokeTurns > 0 ? `${tile.smokeTurns} kol` : "Žádný",
+      label: text("inspect.line.smoke"),
+      value: tile.smokeTurns > 0 ? text("inspect.smokeTurns", { count: tile.smokeTurns }) : text("inspect.smokeNone"),
     },
     {
-      label: "Únik",
-      value: tile.isEscapeZone ? "Rybářská pramice" : "Ne",
+      label: text("inspect.line.escape"),
+      value: tile.isEscapeZone ? text("inspect.escape.yes") : text("inspect.no"),
     },
   ];
 
   if (tile.obstacle !== "none") {
-    lines.push({ label: "Překážka", value: OBSTACLE_LABEL[tile.obstacle] });
+    lines.push({ label: text("inspect.line.obstacle"), value: obstacleLabel(tile.obstacle) });
   }
   if (tile.obstacle === "powder_keg") {
     lines.push({
-      label: "Výbuch",
-      value: "3×3, 5 HP, 2 zbroj, kouř",
+      label: text("inspect.line.blast"),
+      value: text("inspect.blastValue"),
     });
   }
 
   const stair = tile.stairType ?? (tile.isLadder ? "ladder" : "none");
   if (stair !== "none") {
-    lines.push({ label: "Schody", value: STAIR_LABEL[stair] });
+    lines.push({ label: text("inspect.line.stairs"), value: stairLabel(stair) });
     if (tile.stairDir) {
-      lines.push({ label: "Směr schodů", value: FACING_LABEL[tile.stairDir] });
+      lines.push({ label: text("inspect.line.stairDir"), value: facingLabel(tile.stairDir) });
     }
     if (tile.stairConnections && tile.stairConnections.length > 0) {
       lines.push({
-        label: "Spojuje patra",
+        label: text("inspect.line.stairLink"),
         value: tile.stairConnections.map((floor) => `P${floor}`).join(", "),
       });
     }
@@ -526,13 +532,19 @@ function buildTerrain(ctx: InspectContext, coord: GridCoord): InspectTerrainView
 
   if (door) {
     lines.push(
-      { label: "Dveře", value: door.label },
-      { label: "Stav dveří", value: door.state === "open" ? "Otevřené" : "Zavřené" },
+      { label: text("inspect.line.door"), value: doorLabel(door.id) },
       {
-        label: "Osa",
-        value: door.axis === "E_W" ? "Východ–západ" : "Sever–jih",
+        label: text("inspect.line.doorState"),
+        value: door.state === "open" ? text("inspect.door.open") : text("inspect.door.closed"),
       },
-      { label: "Křídla", value: door.isDoubleLeaf ? "Dvoukřídlé" : "Jednokřídlé" },
+      {
+        label: text("inspect.line.axis"),
+        value: door.axis === "E_W" ? text("inspect.axis.ew") : text("inspect.axis.ns"),
+      },
+      {
+        label: text("inspect.line.leaves"),
+        value: door.isDoubleLeaf ? text("inspect.leaves.double") : text("inspect.leaves.single"),
+      },
     );
   }
 
@@ -546,19 +558,19 @@ function buildTerrain(ctx: InspectContext, coord: GridCoord): InspectTerrainView
     cover: (["N", "E", "S", "W"] as const).map((dir) => ({
       dir,
       level: tile.cover[dir],
-      label: COVER_LABEL[tile.cover[dir]],
+      label: coverLabel(tile.cover[dir]),
     })),
     occupant: terrainOccupant(ctx, coord, visibility),
   };
 }
 
 function terrainTitle(tile: TileData, door: DoorData | null): string {
-  if (door) return door.label;
-  if (tile.obstacle === "powder_keg") return "Prachový sud";
-  if (tile.obstacle !== "none") return OBSTACLE_LABEL[tile.obstacle];
+  if (door) return doorLabel(door.id);
+  if (tile.obstacle === "powder_keg") return text("inspect.obstacle.powder_keg");
+  if (tile.obstacle !== "none") return obstacleLabel(tile.obstacle);
   const stair = tile.stairType ?? (tile.isLadder ? "ladder" : "none");
-  if (stair !== "none") return STAIR_LABEL[stair];
-  return SURFACE_LABEL[tile.surface];
+  if (stair !== "none") return stairLabel(stair);
+  return surfaceLabel(tile.surface);
 }
 
 function terrainOccupant(
@@ -574,16 +586,12 @@ function terrainOccupant(
 }
 
 function visibilitySummary(visibility: FogVisibilityState): string {
-  if (visibility === "shrouded") {
-    return "Pole už družina spatřila. Živé postavy, které teď nejsou v dohledu, se tu nezobrazují.";
-  }
-  return "Pole je v přímém dohledu.";
+  if (visibility === "shrouded") return text("inspect.shrouded");
+  return text("inspect.visible");
 }
 
 function damageLabel(level: 0 | 1 | 2): string {
-  if (level === 1) return "Rozstřílené";
-  if (level === 2) return "Ohořelá ruina";
-  return "Neporušené";
+  return text(`inspect.damage.${level}`);
 }
 
 function coordLabel(coord: GridCoord): string {

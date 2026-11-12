@@ -60,6 +60,7 @@ import {
   shouldTriggerActionCamForMove,
 } from "../src/core/CameraDirector.ts";
 import type { FloorLevel, GridCoord, UnitData } from "../src/core/types.ts";
+import { formatPhrase, perkCopy, unitName } from "../src/i18n/runtime.ts";
 
 console.log("=== TEST MISSION 1: ESCAPE OF MARSHAL COLLOREDO (GRAND PRIORY PALACE) ===");
 
@@ -457,12 +458,20 @@ assert(
   "Victory reason must be boat_escape",
 );
 assert(
-  stateAfterSacrifice.ironVigilPerk?.name === "Maltézský pyrotechnik",
-  "Bartoloměj must receive Maltézský pyrotechnik perk",
+  stateAfterSacrifice.ironVigilPerk?.perkId === "maltese_pyrotechnician",
+  "Bartoloměj must receive the Maltese pyrotechnician perk",
 );
 assert(
-  stateAfterSacrifice.ironVigilPerk?.heroName === "Bratr Bartoloměj",
-  "Perk heroName must be Bratr Bartoloměj",
+  perkCopy("maltese_pyrotechnician").name === "Maltézský pyrotechnik",
+  "Czech pack must name that perk Maltézský pyrotechnik",
+);
+assert(
+  stateAfterSacrifice.ironVigilPerk?.heroId === "player-bartolomej",
+  "Perk must remember Bartoloměj by id",
+);
+assert(
+  unitName("player-bartolomej") === "Bratr Bartoloměj",
+  "Czech pack must name that hero Bratr Bartoloměj",
 );
 
 stateAfterSacrifice.resetGame();
@@ -1538,8 +1547,8 @@ const sampleTargetAfter = {
   alive: true,
 };
 const computedLoss = buildUnitCombatLoss(sampleTargetBefore, sampleTargetAfter, {
-  attackerName: "Václav z Michalovic",
-  weaponName: "Kolečková arkebuza",
+  attackerId: "player-vaclav-michalovic",
+  weaponId: "wheellock_carbine",
   hit: true,
   critical: true,
   misfired: false,
@@ -1575,8 +1584,8 @@ const lethalLoss = buildUnitCombatLoss(
   sampleTargetBefore,
   { ...sampleTargetBefore, hp: 0, armor: 0, alive: false },
   {
-    attackerName: "Jan Matěj",
-    weaponName: "Těžká mušketa",
+    attackerId: "player-jan-matej",
+    weaponId: "heavy_arquebus",
     hit: true,
     critical: true,
     misfired: false,
@@ -1615,7 +1624,9 @@ assert(
   "activateOverwatch() must consume all remaining AP (ap=0)",
 );
 assert(
-  postOwStore.combatLog.some((l) => l.tone === "overwatch" && l.text.includes("OVERWATCH")),
+  postOwStore.combatLog.some(
+    (l) => l.tone === "overwatch" && formatPhrase(l.message).includes("OVERWATCH"),
+  ),
   "Activating Overwatch must append an 'overwatch' tone entry to combatLog",
 );
 
@@ -1688,8 +1699,8 @@ const hitWatcherAfter = {
   isOverwatch: false,
 };
 const owBreakLoss = buildUnitCombatLoss(hitWatcherBefore, hitWatcherAfter, {
-  attackerName: "Jan Matěj",
-  weaponName: "Těžká mušketa",
+  attackerId: "player-jan-matej",
+  weaponId: "heavy_arquebus",
   hit: true,
   critical: true,
   misfired: false,

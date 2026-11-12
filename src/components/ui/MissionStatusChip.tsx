@@ -17,10 +17,12 @@ import {
   Swords,
 } from "lucide-react";
 import { useState } from "react";
+import { text, useLocale } from "../../i18n";
 import { useGameStore } from "../../store/useGameStore";
 import { useDraggableHud } from "./useDraggableHud";
 
 export function MissionStatusChip() {
+  const locale = useLocale();
   const round = useGameStore((s) => s.round);
   const turn = useGameStore((s) => s.turn);
   const weather = useGameStore((s) => s.weather);
@@ -72,21 +74,21 @@ export function MissionStatusChip() {
 
   const weatherLabel =
     weather === "rain"
-      ? "Noční liják: -10 % k zásahu, doutnáky v dešti selhávají"
+      ? text("ui.weather.rain", undefined, locale)
       : weather === "fog"
-        ? "Ranní vltavská mlha: -10 % k zásahu"
-        : "Jasná noc: optimální podmínky pro střelbu";
+        ? text("ui.weather.fog", undefined, locale)
+        : text("ui.weather.clear", undefined, locale);
 
   return (
     <aside
-      aria-label="Stav mise a kolo"
+      aria-label={text("ui.mission.aria", undefined, locale)}
       style={dragStyle}
       className="pointer-events-auto flex items-center gap-2 baroque-cartouche baroque-border rounded-xl px-2.5 py-1 text-amber-50 select-none shadow-[0_4px_20px_rgba(0,0,0,0.85)] bg-slate-950/88 border-amber-500/65 backdrop-blur-md w-fit"
     >
       {/* Přetahovatelný úchyt + Kolo & Tah */}
       <div
         onPointerDown={onPointerDown}
-        title="Tažením myší můžete stužku stavu mise odsunout"
+        title={text("ui.mission.drag", undefined, locale)}
         className="flex items-center gap-1.5 cursor-grab active:cursor-grabbing whitespace-nowrap"
       >
         <GripVertical className="w-3 h-3 text-amber-400/60 shrink-0" />
@@ -96,7 +98,7 @@ export function MissionStatusChip() {
           <ShieldAlert className="w-3.5 h-3.5 text-rose-400 animate-pulse shrink-0" />
         )}
         <span className="font-cinzel font-black text-[11px] tracking-wider text-amber-200 uppercase tabular-nums">
-          Kolo {round}
+          {text("ui.mission.round", { count: round }, locale)}
         </span>
         <span className="text-amber-500/70" aria-hidden="true">
           ·
@@ -106,7 +108,7 @@ export function MissionStatusChip() {
             turn === "player" ? "text-amber-300" : "text-rose-400"
           }`}
         >
-          {turn === "player" ? "Obránci" : "Švédové"}
+          {text(turn === "player" ? "ui.mission.defenders" : "ui.mission.swedes", undefined, locale)}
         </span>
       </div>
 
@@ -116,8 +118,8 @@ export function MissionStatusChip() {
           <span
             title={
               isDetained
-                ? `POZOR: Maršál Colloredo je zadržen Švédy (${detainedTurns}/2 kola)!`
-                : `Vzdálenost maršála Colloreda k rybářské pramici na Čertovce: ${distToBoat} polí`
+                ? text("ui.mission.detainedTip", { progress: detainedTurns }, locale)
+                : text("ui.mission.boatTip", { distance: distToBoat }, locale)
             }
             className={
               isDetained
@@ -126,12 +128,14 @@ export function MissionStatusChip() {
             }
           >
             {isDetained ? (
-              `Maršál ZADRŽEN (${detainedTurns}/2)`
+              text("ui.mission.detained", { progress: detainedTurns }, locale)
             ) : (
               <>
-                Pramice{" "}
+                {text("ui.mission.boat", undefined, locale)}{" "}
                 <strong className="font-cinzel text-amber-300 font-black">
-                  {distToBoat === 0 ? "ÚNIK!" : `${distToBoat}m`}
+                  {distToBoat === 0
+                    ? text("ui.mission.escape", undefined, locale)
+                    : `${distToBoat}m`}
                 </strong>
               </>
             )}
@@ -145,8 +149,8 @@ export function MissionStatusChip() {
           <span
             title={
               reinforcementsSpawned
-                ? "Švédská jízda generála Königsmarcka vtrhla severní branou do zahrady!"
-                : `Švédské jízdní posily dorazí za ${roundsUntilReinforcements} kola`
+                ? text("ui.mission.reinforcementHere", undefined, locale)
+                : text("ui.mission.reinforcementIn", { count: roundsUntilReinforcements }, locale)
             }
             className={
               reinforcementsSpawned || roundsUntilReinforcements <= 1
@@ -155,10 +159,10 @@ export function MissionStatusChip() {
             }
           >
             {reinforcementsSpawned ? (
-              "Posily v zahradě!"
+              text("ui.mission.reinforcementGarden", undefined, locale)
             ) : (
               <>
-                Posily{" "}
+                {text("ui.mission.reinforcement", undefined, locale)}{" "}
                 <strong className="font-cinzel text-amber-300 font-black">
                   {roundsUntilReinforcements}k
                 </strong>
@@ -174,19 +178,23 @@ export function MissionStatusChip() {
           <span
             title={
               fogOfWarEnabled
-                ? `Zbývá ${enemiesAlive} Švédů (${spottedEnemies} v přímém dohledu)`
-                : `Zbývá ${enemiesAlive} Švédů`
+                ? text(
+                    "ui.mission.enemyTipSeen",
+                    { count: enemiesAlive, required: spottedEnemies },
+                    locale,
+                  )
+                : text("ui.mission.enemyTip", { count: enemiesAlive }, locale)
             }
             className="font-literata"
           >
-            Švédů{" "}
+            {text("ui.mission.enemies", undefined, locale)}{" "}
             <strong className="font-cinzel text-rose-300 font-black">
               {enemiesAlive}
             </strong>
             {fogOfWarEnabled && (
               <span className="text-[10px] text-amber-300/85">
                 {" "}
-                ({spottedEnemies} vid.)
+                {text("ui.mission.seen", { count: spottedEnemies }, locale)}
               </span>
             )}
           </span>
@@ -199,7 +207,7 @@ export function MissionStatusChip() {
           <button
             type="button"
             onClick={cycleWeather}
-            title={`Přepnout počasí: ${weatherLabel}`}
+            title={text("ui.mission.weatherCycle", { names: weatherLabel }, locale)}
             className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-amber-950/80 text-amber-200 hover:text-amber-100 transition-colors cursor-pointer"
           >
             {weather === "rain" ? (
@@ -210,11 +218,15 @@ export function MissionStatusChip() {
               <Sun className="w-3 h-3 text-amber-400" />
             )}
             <span className="hidden sm:inline font-cinzel text-[10px] font-bold text-amber-300">
-              {weather === "rain"
-                ? "Liják"
-                : weather === "fog"
-                  ? "Mlha"
-                  : "Jasno"}
+              {text(
+                weather === "rain"
+                  ? "ui.weather.rain.short"
+                  : weather === "fog"
+                    ? "ui.weather.fog.short"
+                    : "ui.weather.clear.short",
+                undefined,
+                locale,
+              )}
             </span>
           </button>
         </div>
@@ -224,7 +236,7 @@ export function MissionStatusChip() {
         <button
           type="button"
           onClick={resetOffset}
-          title="Vrátit stužku na výchozí místo"
+          title={text("ui.mission.reset", undefined, locale)}
           className="p-0.5 rounded text-amber-400 hover:text-amber-100 cursor-pointer"
         >
           <RotateCcw className="w-3 h-3" />
@@ -234,7 +246,11 @@ export function MissionStatusChip() {
       <button
         type="button"
         onClick={() => setCollapsed((prev) => !prev)}
-        title={collapsed ? "Rozbalit stav mise" : "Sbalit stav mise"}
+        title={text(
+          collapsed ? "ui.mission.expand" : "ui.mission.collapse",
+          undefined,
+          locale,
+        )}
         className="p-0.5 rounded text-amber-400 hover:text-amber-100 transition-colors cursor-pointer"
       >
         {collapsed ? (

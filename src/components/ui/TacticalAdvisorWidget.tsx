@@ -19,81 +19,68 @@ import {
 import { useState } from "react";
 import { getMission1TutorialBeacon } from "../../core/GridSystem";
 import type { UnitArchetype } from "../../core/types";
+import { text, unitName, useLocale, type MessageId } from "../../i18n";
 import { useGameStore } from "../../store/useGameStore";
 import { UnitPortrait } from "./UnitPortrait";
 import { useDraggableHud } from "./useDraggableHud";
 
 interface TutorialStepData {
   step: 1 | 2 | 3 | 4;
-  title: string;
-  speaker: string;
-  role: string;
+  title: MessageId;
+  speakerId: string;
+  role: MessageId;
   portrait: UnitArchetype;
-  dialogue: string;
-  tactics: string[];
+  dialogue: MessageId;
+  tactics: MessageId[];
 }
 
 const TUTORIAL_STEPS: TutorialStepData[] = [
   {
     step: 1,
-    title: "Ovládání XCOM 2: LKM Výběr · PKM Pohyb",
-    speaker: "Jan Matěj",
-    role: "Osobní komorník velkopřevora",
+    title: "ui.advisor.1.title",
+    speakerId: "player-jan-matej",
+    role: "tutorial.step_1_matej_move.role",
     portrait: "ranger",
-    dialogue:
-      "Vaše Excelence! Po těch sedmi střelných ranách u Lützenu těžce kulháte a sotva stojíte na nohou! Zůstanu při vás a budeme se krýt za zídkami zahradou k Čertovce!",
+    dialogue: "ui.advisor.1.dialogue",
     tactics: [
-      "Levé tlačítko (LKM): Kliknutím na vojáka jej aktivujete a ovládáte ikony schopností ve spodní liště.",
-      "Pravé tlačítko (PKM — Move / Dash): Umístěte kurzor na políčko v modré (1 AP) nebo žluté (2 AP) zóně a klikněte pravým tlačítkem — voják se okamžitě vydá na cestu.",
-      "Postih „Těžké kulhání“: Zraněný maršál Colloredo ujde kvůli starým zraněním z Lützenu jen 3 pole za 1 AP.",
-      "Ochrana maršála & Zajetí: Švédové po hraběti nikdy nestřílí (chtějí jej živého pro výkupné), ale zajmou jej za 1 AP těsně vedle něj nebo do 3 polí s nabitou zbraní! Na družinu nebudou střílet, pokud stojí do 3 polí od hraběte a střelec hraběte vidí.",
-      "Cíl eskorty: Probojujte se s maršálem Colloredem skrz zahradu plnou švédských hlídek k rybářské pramici na Čertovce!",
+      "ui.advisor.1.t1",
+      "ui.advisor.1.t2",
+      "ui.advisor.1.t3",
+      "ui.advisor.1.t4",
+      "ui.advisor.1.t5",
     ],
   },
   {
     step: 2,
-    title: "Střelba, Hlavy cílů & Zteč zblízka (PKM)",
-    speaker: "Václav z Michalovic",
-    role: "Klementinský klerik & písař",
+    title: "ui.advisor.2.title",
+    speakerId: "player-vaclav-michalovic",
+    role: "ui.sacrifice.vaclav.role",
     portrait: "sniper",
-    dialogue:
-      "Pozor, pane! Švédští mušketýři mají odlehčené gustaviánské muškety M1624, zatímco naši obránci mohou nepřítele ztečovat i chladnou zbraní!",
-    tactics: [
-      "Výběr cíle (LKM): V režimu střelby [2] levým kliknutím na ikonu hlavy nepřítele v pravém dolním rohu přepínáte mezi viditelnými cíli.",
-      "Útok zblízka (XCOM 2 — PKM): Pravým kliknutím přímo na nepřítele v dosahu provedete okamžitý přesun spojený se seknutím — samotný útok už nestojí další AP navíc!",
-      "Zrušení akce (PKM): Pravé tlačítko v menu střelby či granátu akci zruší a vrátí vás na bojiště.",
-    ],
+    dialogue: "ui.advisor.2.dialogue",
+    tactics: ["ui.advisor.2.t1", "ui.advisor.2.t2", "ui.advisor.2.t3"],
   },
   {
     step: 3,
-    title: "Fázové nabíjení, Petardy (LKM) & Sudy",
-    speaker: "Bratr Bartoloměj",
-    role: "Maltézský zbrojmistr",
+    title: "ui.advisor.3.title",
+    speakerId: "player-bartolomej",
+    role: "ui.sacrifice.bart.role",
     portrait: "ranger",
-    dialogue:
-      "Moje těžká mušketa potřebuje na nabití 4 AP, švédská s papírovými patronami jen 2 AP — nabíjet však můžeme postupně po 1 AP mezi přesuny!",
-    tactics: [
-      "Fázové nabíjení po 1 AP [R]: Investujte 1 AP do kroku nabíjení a za druhý AP ustupte pravým tlačítkem do krytu.",
-      "Házení granátů / petard [4]: Po zvolení petardy v liště zamíříte a levým kliknutím (LKM) hod potvrdíte (pravým kliknutím zrušíte).",
-      "Prachové sudy: Trefa nebo petarda odpálí sud na ploše 3×3. Maják označuje nejbližší sud u paláce.",
-    ],
+    dialogue: "ui.advisor.3.dialogue",
+    tactics: ["ui.advisor.3.t1", "ui.advisor.3.t2", "ui.advisor.3.t3"],
   },
   {
     step: 4,
-    title: "Schodiště, Patra paláce & Pramice",
-    speaker: "Bratr Bartoloměj",
-    role: "Maltézský zbrojmistr",
+    title: "ui.advisor.4.title",
+    speakerId: "player-bartolomej",
+    role: "ui.sacrifice.bart.role",
     portrait: "ranger",
-    dialogue:
-      "Za zahradou teče Čertovka! Rybář čeká s pramicí u dřevěného mola. Využijte schodiště do 1. patra i na Maltézskou věž pro palebnou převahu!",
-    tactics: [
-      "Schodiště [V / PgUp / PgDn]: Výšková převaha z 1. a 2. patra přidává +15 % k zásahu a rozšiřuje dohled.",
-      "Cíl mise: Doveďte maršála Colloreda na únikové molo k pramici na Čertovce!",
-    ],
+    dialogue: "ui.advisor.4.dialogue",
+    tactics: ["ui.advisor.4.t1", "ui.advisor.4.t2"],
   },
 ];
 
 export function TacticalAdvisorWidget() {
+  const locale = useLocale();
   const tutorialStep = useGameStore((s) => s.tutorialStep);
   const tutorialDismissed = useGameStore((s) => s.tutorialDismissed);
   const actionMode = useGameStore((s) => s.actionMode);
@@ -124,18 +111,18 @@ export function TacticalAdvisorWidget() {
   const currentData =
     TUTORIAL_STEPS.find((t) => t.step === tutorialStep) ?? TUTORIAL_STEPS[0]!;
   const beacon = getMission1TutorialBeacon(grid, currentData.step);
+  const speaker = unitName(currentData.speakerId, "nom", locale);
   const tactics = currentData.tactics.map((line) => {
-    if (!beacon) return line;
-    if (currentData.step === 4 && line.startsWith("Cíl mise:")) {
+    if (beacon && line === "ui.advisor.4.t2") {
       const { x, y, z } = beacon.coord;
-      return `Cíl mise: Doveďte maršála Colloreda na molo [${x}, ${y}, ${z}] k pramici na Čertovce!`;
+      return text("ui.advisor.4.dock", { x, y, z }, locale);
     }
-    return line;
+    return text(line, undefined, locale);
   });
 
   return (
     <aside
-      aria-label="Taktický rádce"
+      aria-label={text("ui.advisor.aria", undefined, locale)}
       style={dragStyle}
       className={`pointer-events-auto flex flex-col gap-2 baroque-cartouche baroque-border rounded-xl px-2.5 py-1.5 shadow-[0_6px_24px_rgba(0,0,0,0.9)] text-amber-50 select-none bg-slate-950/88 border-amber-500/65 backdrop-blur-md transition-all ${
         expanded ? "w-80 md:w-96 p-3" : "w-fit"
@@ -144,17 +131,17 @@ export function TacticalAdvisorWidget() {
       {/* Kompaktní jednořádková hlavička */}
       <div
         onPointerDown={onPointerDown}
-        title="Tažením lze rádce posunout"
+        title={text("ui.advisor.drag", undefined, locale)}
         className="flex items-center justify-between gap-2 cursor-grab active:cursor-grabbing"
       >
         <div className="flex items-center gap-1.5 min-w-0">
           <GripHorizontal className="w-3.5 h-3.5 text-amber-400/60 shrink-0" />
           <GraduationCap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
           <span className="font-cinzel font-black text-[11px] text-amber-200 whitespace-nowrap">
-            Rádce {currentData.step}/4:
+            {text("ui.advisor.chip", { count: currentData.step }, locale)}
           </span>
           <span className="font-literata text-[11px] text-amber-100/90 truncate max-w-[175px]">
-            {currentData.title}
+            {text(currentData.title, undefined, locale)}
           </span>
         </div>
 
@@ -162,10 +149,12 @@ export function TacticalAdvisorWidget() {
           <button
             type="button"
             onClick={() => setExpanded((p) => !p)}
-            title={expanded ? "Sbalit rádce" : "Rozbalit rady pro tento krok"}
+            title={text(expanded ? "ui.advisor.collapse" : "ui.advisor.expand", undefined, locale)}
             className="flex items-center gap-0.5 px-1.5 py-0.5 rounded baroque-bronze-btn text-[9px] font-cinzel font-black text-amber-200 hover:text-amber-100 cursor-pointer"
           >
-            <span>{expanded ? "Sbalit" : "Detail"}</span>
+            <span>
+              {text(expanded ? "ui.advisor.collapseLabel" : "ui.advisor.detail", undefined, locale)}
+            </span>
             {expanded ? (
               <ChevronUp className="w-3 h-3 text-amber-300" />
             ) : (
@@ -177,7 +166,7 @@ export function TacticalAdvisorWidget() {
             <button
               type="button"
               onClick={resetOffset}
-              title="Vrátit na výchozí místo"
+              title={text("ui.advisor.reset", undefined, locale)}
               className="p-0.5 rounded text-amber-400 hover:text-amber-100 cursor-pointer"
             >
               <RotateCcw className="w-3 h-3" />
@@ -187,7 +176,7 @@ export function TacticalAdvisorWidget() {
           <button
             type="button"
             onClick={toggleTutorial}
-            title="Zavřít rádce [H]"
+            title={text("ui.advisor.close", undefined, locale)}
             className="p-0.5 rounded text-amber-400 hover:text-amber-100 cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
@@ -202,18 +191,18 @@ export function TacticalAdvisorWidget() {
             <UnitPortrait
               archetype={currentData.portrait}
               faction="player"
-              name={currentData.speaker}
+              name={speaker}
               size="xs"
             />
             <div className="min-w-0">
               <div className="font-cinzel font-black text-[11px] text-amber-300">
-                {currentData.speaker}{" "}
+                {speaker}{" "}
                 <span className="font-literata font-normal text-[10px] text-amber-400/80">
-                  · {currentData.role}
+                  · {text(currentData.role, undefined, locale)}
                 </span>
               </div>
               <p className="font-literata italic text-[11px] text-amber-100 mt-0.5 leading-snug">
-                „{currentData.dialogue}“
+                „{text(currentData.dialogue, undefined, locale)}“
               </p>
             </div>
           </div>
@@ -261,7 +250,9 @@ export function TacticalAdvisorWidget() {
                 onClick={advanceTutorialStep}
                 className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-stone-950 font-cinzel font-black cursor-pointer"
               >
-                <span>{tutorialStep < 4 ? "Další" : "Hotovo"}</span>
+                <span>
+                  {text(tutorialStep < 4 ? "ui.advisor.next" : "ui.advisor.done", undefined, locale)}
+                </span>
                 <ChevronRight className="w-3 h-3" />
               </button>
             </div>

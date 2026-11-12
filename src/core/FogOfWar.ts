@@ -7,6 +7,7 @@
  * 3. Zvukové a světelné kontakty 17. století (žhnoucí doutnák muškety ve tmě, šramot kyrysu, záblesk výstřelu z pánvičky).
  */
 
+import { contactPhrase, text } from "../i18n/runtime";
 import { bresenham3D, checkLineOfSight3D, gridDistance3D } from "./CombatSystem";
 import { coordKey, GridSystem, sameCoord } from "./GridSystem";
 import type {
@@ -14,6 +15,7 @@ import type {
   FogVisibilityState,
   GridCoord,
   SoundContact,
+  SoundContactKind,
   UnitData,
   WeatherType,
 } from "./types";
@@ -263,28 +265,19 @@ export function computeFogOfWar(
       (l) => gridDistance3D(l.coord, unit.pos) <= l.radius + 1.5,
     );
 
-    if (nearDynamicFlash) {
+    const kind: SoundContactKind | null = nearDynamicFlash
+      ? "gunfire_flash"
+      : hasGlowingMatchcord && minAllyDist <= 13.5
+        ? "matchcord_glow"
+        : unit.movedThisTurn || minAllyDist <= 11.5
+          ? "footsteps"
+          : null;
+    if (kind) {
       soundContacts.push({
         unitId: unit.id,
         pos: unit.pos,
-        kind: "gunfire_flash",
-        label: "Záblesk pánvičky ve tmě",
-        distanceToNearestAlly: Math.round(minAllyDist * 10) / 10,
-      });
-    } else if (hasGlowingMatchcord && minAllyDist <= 13.5) {
-      soundContacts.push({
-        unitId: unit.id,
-        pos: unit.pos,
-        kind: "matchcord_glow",
-        label: "Žhnoucí doutnák v šerosvitu",
-        distanceToNearestAlly: Math.round(minAllyDist * 10) / 10,
-      });
-    } else if (unit.movedThisTurn || minAllyDist <= 11.5) {
-      soundContacts.push({
-        unitId: unit.id,
-        pos: unit.pos,
-        kind: "footsteps",
-        label: "Šramot kyrysu a kroky ve tmě",
+        kind,
+        label: text(contactPhrase(kind).id),
         distanceToNearestAlly: Math.round(minAllyDist * 10) / 10,
       });
     }

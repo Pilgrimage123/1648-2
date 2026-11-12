@@ -13,6 +13,8 @@ import {
   soldierMovePerAp,
 } from "./GridSystem";
 import { computeReachableTiles, findPathAStar } from "./Pathfinding";
+import { statMod } from "../i18n/statMod";
+import { buffLabel, meleeLabel, weaponLabel } from "../i18n/runtime";
 import type {
   AttackOutcome,
   CardinalDir,
@@ -427,108 +429,98 @@ export class CombatCalculator {
 
     // A) Základní přesnost zbraně (Base Aim) + střelecká zkušenost vojáka
     const weaponBaseAim = weapon.baseAccuracy;
-    hitModifiers.push({
-      id: "weapon-accuracy",
-      label: `Základní přesnost (${weapon.name})`,
-      detail: weapon.supportsRestFork
-        ? "Dlouhá hlaveň + stabilita opěrné vidlice (furkety)"
-        : weapon.lockType === "wheellock"
-          ? "Kolečkový zámek (rychlý zážeh jiskrou)"
-          : "Kratší hlaveň, střelba z ruky bez opory (Model 1624)",
-      value: weaponBaseAim,
-      unit: "%",
-      kind: "base",
-    });
+    hitModifiers.push(
+      statMod("weapon-accuracy", "mod.weaponAccuracy", weaponBaseAim, "percent", "base", {
+        detail: weapon.supportsRestFork
+          ? "mod.weaponAccuracy.fork"
+          : weapon.lockType === "wheellock"
+            ? "mod.weaponAccuracy.wheel"
+            : "mod.weaponAccuracy.short",
+        params: { weaponId: weapon.id },
+      }),
+    );
 
     const shooterSkillBonus = shooter.marksmanship - 65;
     if (shooterSkillBonus !== 0) {
-      hitModifiers.push({
-        id: "base-marksmanship",
-        label: `Střelecká zkušenost (${shooter.name})`,
-        detail: shooter.roleTitle,
-        value: shooterSkillBonus,
-        unit: "%",
-        kind: shooterSkillBonus > 0 ? "bonus" : "penalty",
-      });
+      hitModifiers.push(
+        statMod(
+          "base-marksmanship",
+          "mod.marksmanship",
+          shooterSkillBonus,
+          "percent",
+          shooterSkillBonus > 0 ? "bonus" : "penalty",
+          { detail: "mod.unitRole", params: { unitId: shooter.id } },
+        ),
+      );
     }
 
     // B) Vzdálenost k cíli (Point-blank bonus na blízko vs. penalizace hladké hlavně na dálku)
     let distanceModifier = 0;
     if (distance <= weapon.pointBlankRange) {
       distanceModifier = Math.max(4, (weapon.pointBlankRange - distance + 1) * 4);
-      hitModifiers.push({
-        id: "distance-point-blank",
-        label: `Střelba zblízka (Point-Blank, ${distance} polí)`,
-        detail: "Zaručený soustřel na krátkou vzdálenost",
-        value: distanceModifier,
-        unit: "%",
-        kind: "bonus",
-      });
+      hitModifiers.push(
+        statMod("distance-point-blank", "mod.pointBlank", distanceModifier, "percent", "bonus", {
+          detail: "mod.pointBlank.detail",
+          params: { distance },
+        }),
+      );
     } else if (distance > weapon.optimalRange) {
       const overOptimal = distance - weapon.optimalRange;
       distanceModifier = -Math.round(overOptimal * weapon.falloffPerTile);
-      hitModifiers.push({
-        id: "distance-falloff",
-        label: `Velká vzdálenost hladké hlavně (${distance} polí)`,
-        detail: `Nad optimální dostřel (${weapon.optimalRange} polí)`,
-        value: distanceModifier,
-        unit: "%",
-        kind: "penalty",
-      });
+      hitModifiers.push(
+        statMod("distance-falloff", "mod.falloff", distanceModifier, "percent", "penalty", {
+          detail: "mod.falloff.detail",
+          params: { distance, optimal: weapon.optimalRange },
+        }),
+      );
     } else {
-      hitModifiers.push({
-        id: "distance-optimal",
-        label: `Efektivní dostřel (${distance} polí)`,
-        detail: "Bez postihu za rozptyl kule",
-        value: 0,
-        unit: "%",
-        kind: "neutral",
-      });
+      hitModifiers.push(
+        statMod("distance-optimal", "mod.optimal", 0, "percent", "neutral", {
+          detail: "mod.optimal.detail",
+          params: { distance },
+        }),
+      );
     }
 
     // C) Kryt cíle: Poloviční kryt (-20 %), Plný kryt (-40 %)
     let coverModifier = 0;
     if (targetCover === "half") {
       coverModifier = -20;
-      hitModifiers.push({
-        id: "target-cover-half",
-        label: `Poloviční kryt cíle (směr ${incomingDirection})`,
-        detail: "Gabion, nízká zídka nebo převržený vůz",
-        value: coverModifier,
-        unit: "%",
-        kind: "penalty",
-      });
+      hitModifiers.push(
+        statMod("target-cover-half", "mod.coverHalf", coverModifier, "percent", "penalty", {
+          detail: "mod.coverHalf.detail",
+          params: { dir: incomingDirection },
+        }),
+      );
     } else if (targetCover === "full") {
       coverModifier = -40;
-      hitModifiers.push({
-        id: "target-cover-full",
-        label: `Plný kryt cíle (směr ${incomingDirection})`,
-        detail: "Kamenná zeď, pilíř nebo vozová hradba",
-        value: coverModifier,
-        unit: "%",
-        kind: "penalty",
-      });
+      hitModifiers.push(
+        statMod("target-cover-full", "mod.coverFull", coverModifier, "percent", "penalty", {
+          detail: "mod.coverFull.detail",
+          params: { dir: incomingDirection },
+        }),
+      );
     } else {
-      hitModifiers.push({
-        id: "target-cover-none",
-        label: "Nekrytý cíl / Obchvat (Flanked)",
-        detail: `Cíl nemá kryt ze směru ${incomingDirection}`,
-        value: 0,
-        unit: "%",
-        kind: "bonus",
-      });
+      hitModifiers.push(
+        statMod("target-cover-none", "mod.flanked", 0, "percent", "bonus", {
+          detail: "mod.flanked.detail",
+          params: { dir: incomingDirection },
+        }),
+      );
     }
 
     // Průraz překážek při aktivní schopnosti Svatováclavský ortel
     if (shooter.abilityBuffActive && shooter.ability?.id === "klementinum_verdict" && coverModifier < 0) {
-      hitModifiers.push({
-        id: "ability-klementinum-wall-pierce",
-        label: "Průraz překážky [Svatováclavské soustředění]",
-        detail: "Těžká olověná kule proráží kamennou zídku (ruší postih krytu)",
-        value: Math.abs(coverModifier),
-        unit: "%",
-        kind: "bonus",
-      });
+      hitModifiers.push(
+        statMod(
+          "ability-klementinum-wall-pierce",
+          "mod.wallPierce",
+          Math.abs(coverModifier),
+          "percent",
+          "bonus",
+          { detail: "mod.wallPierce.detail" },
+        ),
+      );
       coverModifier = 0;
     }
 
@@ -536,14 +528,12 @@ export class CombatCalculator {
     const heightAdvantage = fromPos.y > target.pos.y;
     const heightModifier = heightAdvantage ? 15 : 0;
     if (heightAdvantage) {
-      hitModifiers.push({
-        id: "high-ground",
-        label: "Výšková převaha (High Ground)",
-        detail: `Střelba z patra ${fromPos.y} do patra ${target.pos.y}`,
-        value: heightModifier,
-        unit: "%",
-        kind: "bonus",
-      });
+      hitModifiers.push(
+        statMod("high-ground", "mod.highGround", heightModifier, "percent", "bonus", {
+          detail: "mod.highGround.detail",
+          params: { fromFloor: fromPos.y, toFloor: target.pos.y },
+        }),
+      );
     }
 
     // E) Černý prach a dým (Black Powder Smoke):
@@ -554,36 +544,27 @@ export class CombatCalculator {
     let smokeModifier = 0;
     if (shooterInSmoke) {
       smokeModifier -= 10;
-      hitModifiers.push({
-        id: "shooter-smoke-aim",
-        label: "Střelba z oblaku dýmu (-10 % Aim)",
-        detail: "Hustý dým z černého prachu na políčku střelce zhoršuje míření",
-        value: -10,
-        unit: "%",
-        kind: "penalty",
-      });
+      hitModifiers.push(
+        statMod("shooter-smoke-aim", "mod.shooterSmoke", -10, "percent", "penalty", {
+          detail: "mod.shooterSmoke.detail",
+        }),
+      );
     }
     if (targetInSmoke) {
       if (fromPos.y > target.pos.y && !shooterInSmoke) {
         smokeModifier -= 20;
-        hitModifiers.push({
-          id: "smoke-horizon-piercing",
-          label: "Průhled z výšky přes dým (Smoke Piercing)",
-          detail: "Střelba shora přes přízemní kouř z černého prachu (-20 %)",
-          value: -20,
-          unit: "%",
-          kind: "penalty",
-        });
+        hitModifiers.push(
+          statMod("smoke-horizon-piercing", "mod.smokePierce", -20, "percent", "penalty", {
+            detail: "mod.smokePierce.detail",
+          }),
+        );
       } else {
         smokeModifier -= 15;
-        hitModifiers.push({
-          id: "black-powder-smoke",
-          label: "Oblak dýmu v cíli (+15 Obrana)",
-          detail: "Cíl je zahalen dýmem z černého prachu (+15 % Obrana cíle)",
-          value: -15,
-          unit: "%",
-          kind: "penalty",
-        });
+        hitModifiers.push(
+          statMod("black-powder-smoke", "mod.targetSmoke", -15, "percent", "penalty", {
+            detail: "mod.targetSmoke.detail",
+          }),
+        );
       }
     } else {
       // Clona dýmu mezi střelcem a cílem (ADR-0011)
@@ -599,24 +580,18 @@ export class CombatCalculator {
       if (rayHasIntermediateSmoke) {
         if (fromPos.y > target.pos.y && !shooterInSmoke) {
           smokeModifier -= 20;
-          hitModifiers.push({
-            id: "smoke-horizon-piercing",
-            label: "Průhled z výšky přes dým (Smoke Piercing)",
-            detail: "Střelba shora přes přízemní kouř z černého prachu (-20 %)",
-            value: -20,
-            unit: "%",
-            kind: "penalty",
-          });
+          hitModifiers.push(
+            statMod("smoke-horizon-piercing", "mod.smokePierce", -20, "percent", "penalty", {
+              detail: "mod.smokePierce.detail",
+            }),
+          );
         } else {
           smokeModifier -= 15;
-          hitModifiers.push({
-            id: "black-powder-smoke",
-            label: "Clona dýmu v dráze střely (+15 Obrana)",
-            detail: "Střela prolétá kouřem z černého prachu (+15 % Obrana cíle)",
-            value: -15,
-            unit: "%",
-            kind: "penalty",
-          });
+          hitModifiers.push(
+            statMod("black-powder-smoke", "mod.pathSmoke", -15, "percent", "penalty", {
+              detail: "mod.pathSmoke.detail",
+            }),
+          );
         }
       }
     }
@@ -625,24 +600,18 @@ export class CombatCalculator {
     let weatherHitModifier = 0;
     if (weather === "fog") {
       weatherHitModifier = -10;
-      hitModifiers.push({
-        id: "weather-fog",
-        label: "Počasí: Ranní vltavská mlha",
-        detail: "Snížená viditelnost na bojišti",
-        value: weatherHitModifier,
-        unit: "%",
-        kind: "penalty",
-      });
+      hitModifiers.push(
+        statMod("weather-fog", "mod.fog", weatherHitModifier, "percent", "penalty", {
+          detail: "mod.fog.detail",
+        }),
+      );
     } else if (weather === "rain") {
       weatherHitModifier = -10;
-      hitModifiers.push({
-        id: "weather-rain",
-        label: "Počasí: Prudký déšť",
-        detail: "Zhoršený výhled a vlhnoucí střelný prach na pánvičce",
-        value: weatherHitModifier,
-        unit: "%",
-        kind: "penalty",
-      });
+      hitModifiers.push(
+        statMod("weather-rain", "mod.rain", weatherHitModifier, "percent", "penalty", {
+          detail: "mod.rain.detail",
+        }),
+      );
     }
 
     // G) Stav střelce: Těžká mušketa s furketou (2 AP bez pohybu vs. nouzová střelba od boku za 1 AP s -35 % Aim a Otřesením)
@@ -657,36 +626,27 @@ export class CombatCalculator {
     if (requiresTwoApFork) {
       if (isHipFire) {
         forkOrHipModifier = -(weapon.hipFireAimPenalty ?? 35);
-        hitModifiers.push({
-          id: "emergency-hip-fire",
-          label: "Nouzová střelba od boku (1 AP, bez furkety)",
-          detail: "Výstřel 8kg muškety z ruky (-35 % Aim, zpětný ráz způsobí stav Otřesený!)",
-          value: forkOrHipModifier,
-          unit: "%",
-          kind: "penalty",
-        });
+        hitModifiers.push(
+          statMod("emergency-hip-fire", "mod.hipFire", forkOrHipModifier, "percent", "penalty", {
+            detail: "mod.hipFire.detail",
+          }),
+        );
       } else {
-        hitModifiers.push({
-          id: "musket-rest-fork",
-          label: "Rozložená furketa (opěrná vidlice, 2 AP)",
-          detail: "Střelec se v kole výstřelu nepohnul a stabilizoval těžkou hlaveň",
-          value: 0,
-          unit: "%",
-          kind: "neutral",
-        });
+        hitModifiers.push(
+          statMod("musket-rest-fork", "mod.forkRest", 0, "percent", "neutral", {
+            detail: "mod.forkRest.detail",
+          }),
+        );
       }
     }
 
     const shakenModifier = shooter.isShaken ? -20 : 0;
     if (shooter.isShaken) {
-      hitModifiers.push({
-        id: "morale-shaken",
-        label: "Otřesený střelec (Shaken)",
-        detail: "Třes rukou pod palbou nebo po zpětném rázu těžké muškety (-20 %)",
-        value: shakenModifier,
-        unit: "%",
-        kind: "penalty",
-      });
+      hitModifiers.push(
+        statMod("morale-shaken", "mod.shaken", shakenModifier, "percent", "penalty", {
+          detail: "mod.shaken.detail",
+        }),
+      );
     }
 
     // H) Autorita polního maršála Colloreda (+8 % pro spojence v okruhu 7 polí, pokud není zadržen)
@@ -702,17 +662,12 @@ export class CombatCalculator {
         const distToMarshal = gridDistance3D(fromPos, colloredo.pos);
         if (shooter.id === "player-colloredo" || distToMarshal <= 7) {
           marshalModifier = 8;
-          hitModifiers.push({
-            id: "marshal-colloredo-aura",
-            label: "Autorita polního maršála",
-            detail:
-              shooter.id === "player-colloredo"
-                ? "Válečné zkušenosti vrchního velitele (+8 %)"
-                : "Maršál Colloredo je do 7 polí (+8 %)",
-            value: marshalModifier,
-            unit: "%",
-            kind: "bonus",
-          });
+          hitModifiers.push(
+            statMod("marshal-colloredo-aura", "mod.marshal", marshalModifier, "percent", "bonus", {
+              detail:
+                shooter.id === "player-colloredo" ? "mod.marshal.self" : "mod.marshal.near",
+            }),
+          );
         }
       }
     }
@@ -722,24 +677,28 @@ export class CombatCalculator {
     if (shooter.abilityBuffActive) {
       if (shooter.ability?.id === "klementinum_verdict") {
         abilityHitModifier = 35;
-        hitModifiers.push({
-          id: "ability-klementinum-verdict",
-          label: "Svatováclavské soustředění [Schopnost 5]",
-          detail: "Suchý prach z Klementina a dokonalá balistická dráha (+35 %)",
-          value: abilityHitModifier,
-          unit: "%",
-          kind: "bonus",
-        });
+        hitModifiers.push(
+          statMod(
+            "ability-klementinum-verdict",
+            "mod.verdictAim",
+            abilityHitModifier,
+            "percent",
+            "bonus",
+            { detail: "mod.verdictAim.detail" },
+          ),
+        );
       } else {
         abilityHitModifier = 15;
-        hitModifiers.push({
-          id: "ability-heroic-focus",
-          label: `${shooter.ability?.name ?? "Zvláštní schopnost"} [5]`,
-          detail: "Taktické odhodlání (+15 % k zásahu)",
-          value: abilityHitModifier,
-          unit: "%",
-          kind: "bonus",
-        });
+        hitModifiers.push(
+          statMod(
+            "ability-heroic-focus",
+            "mod.heroicFocus",
+            abilityHitModifier,
+            "percent",
+            "bonus",
+            { detail: "mod.heroicFocus.detail", params: { abilityId: shooter.ability?.id } },
+          ),
+        );
       }
     }
 
@@ -767,68 +726,59 @@ export class CombatCalculator {
       weapon.critBonusMaxDamage && weapon.critBonusMaxDamage > weapon.critBonusDamage
         ? `+${weapon.critBonusDamage} až +${weapon.critBonusMaxDamage} HP`
         : `+${weapon.critBonusDamage} HP`;
-    critModifiers.push({
-      id: "base-weapon-crit",
-      label: `Základní šance zbraně (${weapon.name})`,
-      detail: `Bonus kritického poškození ${critDamageLabel}`,
-      value: weapon.baseCritChance,
-      unit: "%",
-      kind: "base",
-    });
+    critModifiers.push(
+      statMod("base-weapon-crit", "mod.baseCrit", weapon.baseCritChance, "percent", "base", {
+        detail: "mod.baseCrit.detail",
+        params: { weaponId: weapon.id, names: critDamageLabel },
+      }),
+    );
 
     // B) Obchvat (Flanking bonus: +40 % ke kritickému zásahu)
     const isFlanked = targetCover === "none";
     const flankCritModifier = isFlanked ? 40 : 0;
     if (isFlanked) {
-      critModifiers.push({
-        id: "crit-flanking",
-        label: "Obchvat / Nekrytý cíl (Flanking)",
-        detail: "Střelba ze strany, kde cíl nechrání žádná překážka",
-        value: flankCritModifier,
-        unit: "%",
-        kind: "bonus",
-      });
+      critModifiers.push(
+        statMod("crit-flanking", "mod.flankCrit", flankCritModifier, "percent", "bonus", {
+          detail: "mod.flankCrit.detail",
+        }),
+      );
     }
 
     // C) Střelba z bezprostřední blízkosti (Point-Blank Crit Bonus: +15 %)
     const pointBlankCritModifier =
       distance <= weapon.pointBlankRange ? 15 : 0;
     if (pointBlankCritModifier > 0) {
-      critModifiers.push({
-        id: "crit-point-blank",
-        label: "Střelba z bezprostřední blízkosti (Point-Blank)",
-        detail: "Vysoká průraznost olověné kule na krátkou vzdálenost",
-        value: pointBlankCritModifier,
-        unit: "%",
-        kind: "bonus",
-      });
+      critModifiers.push(
+        statMod("crit-point-blank", "mod.pointBlankCrit", pointBlankCritModifier, "percent", "bonus", {
+          detail: "mod.pointBlankCrit.detail",
+        }),
+      );
     }
 
     // D) Kvalita zbroje cíle (Těžký kyrys snižuje šanci na kritický zásah o 8 % za bod zbroje)
     const armorCritPenalty = target.armor > 0 ? -target.armor * 8 : 0;
     if (armorCritPenalty !== 0) {
-      critModifiers.push({
-        id: "target-cuirass-crit-resist",
-        label: `Kvalita zbroje cíle (${target.armor} b. kyrysu)`,
-        detail: "Ocelový kyrys a přilba odrážejí přímé průstřely",
-        value: armorCritPenalty,
-        unit: "%",
-        kind: "penalty",
-      });
+      critModifiers.push(
+        statMod(
+          "target-cuirass-crit-resist",
+          "mod.armorCrit",
+          armorCritPenalty,
+          "percent",
+          "penalty",
+          { detail: "mod.armorCrit.detail", params: { armor: target.armor } },
+        ),
+      );
     }
 
     // D2) Bonus kritického zásahu ze Svatováclavského soustředění (+45 %)
     let abilityCritModifier = 0;
     if (shooter.abilityBuffActive && shooter.ability?.id === "klementinum_verdict") {
       abilityCritModifier = 45;
-      critModifiers.push({
-        id: "crit-klementinum-verdict",
-        label: "Svatováclavské soustředění [Schopnost 5]",
-        detail: "Mířená rána na spáry švédského kyrysu (+45 % krit, +3 HP poškození)",
-        value: abilityCritModifier,
-        unit: "%",
-        kind: "bonus",
-      });
+      critModifiers.push(
+        statMod("crit-klementinum-verdict", "mod.verdictCrit", abilityCritModifier, "percent", "bonus", {
+          detail: "mod.verdictCrit.detail",
+        }),
+      );
     }
 
     const rawCritChance =
@@ -847,25 +797,19 @@ export class CombatCalculator {
 
     // E) Informace o průrazu a zničení zbroje (Armor Pierce / Armor Shred) v pravém křídle
     if (effectiveArmorPierce > 0) {
-      critModifiers.push({
-        id: "weapon-armor-pierce",
-        label: "Průraz zbroje (Armor Pierce)",
-        detail: "Kolik bodů kyrysu cíle výstřel zcela ignoruje",
-        value: effectiveArmorPierce,
-        unit: "ZBROJ",
-        kind: "bonus",
-      });
+      critModifiers.push(
+        statMod("weapon-armor-pierce", "mod.pierce", effectiveArmorPierce, "armor", "bonus", {
+          detail: "mod.pierce.detail",
+        }),
+      );
     }
 
     if (weapon.armorShred > 0) {
-      critModifiers.push({
-        id: "weapon-armor-shred",
-        label: "Destrukce kyrysu (Armor Shred)",
-        detail: "Kolik bodů zbroje cíle výstřel při zásahu trvale zničí",
-        value: weapon.armorShred,
-        unit: "ZBROJ",
-        kind: "bonus",
-      });
+      critModifiers.push(
+        statMod("weapon-armor-shred", "mod.shred", weapon.armorShred, "armor", "bonus", {
+          detail: "mod.shred.detail",
+        }),
+      );
     }
 
     // =========================================================================
@@ -929,7 +873,8 @@ export class CombatCalculator {
     return {
       shooterId: shooter.id,
       targetId: target.id,
-      weaponName: weapon.name,
+      weaponId: weapon.id,
+      weaponName: weaponLabel(weapon.id),
       lockType: weapon.lockType,
       distance,
       incomingDirection,
@@ -1386,73 +1331,62 @@ export function calculateMeleeAttack(
   const critModifiers: StatModifier[] = [];
 
   // 1. ZÁKLADNÍ PŘESNOST ZBRANĚ ZBLÍZKA
-  hitModifiers.push({
-    id: "base-melee-acc",
-    label: `Základní přesnost (${weapon.name})`,
-    detail: weapon.description,
-    value: weapon.baseAccuracy,
-    unit: "%",
-    kind: "base",
-  });
+  hitModifiers.push(
+    statMod("base-melee-acc", "mod.meleeAccuracy", weapon.baseAccuracy, "percent", "base", {
+      detail: "mod.meleeDesc",
+      params: { meleeId: weapon.id },
+    }),
+  );
 
   // 2. BOJOVÁ ZKUŠENOST / ZRUČNOST POSTAVY
   const skillBonus = Math.round((attacker.marksmanship - 65) * 0.4);
   if (skillBonus !== 0) {
-    hitModifiers.push({
-      id: "melee-skill-factor",
-      label: "Bojová zručnost šermíře",
-      detail: attacker.roleTitle,
-      value: skillBonus,
-      unit: "%",
-      kind: skillBonus > 0 ? "bonus" : "penalty",
-    });
+    hitModifiers.push(
+      statMod(
+        "melee-skill-factor",
+        "mod.meleeSkill",
+        skillBonus,
+        "percent",
+        skillBonus > 0 ? "bonus" : "penalty",
+        { detail: "mod.unitRole", params: { unitId: attacker.id } },
+      ),
+    );
   }
 
   // 3. HANDICAP HRABĚTE COLLOREDA (V noční košili, 7 zranění z Lützenu, těžká pažba)
   if (attacker.id === "player-colloredo") {
-    hitModifiers.push({
-      id: "colloredo-melee-handicap",
-      label: "Zranění z Lützenu & noční košile",
-      detail: "Maršál těžce kulhá a ohání se těžkou vybitou bambitkou (-15 %)",
-      value: -15,
-      unit: "%",
-      kind: "penalty",
-    });
+    hitModifiers.push(
+      statMod("colloredo-melee-handicap", "mod.colloredoMelee", -15, "percent", "penalty", {
+        detail: "mod.colloredoMelee.detail",
+      }),
+    );
   }
 
   // 4. VÝŠKOVÁ PŘEVAHA (High Ground +15 %)
   const heightAdvantage = attacker.pos.y > target.pos.y;
   if (heightAdvantage) {
-    hitModifiers.push({
-      id: "melee-high-ground",
-      label: "Výšková převaha (úder shora)",
-      detail: `Útok z patra ${attacker.pos.y} na patro ${target.pos.y}`,
-      value: 15,
-      unit: "%",
-      kind: "bonus",
-    });
+    hitModifiers.push(
+      statMod("melee-high-ground", "mod.meleeHigh", 15, "percent", "bonus", {
+        detail: "mod.meleeHigh.detail",
+        params: { fromFloor: attacker.pos.y, toFloor: target.pos.y },
+      }),
+    );
   }
 
   // 5. STAV OTŘESENÍ MORÁLKY (Shaken)
   if (attacker.isShaken) {
-    hitModifiers.push({
-      id: "attacker-shaken",
-      label: "Otřesená morálka útočníka",
-      detail: "Třes rukou po nepřátelské palbě",
-      value: -20,
-      unit: "%",
-      kind: "penalty",
-    });
+    hitModifiers.push(
+      statMod("attacker-shaken", "mod.meleeShaken", -20, "percent", "penalty", {
+        detail: "mod.meleeShaken.detail",
+      }),
+    );
   }
   if (target.isShaken) {
-    hitModifiers.push({
-      id: "target-shaken",
-      label: "Dezorientovaný cíl (Otřesen)",
-      detail: "Cíl nestíhá krýt úder zblízka",
-      value: 15,
-      unit: "%",
-      kind: "bonus",
-    });
+    hitModifiers.push(
+      statMod("target-shaken", "mod.targetShaken", 15, "percent", "bonus", {
+        detail: "mod.targetShaken.detail",
+      }),
+    );
   }
 
   const rawHit =
@@ -1465,47 +1399,41 @@ export function calculateMeleeAttack(
   const hitChance = Math.max(10, Math.min(95, Math.round(rawHit)));
 
   // KRITICKÝ ZÁSAH
-  critModifiers.push({
-    id: "base-melee-crit",
-    label: `Základní kritická šance (${weapon.name})`,
-    detail: `Bonus kritického zásahu +${weapon.critBonusDamage} HP`,
-    value: weapon.baseCritChance,
-    unit: "%",
-    kind: "base",
-  });
+  critModifiers.push(
+    statMod("base-melee-crit", "mod.meleeCrit", weapon.baseCritChance, "percent", "base", {
+      detail: "mod.meleeCrit.detail",
+      params: { meleeId: weapon.id, damage: weapon.critBonusDamage },
+    }),
+  );
 
   const armorCritPenalty = target.armor > 0 ? -target.armor * 8 : 0;
   if (armorCritPenalty !== 0) {
-    critModifiers.push({
-      id: "target-armor-crit-resist",
-      label: `Odolnost kyrysu (${target.armor} b. zbroje)`,
-      detail: "Ocelový kyrys odráží sečné a tupé rány",
-      value: armorCritPenalty,
-      unit: "%",
-      kind: "penalty",
-    });
+    critModifiers.push(
+      statMod(
+        "target-armor-crit-resist",
+        "mod.meleeArmor",
+        armorCritPenalty,
+        "percent",
+        "penalty",
+        { detail: "mod.meleeArmor.detail", params: { armor: target.armor } },
+      ),
+    );
   }
 
   if (weapon.armorPierce > 0) {
-    critModifiers.push({
-      id: "melee-armor-pierce",
-      label: "Průraz čepelí (Armor Pierce)",
-      detail: "Hrot zbraně ignoruje body zbroje",
-      value: weapon.armorPierce,
-      unit: "ZBROJ",
-      kind: "bonus",
-    });
+    critModifiers.push(
+      statMod("melee-armor-pierce", "mod.bladePierce", weapon.armorPierce, "armor", "bonus", {
+        detail: "mod.bladePierce.detail",
+      }),
+    );
   }
 
   if (weapon.armorShred > 0) {
-    critModifiers.push({
-      id: "melee-armor-shred",
-      label: "Destrukce zbroje (Armor Shred)",
-      detail: "Čepel rozsekává řemení a plech kyrysu",
-      value: weapon.armorShred,
-      unit: "ZBROJ",
-      kind: "bonus",
-    });
+    critModifiers.push(
+      statMod("melee-armor-shred", "mod.bladeShred", weapon.armorShred, "armor", "bonus", {
+        detail: "mod.bladeShred.detail",
+      }),
+    );
   }
 
   const rawCrit = weapon.baseCritChance + armorCritPenalty;
@@ -1525,7 +1453,8 @@ export function calculateMeleeAttack(
   return {
     attackerId: attacker.id,
     targetId: target.id,
-    weaponName: weapon.name,
+    weaponId: weapon.id,
+    weaponName: meleeLabel(weapon.id),
     kind: weapon.kind,
     hitChance,
     critChance,
@@ -1946,12 +1875,15 @@ export function applyBlackPowderChoking(
 
     const nextMovePerAp = isChoking ? Math.max(1, basePace - 1) : basePace;
 
+    let buffId = u.buffId;
     let buffTitle = u.buffTitle;
     if (isChoking) {
-      if (!buffTitle || buffTitle.includes("Záchvat kašle")) {
-        buffTitle = "Záchvat kašle (zadýmení interiéru: -1 Pohyb)";
+      if (!buffId || buffId === "choking") {
+        buffId = "choking";
+        buffTitle = buffLabel("choking");
       }
-    } else if (buffTitle === "Záchvat kašle (zadýmení interiéru: -1 Pohyb)") {
+    } else if (buffId === "choking") {
+      buffId = undefined;
       buffTitle = undefined;
     }
 
@@ -1959,6 +1891,7 @@ export function applyBlackPowderChoking(
       ...u,
       isChoking,
       movePerAp: (u.detainedTurns ?? 0) > 0 ? 0 : nextMovePerAp,
+      buffId,
       buffTitle,
     };
   });

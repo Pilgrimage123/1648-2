@@ -4,6 +4,7 @@
  */
 
 import type { Faction, UnitArchetype } from "../../core/types";
+import { text, useLocale } from "../../i18n";
 import { getProceduralPortraitDataUri } from "../../utils/proceduralSprites";
 
 interface UnitPortraitProps {
@@ -37,6 +38,7 @@ export function UnitPortrait({
   isDetained = false,
   borderTone = "auto",
 }: UnitPortraitProps) {
+  const locale = useLocale();
   const portraitUri = getProceduralPortraitDataUri(archetype);
 
   const resolvedTone =
@@ -59,7 +61,11 @@ export function UnitPortrait({
 
   return (
     <div
-      aria-label={name ? `Portrét postavy ${name}` : `Portrét archetype ${archetype}`}
+      aria-label={
+        name
+          ? text("ui.portrait.named", { names: name }, locale)
+          : text("ui.portrait.archetype", { names: archetype }, locale)
+      }
       className={`relative flex items-center justify-center shrink-0 border overflow-hidden baroque-border transition-all ${
         SIZE_CLASSES[size]
       } ${toneClasses} ${
@@ -74,7 +80,7 @@ export function UnitPortrait({
 
       {isVip && alive && (
         <span
-          title="VIP Hrdina (Vyžaduje ochranu)"
+          title={text("ui.portrait.vip", undefined, locale)}
           className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-amber-400 border border-amber-200 rounded-full flex items-center justify-center text-[7px] font-black text-amber-950 shadow-[0_0_6px_rgba(251,191,36,0.8)]"
         >
           ★

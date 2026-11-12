@@ -6,6 +6,7 @@
  */
 
 import type { CoverLevel } from "../../core/types";
+import { text, useLocale } from "../../i18n";
 
 interface BaroqueCoverBadgeProps {
   cover: CoverLevel;
@@ -22,15 +23,16 @@ export function BaroqueCoverBadge({
   showPercentSign = false,
   className = "",
 }: BaroqueCoverBadgeProps) {
+  const locale = useLocale();
   if (cover === "none" && !showZero) return null;
 
   const value = cover === "full" ? 40 : cover === "half" ? 20 : 0;
   const title =
     cover === "full"
-      ? "Plný kryt (−40 % k šanci nepřítele na zásah)"
+      ? text("ui.cover.full", undefined, locale)
       : cover === "half"
-        ? "Poloviční kryt (−20 % k šanci nepřítele na zásah)"
-        : "Bez krytu (0 % obranný bonus)";
+        ? text("ui.cover.half", undefined, locale)
+        : text("ui.cover.none", undefined, locale);
 
   const dims =
     size === "sm"
